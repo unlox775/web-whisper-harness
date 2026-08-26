@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export CODEX_ADD_DIRS="${CODEX_ADD_DIRS:-$HOME/Library/Caches/org.swift.swiftpm:$HOME/Library/Caches/com.apple.dt.Xcode:$HOME/Library/Developer/Xcode/DerivedData:/private/tmp}"
+source "$ROOT_DIR/docs/ai-product-slice-harness/subagent-runner.sh"
+
+start_phase "phase-06-first-implementation"
+set_phase_context "$*"
+
+require_phase_successes "phase-05-producer-responses" \
+  "hunt-session-engine" \
+  "journal-data-library" \
+  "reference-capture-interface" \
+  "timeline-viewer" \
+  "final-ios-app"
+
+require_phase_ready "Phase 05 has succeeded. Phase 06 is intentionally gated for human review of the completed specs and producer responses before implementation starts."
+
+enqueue_first_implementation_agent "packages/journal-data-library"
+enqueue_first_implementation_agent "packages/hunt-session-engine"
+enqueue_first_implementation_agent "packages/reference-capture-interface"
+enqueue_first_implementation_agent "packages/timeline-viewer"
+enqueue_first_implementation_agent "apps/final-ios-app"
+
+# Phase 06 defaults to dependency order so downstream products can use upstream outputs.
+# To run in parallel, comment the serial line and uncomment the parallel line.
+# run_enqueued_agents_in_parallel
+run_enqueued_agents_one_at_a_time

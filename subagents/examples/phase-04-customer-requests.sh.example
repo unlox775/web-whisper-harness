@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/docs/ai-product-slice-harness/subagent-runner.sh"
+
+start_phase "phase-04-customer-requests"
+set_phase_context "$*"
+
+require_phase_successes "phase-03-product-specs" \
+  "hunt-session-engine" \
+  "journal-data-library" \
+  "reference-capture-interface" \
+  "timeline-viewer" \
+  "final-ios-app"
+
+enqueue_customer_request_agent "apps/final-ios-app" "packages/hunt-session-engine" "final-ios-app"
+enqueue_customer_request_agent "apps/final-ios-app" "packages/journal-data-library" "final-ios-app"
+enqueue_customer_request_agent "apps/final-ios-app" "packages/reference-capture-interface" "final-ios-app"
+enqueue_customer_request_agent "apps/final-ios-app" "packages/timeline-viewer" "final-ios-app"
+
+enqueue_customer_request_agent "packages/hunt-session-engine" "packages/journal-data-library" "hunt-session-engine"
+enqueue_customer_request_agent "packages/reference-capture-interface" "packages/journal-data-library" "reference-capture-interface"
+enqueue_customer_request_agent "packages/timeline-viewer" "packages/journal-data-library" "timeline-viewer"
+
+# Default: run the queued agents in parallel.
+# To rerun one at a time, comment the parallel line and uncomment the serial line.
+run_enqueued_agents_in_parallel
+# run_enqueued_agents_one_at_a_time
