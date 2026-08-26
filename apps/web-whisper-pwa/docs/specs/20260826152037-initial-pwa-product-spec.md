@@ -1,8 +1,9 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: product-spec
 Created: 2026-08-26T15:20:37Z
-Updated: 2026-08-26 (Phase 03 expansion)
+Updated: 2026-08-26 (Phase 03 expansion, Phase 06 implementation)
 Product: apps/web-whisper-pwa
+Resolved: 2026-08-26 (Phase 06 first implementation)
 
 # Web Whisper PWA — Product Spec
 
