@@ -1,0 +1,21 @@
+{
+  "name": "@web-whisper/transcription-client",
+  "version": "0.1.0",
+  "description": "Groq Whisper API client for Web Whisper",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "echo \"No tests yet\""
+  },
+  "keywords": [
+    "transcription",
+    "whisper",
+    "groq",
+    "audio"
+  ],
+  "author": "Web Whisper Team",
+  "license": "MIT"
+}
