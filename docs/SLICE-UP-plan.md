@@ -2,7 +2,28 @@
 
 This document proposes alternative product-boundary philosophies for rebuilding Web Whisper. Each alternative is a different way to slice the founder vision into independently valuable, testable products.
 
-**Status**: Alternatives proposed. No selection made yet. Human chooses before Phase 02.
+**Status**: **SELECTED — Alternative A** (chosen by Dave, 2026-08-26). Alternative B kept as rejected design memory.
+
+---
+
+## Selected Alternative
+
+**Alternative A: Pipeline-Stage Slicing** (6 packages, 6 Phase 03 agents)
+
+**Package roster** (must match slice-up major headings 1:1):
+
+1. `apps/web-whisper-pwa`
+2. `packages/lib/capture-engine`
+3. `packages/lib/volume-analyzer`
+4. `packages/lib/transcription-client`
+5. `packages/lib/playback-engine`
+6. `packages/datastore/session-store`
+
+**Zero UI packages.** UI stays in the app; no substantial independently valuable UI system selected.
+
+**Selection rationale**: Optimizes for simplicity (6 packages vs Alternative B's 7), single datastore authority (session-store owns all data), clean pipeline boundaries (capture → volume → transcription → playback), faster Phase 03–05 planning. PWA orchestrates transcription flow (acceptable orchestration complexity for this product).
+
+---
 
 ---
 

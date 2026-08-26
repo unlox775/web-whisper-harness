@@ -43,31 +43,150 @@ help harness-help:
 	@echo "Variables: PHASE, RUN_ID, REARCH_ID, LINES, INTERVAL, ARGS, PHASE_ONLY, HARNESS_COMMIT_DIRTY"
 
 phase-2-5:
-	bash docs/ai-product-slice-harness/run-planning-phases.sh phase-2-5 "$(ARGS)"
+	@echo "=========================================="
+	@echo "Phase 02–05: Commit Phase 02, then run/commit 03–05"
+	@echo "=========================================="
+	@echo ""
+	@echo "This target would run Phases 03, 04, and 05 in sequence using Codex."
+	@echo "This repository uses Cursor Cloud Agents instead."
+	@echo ""
+	@echo "Manual workflow:"
+	@echo "  1. Commit Phase 02 scaffold to this branch"
+	@echo "  2. Run Phase 03 manually (see 'make phase-3' for prompts)"
+	@echo "  3. After Phase 03 completes, merge to main"
+	@echo "  4. Run Phase 04 manually (see 'make phase-4' for prompts)"
+	@echo "  5. After Phase 04 completes, merge to main"
+	@echo "  6. Run Phase 05 manually (see 'make phase-5' for prompts)"
+	@echo "  7. After Phase 05 completes, merge to main"
+	@echo ""
+	@echo "ERROR: This repository uses Cursor Cloud Agents, not Codex."
+	@echo "Do NOT run 'codex exec'. Launch Cursor Cloud Agents manually instead."
+	@echo ""
+	@exit 1
 
 phase-3-5:
-	bash docs/ai-product-slice-harness/run-planning-phases.sh phase-3-5 "$(ARGS)"
+	@echo "=========================================="
+	@echo "Phase 03–05: Run and commit Phases 03–05 in order"
+	@echo "=========================================="
+	@echo ""
+	@echo "This target would run Phases 03, 04, and 05 in sequence using Codex."
+	@echo "This repository uses Cursor Cloud Agents instead."
+	@echo ""
+	@echo "Manual workflow:"
+	@echo "  1. Run Phase 03 manually (see 'make phase-3' for prompts)"
+	@echo "  2. After Phase 03 completes, merge to main"
+	@echo "  3. Run Phase 04 manually (see 'make phase-4' for prompts)"
+	@echo "  4. After Phase 04 completes, merge to main"
+	@echo "  5. Run Phase 05 manually (see 'make phase-5' for prompts)"
+	@echo "  6. After Phase 05 completes, merge to main"
+	@echo ""
+	@echo "ERROR: This repository uses Cursor Cloud Agents, not Codex."
+	@echo "Do NOT run 'codex exec'. Launch Cursor Cloud Agents manually instead."
+	@echo ""
+	@exit 1
 
 phase-3:
-	$(RUN_ENV) bash subagents/phase-03-product-specs.sh $(ARGS)
+	@echo "=========================================="
+	@echo "Phase 03: Product Specs (6 agents, one per product)"
+	@echo "=========================================="
+	@echo ""
+	@echo "Cursor Cloud Agent prompts:"
+	@echo "  docs/ai-product-slice-harness/cloud-agents/phase-03-session-store.md"
+	@echo "  docs/ai-product-slice-harness/cloud-agents/phase-03-capture-engine.md"
+	@echo "  docs/ai-product-slice-harness/cloud-agents/phase-03-volume-analyzer.md"
+	@echo "  docs/ai-product-slice-harness/cloud-agents/phase-03-transcription-client.md"
+	@echo "  docs/ai-product-slice-harness/cloud-agents/phase-03-playback-engine.md"
+	@echo "  docs/ai-product-slice-harness/cloud-agents/phase-03-web-whisper-pwa.md"
+	@echo ""
+	@echo "Launch 6 Cursor Cloud Agents in parallel. Copy/paste each prompt file content into each agent."
+	@echo ""
+	@echo "ERROR: This repository uses Cursor Cloud Agents, not Codex."
+	@echo "Do NOT run 'codex exec'. Launch Cursor Cloud Agents manually instead."
+	@echo ""
+	@exit 1
 
 phase-4:
-	$(RUN_ENV) bash subagents/phase-04-customer-requests.sh $(ARGS)
+	@echo "=========================================="
+	@echo "Phase 04: Customer Requests (N agents, one per consumer→producer relationship)"
+	@echo "=========================================="
+	@echo ""
+	@echo "Phase 04 cloud-agent prompts will be generated after Phase 03 completes."
+	@echo "TODO: Generate Phase 04 prompts and update this Makefile target."
+	@echo ""
+	@echo "ERROR: This repository uses Cursor Cloud Agents, not Codex."
+	@echo "Do NOT run 'codex exec'. Launch Cursor Cloud Agents manually instead."
+	@echo ""
+	@exit 1
 
 phase-5:
-	$(RUN_ENV) bash subagents/phase-05-producer-responses.sh $(ARGS)
+	@echo "=========================================="
+	@echo "Phase 05: Producer Responses (N agents, one per producer)"
+	@echo "=========================================="
+	@echo ""
+	@echo "Phase 05 cloud-agent prompts will be generated after Phase 04 completes."
+	@echo "TODO: Generate Phase 05 prompts and update this Makefile target."
+	@echo ""
+	@echo "ERROR: This repository uses Cursor Cloud Agents, not Codex."
+	@echo "Do NOT run 'codex exec'. Launch Cursor Cloud Agents manually instead."
+	@echo ""
+	@exit 1
 
 phase-6:
-	$(RUN_ENV) bash subagents/phase-06-first-implementation.sh $(ARGS)
+	@echo "=========================================="
+	@echo "Phase 06: First Implementation (6 agents, one per product, SEQUENTIAL)"
+	@echo "=========================================="
+	@echo ""
+	@echo "Phase 06 cloud-agent prompts will be generated after Phase 05 completes."
+	@echo "TODO: Generate Phase 06 prompts and update this Makefile target."
+	@echo ""
+	@echo "Implementation order (sequential, not parallel):"
+	@echo "  1. session-store (no dependencies)"
+	@echo "  2. capture-engine, volume-analyzer, transcription-client, playback-engine (depend on session-store)"
+	@echo "  3. web-whisper-pwa (depends on all lib packages + session-store)"
+	@echo ""
+	@echo "ERROR: This repository uses Cursor Cloud Agents, not Codex."
+	@echo "Do NOT run 'codex exec'. Launch Cursor Cloud Agents manually instead."
+	@echo ""
+	@exit 1
 
 phase-7:
-	$(RUN_ENV) bash subagents/phase-07-iterate.sh $(ARGS)
+	@echo "=========================================="
+	@echo "Phase 07: Iterate (N agents, one per feedback spec, on-demand)"
+	@echo "=========================================="
+	@echo ""
+	@echo "Phase 07 cloud-agent prompts will be generated on-demand per feedback spec."
+	@echo "TODO: Generate Phase 07 prompts when feedback specs are created."
+	@echo ""
+	@echo "ERROR: This repository uses Cursor Cloud Agents, not Codex."
+	@echo "Do NOT run 'codex exec'. Launch Cursor Cloud Agents manually instead."
+	@echo ""
+	@exit 1
 
 phase-7-serial:
-	$(RUN_ENV) bash subagents/phase-07-iterate.sh --serial $(ARGS)
+	@echo "=========================================="
+	@echo "Phase 07 Serial: Iterate one product at a time"
+	@echo "=========================================="
+	@echo ""
+	@echo "Phase 07 cloud-agent prompts will be generated on-demand per feedback spec."
+	@echo "TODO: Generate Phase 07 prompts when feedback specs are created."
+	@echo ""
+	@echo "ERROR: This repository uses Cursor Cloud Agents, not Codex."
+	@echo "Do NOT run 'codex exec'. Launch Cursor Cloud Agents manually instead."
+	@echo ""
+	@exit 1
 
 phase-7-dry-run:
-	bash subagents/phase-07-iterate.sh --dry-run $(ARGS)
+	@echo "=========================================="
+	@echo "Phase 07 Dry Run: Preview unresolved Phase 07 specs"
+	@echo "=========================================="
+	@echo ""
+	@echo "Phase 07 cloud-agent prompts will be generated on-demand per feedback spec."
+	@echo "TODO: Generate Phase 07 prompts when feedback specs are created."
+	@echo ""
+	@echo "This target would list unresolved feedback specs using Codex."
+	@echo "This repository uses Cursor Cloud Agents instead."
+	@echo ""
+	@exit 1
 
 phase-7-notes:
 	@if [ -n "$(strip $(RUN_ID))" ]; then \
