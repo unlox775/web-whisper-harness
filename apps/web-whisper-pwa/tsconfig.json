@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@session-store": ["../../packages/datastore/session-store/src/index.js"],
+      "@capture-engine": ["../../packages/lib/capture-engine/src/index.ts"],
+      "@playback-engine": ["../../packages/lib/playback-engine/src/index.ts"],
+      "@transcription-client": ["../../packages/lib/transcription-client/src/index.js"],
+      "@volume-analyzer": ["../../packages/lib/volume-analyzer/src/index.ts"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

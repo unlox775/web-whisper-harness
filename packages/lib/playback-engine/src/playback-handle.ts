@@ -1,5 +1,5 @@
 import { EventEmitter } from './event-emitter.js';
-import { PlaybackHandle, PlaybackState } from './types.js';
+import type { PlaybackHandle, PlaybackState } from './types.js';
 
 export class PlaybackHandleImpl extends EventEmitter implements PlaybackHandle {
   private audio: HTMLAudioElement;

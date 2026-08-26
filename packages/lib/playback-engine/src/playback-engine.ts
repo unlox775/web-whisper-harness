@@ -1,4 +1,4 @@
-import { PlaybackHandle, PlaybackError } from './types.js';
+import type { PlaybackHandle, PlaybackError } from './types.js';
 import { PlaybackHandleImpl } from './playback-handle.js';
 import { fixtureStore } from './fixture-store.js';
 

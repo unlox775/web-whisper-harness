@@ -1,0 +1,141 @@
+.developer-console {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.console-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  padding-top: calc(var(--safe-area-top) + var(--spacing-md));
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-card);
+}
+
+.console-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  flex: 1;
+}
+
+.console-tabs {
+  display: flex;
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-card);
+}
+
+.tab {
+  flex: 1;
+  padding: var(--spacing-md);
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab.active {
+  color: var(--accent-cyan);
+  border-bottom-color: var(--accent-cyan);
+}
+
+.console-main {
+  flex: 1;
+  padding: var(--spacing-md);
+  padding-bottom: calc(var(--safe-area-bottom) + var(--spacing-md));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.stats-card h3 {
+  font-size: 1.125rem;
+  margin-bottom: var(--spacing-md);
+  color: var(--text-secondary);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-md);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-card h3 {
+  font-size: 1.125rem;
+  margin-bottom: var(--spacing-md);
+  color: var(--text-secondary);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 600px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.data-table thead {
+  position: sticky;
+  top: 0;
+  background-color: var(--bg-card);
+  z-index: 1;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 0.75rem 0.5rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  border-bottom: 1px solid var(--border-card);
+}
+
+.data-table td {
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.data-table tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.mono {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.8125rem;
+}
+
+.truncate {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

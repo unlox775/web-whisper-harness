@@ -1,5 +1,5 @@
 import { MP3Encoder } from './encoder';
-import {
+import type {
   CaptureOptions,
   CaptureHandle,
   CaptureStatus,

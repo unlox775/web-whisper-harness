@@ -1,0 +1,183 @@
+.session-detail {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.detail-header {
+  padding: var(--spacing-md);
+  padding-top: calc(var(--safe-area-top) + var(--spacing-md));
+  background-color: var(--bg-primary);
+  border-bottom: 1px solid var(--border-card);
+}
+
+.back-button {
+  color: var(--accent-cyan);
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+  min-height: 44px;
+}
+
+.detail-main {
+  flex: 1;
+  padding: var(--spacing-md);
+  padding-bottom: calc(var(--safe-area-bottom) + var(--spacing-md));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.session-info h2 {
+  font-size: 1.25rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-md);
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.info-value {
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.playback-card h3 {
+  font-size: 1.125rem;
+  margin-bottom: var(--spacing-md);
+  color: var(--text-secondary);
+}
+
+.playback-progress {
+  margin-bottom: var(--spacing-md);
+}
+
+.progress-bar {
+  height: 4px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--accent-cyan);
+  transition: width 0.1s linear;
+}
+
+.time-display {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.playback-controls {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.control-button {
+  flex: 1;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-card);
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-button);
+  min-height: 48px;
+  transition: background-color 0.2s;
+}
+
+.control-button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.control-button.primary {
+  background: linear-gradient(90deg, var(--accent-cyan) 0%, #1e9bb8 100%);
+  border: none;
+}
+
+.chunks-card h3 {
+  font-size: 1.125rem;
+  margin-bottom: var(--spacing-md);
+  color: var(--text-secondary);
+}
+
+.chunks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chunk-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0.75rem;
+  background-color: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  font-size: 0.875rem;
+}
+
+.chunk-seq {
+  font-weight: 600;
+  color: var(--accent-cyan);
+  min-width: 3rem;
+}
+
+.chunk-time {
+  flex: 1;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chunk-size {
+  color: var(--text-secondary);
+}
+
+.actions-card {
+  display: flex;
+  justify-content: center;
+}
+
+.delete-button {
+  background-color: rgba(220, 38, 38, 0.1);
+  border: 1px solid #dc2626;
+  color: #dc2626;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-button);
+  min-height: 48px;
+  transition: background-color 0.2s;
+}
+
+.delete-button:hover {
+  background-color: rgba(220, 38, 38, 0.2);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: var(--text-secondary);
+}
