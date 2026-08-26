@@ -75,9 +75,197 @@ The Web Whisper PWA is the primary production customer of capture-engine. The PW
 
 ## Customer Request
 
-(To be filled by Phase 04 customer-request agent for web-whisper-pwa → capture-engine)
+I'm the Web Whisper PWA. I need capture-engine to handle the entire microphone-to-durable-chunk pipeline so I can offer trustworthy recording on iPhone. Here's exactly what I need:
 
-The PWA customer will write its request here: exact interfaces it needs (`startCapture`, `stopCapture`, events), error handling expectations, timing requirements, session-store integration expectations, and how it will handle mic ghost failures.
+### Core Interfaces I Will Call
+
+**`startCapture(sessionId, options?)`**
+
+I will call this when the user taps "Start Recording". Before calling, I will:
+1. Create a session via `session-store.createSession()` and receive a session ID
+2. Display the Recording screen
+3. Call `startCapture(sessionId)` with that session ID
+
+Input I provide:
+- `sessionId` (string): Fresh session ID from session-store
+- `options` (optional): May include `watchdogTimeout` if user adjusts it in developer mode (default 10s is fine)
+
+Output I expect:
+- Capture handle object with these methods:
+  - `stop()` → returns Promise resolving to `{chunksWritten, totalDuration, hasAudio, sessionId}`
+  - `on(eventName, callback)` → subscribe to events
+  - `off(eventName, callback)` → unsubscribe
+  - `getStatus()` → returns current state: `{isActive, chunksEncoded, currentDuration, watchdogActive}`
+
+Failure results I need to handle:
+- Throws `CaptureError("permission_denied")` if user denies mic permission → I show modal "Microphone permission denied. Please allow microphone access in iOS Settings."
+- Throws `CaptureError("already_capturing")` if sessionId already has active capture → I show error and navigate back to Home
+- Throws `CaptureError("invalid_session")` if sessionId doesn't exist in session-store → I log error and show "Session not found"
+
+**`handle.stop()`**
+
+I will call this when user taps "Stop Recording" or when I need to abort capture (e.g., user navigates away).
+
+Output I expect:
+- `{chunksWritten: number, totalDuration: number, hasAudio: boolean, sessionId: string}`
+
+How I use it:
+- If `hasAudio === true`: Navigate to session detail, enable Play button and Transcribe button
+- If `hasAudio === false`: Show message "Recording completed without playable audio. The microphone may not have delivered audio." with Delete button. Do NOT show "transcription failed" (there's no audio to transcribe).
+
+### Events I Need
+
+**`chunkEncoded` event**
+
+Payload: `{sessionId, seq, duration, byteLength}`
+
+How I use it:
+- In developer mode: Update chunk count display on Recording screen ("Chunks: 7")
+- In default mode: Log event internally but don't display to user
+
+Subscribe pattern:
+```javascript
+handle.on('chunkEncoded', (data) => {
+  if (developerMode) {
+    updateChunkCount(data.seq + 1);
+  }
+  logEvent('chunkEncoded', data);
+});
+```
+
+**`captureError` event**
+
+Payload: `{sessionId, reason: string, details?: string}`
+
+Reason codes I need to handle:
+- `"no_audio_received"` → Auto-stop scenario (watchdog timeout). I show "Recording completed without playable audio" and offer Delete.
+- `"store_write_failed"` → I show error banner "Storage write failed. Recording may be incomplete." and let user decide whether to stop.
+- `"encoding_failed"` → I show error toast "Encoding failed: [details]" and auto-stop capture.
+
+Subscribe pattern:
+```javascript
+handle.on('captureError', (data) => {
+  if (data.reason === 'no_audio_received') {
+    showMessage('Recording completed without playable audio');
+    navigateToSessionDetail(data.sessionId, {playbackDisabled: true});
+  } else if (data.reason === 'store_write_failed') {
+    showErrorBanner('Storage write failed. Recording may be incomplete.');
+  } else {
+    showErrorToast(`Capture error: ${data.reason}`);
+    stopRecording();
+  }
+});
+```
+
+**`captureStopped` event**
+
+Payload: `{sessionId, chunksWritten, totalDuration, hasAudio}`
+
+How I use it: Telemetry and cleanup. Mostly redundant with `stop()` return value, but useful for logging.
+
+### Duration Counter Requirements
+
+I need the duration counter on the Recording screen to show PCM sample-based duration, NOT wall clock. This is load-bearing from the existing Web Whisper: encoded containers lie about time if recording pauses or hiccups.
+
+How I expect to get duration:
+- Poll `handle.getStatus().currentDuration` every 100ms and update the duration display ("0:00", "0:01", "0:02"...)
+- Duration should be based on `samplesRecorded / sampleRate` from capture-engine's internal PCM buffer
+- If capture-engine emits duration in events, I can use that instead of polling
+
+Duration must be accurate to 0.1s. Wall clock is NOT acceptable.
+
+### Mic Ghost Detection
+
+iOS Safari sometimes grants microphone permission but never delivers audio callbacks. Capture-engine MUST detect this with a watchdog timer (10s default, configurable in developer mode).
+
+Expected behavior:
+1. User taps "Start Recording" → I call `startCapture`
+2. Mic permission granted → capture begins
+3. No audio callbacks arrive for 10 seconds
+4. Watchdog expires → capture-engine emits `captureError("no_audio_received")` and auto-stops
+5. `handle.stop()` resolves with `{hasAudio: false, chunksWritten: 0, totalDuration: 0}`
+6. I navigate to session detail with message "Recording completed without playable audio" and disabled Play button
+
+I will NOT treat this as a transcription failure. The recording failed to capture audio, not transcription.
+
+### Session-Store Integration Expectations
+
+Capture-engine MUST write chunks to session-store as they encode (every ~4s). I expect:
+- Capture-engine calls `session-store.writeChunk(sessionId, chunkBlob, metadata)` immediately after encoding each chunk
+- Metadata includes: `{seq: number, startTime: number, endTime: number, byteLength: number, sampleRate: number}`
+- If `writeChunk` throws (quota exceeded, corruption), capture-engine emits `captureError("store_write_failed")` but continues capturing (next chunk tries again)
+- I subscribe to `captureError("store_write_failed")` and decide whether to stop or let recording continue
+
+I do NOT call `session-store.writeChunk` myself. Capture-engine owns all chunk writes during active recording.
+
+### Microphone Permission Handling
+
+iOS Safari re-prompts for microphone permission after PWA cold start (even if previously granted). This is a platform fact, not a product failure.
+
+Expected behavior:
+1. User taps "Start Recording" → I call `startCapture`
+2. Capture-engine calls `getUserMedia({audio: true})` internally
+3. iOS shows permission prompt (or silently grants if recently allowed)
+4. If granted → capture proceeds, I show Recording screen
+5. If denied → capture-engine throws `CaptureError("permission_denied")` → I catch and show permission reminder modal
+
+I do NOT cache permission state or try to detect permission before calling `startCapture`. Each recording attempt requests mic fresh.
+
+### Error Recovery Patterns
+
+**Quota exceeded during recording:**
+- Capture-engine emits `captureError("store_write_failed", {reason: "quota_exceeded"})`
+- I show error banner "Storage full. Stop recording and delete old sessions to free space."
+- User taps "Stop" → I call `handle.stop()` → Navigate to session detail
+- User can delete old sessions, then record again
+
+**Mic ghost (no audio received):**
+- Capture-engine emits `captureError("no_audio_received")` after 10s watchdog timeout
+- Capture-engine auto-stops (internal `stop()` call)
+- I receive `captureStopped` event with `hasAudio: false`
+- I navigate to session detail with "Recording completed without playable audio" message
+- User can delete the empty session or retry recording
+
+**User navigates away during recording:**
+- I call `handle.stop()` in component cleanup (React useEffect cleanup, etc.)
+- Capture-engine flushes final chunk and stops cleanly
+- Session is marked complete with `hasAudio: true` (if at least one chunk encoded) or `false` (if zero chunks)
+
+### Developer Mode Features
+
+When user enables developer mode in Settings, I display additional info on Recording screen:
+- **Live chunk count**: Update from `chunkEncoded` events ("Chunks: 7")
+- **Live duration**: Poll `handle.getStatus().currentDuration` every 100ms
+- **Event log**: Subscribe to all events and display in collapsible panel (not shown by default)
+
+These are NOT shown in default mode. Default Recording screen shows only:
+- Pulsing cyan recording indicator
+- Duration counter (MM:SS)
+- "Stop Recording" button
+
+### What I Do NOT Need
+
+- I do NOT need capture-engine to analyze volume (volume-analyzer does that)
+- I do NOT need capture-engine to propose snips (volume-analyzer does that)
+- I do NOT need capture-engine to create sessions (I create via session-store first)
+- I do NOT need pause/resume (Phase 06 scope; backlog for Phase 07)
+
+### Summary of Interfaces
+
+| Interface | Input | Output | Failure Result |
+|-----------|-------|--------|----------------|
+| `startCapture(sessionId)` | sessionId (string) | Capture handle | Throws `CaptureError("permission_denied")` or `CaptureError("invalid_session")` |
+| `handle.stop()` | None | `{chunksWritten, totalDuration, hasAudio, sessionId}` | Throws if handle already stopped |
+| `handle.on(event, callback)` | event name, callback | void | None (no-op if invalid event) |
+| `handle.getStatus()` | None | `{isActive, chunksEncoded, currentDuration, watchdogActive}` | None |
+
+### Event Summary
+
+| Event | Payload | When Emitted |
+|-------|---------|--------------|
+| `chunkEncoded` | `{sessionId, seq, duration, byteLength}` | Every ~4s when chunk encodes |
+| `captureError` | `{sessionId, reason, details?}` | On mic ghost, store write failure, encoding error |
+| `captureStopped` | `{sessionId, chunksWritten, totalDuration, hasAudio}` | When capture stops (manual or auto-stop) |
 
 ## Producer Response
 
