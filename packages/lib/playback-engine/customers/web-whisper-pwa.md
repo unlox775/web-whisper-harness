@@ -87,9 +87,243 @@ Playback-engine does NOT know about developer mode; it provides the same interfa
 
 ## Customer Request
 
-(To be filled by Phase 04 customer-request agent for web-whisper-pwa → playback-engine)
+I'm the Web Whisper PWA. I need playback-engine to provide trustworthy audio playback for sessions, chunks, and snips. Playback is the proof of recording: if users can't play it, they didn't record it. Here's what I need:
 
-The PWA customer will write its request here: exact interfaces it needs (`playSession`, `playChunk`, `playSnip`, playback handle methods, events), error handling expectations (what errors are possible, how to recover), playback state expectations (when does playback auto-stop, what happens if user navigates away), audio concatenation expectations (seamless multi-chunk playback, no gaps).
+### Core Interfaces I Need
+
+**`playSession(sessionId)`**
+
+When I call it: User opens session detail and taps "Play Session" button.
+
+Input: `sessionId` (string) from session list
+
+Output I expect:
+- Success: Playback handle object with methods and properties
+- Failure: `{error: 'session_not_found', sessionId}` or `{error: 'chunks_missing', sessionId, missingChunkIds}`
+
+Playback handle must provide:
+- `pause()` → Pause playback
+- `resume()` → Resume from paused position
+- `seek(time)` → Jump to specific time in seconds (0 to duration)
+- `stop()` → Stop playback, reset to 0:00, release handle
+- `state` (readonly property) → Current state: 'playing', 'paused', 'stopped'
+- `currentTime` (readonly property) → Current position in seconds (updated in real-time)
+- `duration` (readonly property) → Total duration in seconds
+- Event subscription: `on(eventName, callback)` and `off(eventName, callback)`
+
+How I use it:
+- Store handle in component state
+- Subscribe to events to update UI (play/pause button states, time display, progress bar)
+- Call methods when user clicks controls
+- Call `stop()` in component cleanup if playback still active
+
+**`playChunk(chunkId)`** (developer mode)
+
+When I call it: User clicks "Play" button on chunk row in developer mode chunk list.
+
+Input: `chunkId` (string) from chunk list
+
+Output I expect: Same playback handle interface as `playSession`, or `{error: 'chunk_not_found', chunkId}`
+
+How I use it: Play individual chunks for debugging. User can verify each chunk's audio is correct.
+
+**`playSnip(snipId)`** (session detail, transcription preview)
+
+When I call it: User clicks "Play" button on snip row in session detail, or I preview snip before transcribing.
+
+Input: `snipId` (string) from snip list
+
+Output I expect: Same playback handle interface as `playSession`, or `{error: 'snip_not_found', snipId}` or `{error: 'snip_chunks_missing', snipId, missingChunkIds}`
+
+How I use it: Play individual snips so user can hear what will be transcribed (or what was transcribed).
+
+### Playback Events I Need
+
+**`playing` event**
+
+Payload: `{currentTime: number, duration: number}`
+
+When emitted: Playback starts or resumes
+
+How I use it:
+- Update play button → pause icon
+- Start time display ticker (update every frame or poll currentTime)
+- Start progress bar animation
+
+**`paused` event**
+
+Payload: `{currentTime: number}`
+
+When emitted: Playback pauses
+
+How I use it:
+- Update pause button → play/resume icon
+- Stop time display ticker
+- Freeze progress bar
+
+**`timeupdate` event**
+
+Payload: `{currentTime: number}`
+
+When emitted: Every ~250ms during playback
+
+How I use it:
+- Update time display: "5:32 / 12:45"
+- Update progress bar scrubber position: `(currentTime / duration) * 100%`
+
+**`seeked` event**
+
+Payload: `{currentTime: number}`
+
+When emitted: Seek operation completes
+
+How I use it:
+- Update time display to new position
+- Update progress bar scrubber to new position
+- Resume playback if was playing before seek
+
+**`ended` event**
+
+Payload: `{}`
+
+When emitted: Playback reaches end of audio
+
+How I use it:
+- Reset to idle state: play button visible, pause button hidden
+- Reset time display: "0:00 / 12:45" or keep at end "12:45 / 12:45"
+- Reset progress bar scrubber to start or end
+- Handle is released automatically (I don't need to call `stop()`)
+
+**`stopped` event**
+
+Payload: `{}`
+
+When emitted: `handle.stop()` is called
+
+How I use it:
+- Reset to idle state (same as `ended`)
+- Handle is released automatically
+
+**`playbackError` event**
+
+Payload: `{reason: string, detail?: any}`
+
+When emitted: HTML5 audio error during playback, chunk missing/unreadable, blob load failure
+
+Reason codes I need to handle:
+- `'audio_decode_failed'` → Show error toast "Playback failed: audio decode error"
+- `'chunk_missing'` → Show error toast "Playback failed: chunk not found"
+- `'chunk_read_failed'` → Show error toast "Playback failed: unable to read audio"
+
+How I use it:
+- Show error toast with reason
+- Log error to developer console if developer mode enabled
+- Stop playback (handle auto-stops on error, I just reset UI)
+
+### Seamless Multi-Chunk Playback Requirement
+
+**Critical**: Sessions with multiple chunks (e.g., 3 chunks: 4.0s, 4.1s, 3.5s) MUST play seamlessly with NO gaps or time skips between chunks.
+
+Expected behavior:
+- User clicks "Play Session" → Hears continuous audio from 0:00 to 11.6s
+- No audible gap at chunk boundaries (4.0s, 8.1s)
+- Seek to 4.0s (chunk boundary) → Audio plays seamlessly from that point
+- Seek to 8.1s (chunk boundary) → Audio plays seamlessly from that point
+
+Implementation expectation: Playback-engine uses blob concatenation (`new Blob([blob1, blob2, blob3], {type: 'audio/mpeg'})`) to create single audio stream. HTML5 `<audio>` element plays concatenated blob as one continuous stream.
+
+Alternative (sequential chunk playback with `ended` event chaining) is NOT acceptable because it introduces gaps between chunks.
+
+### Seek Across Chunks Requirement
+
+**Seek must work transparently** across chunk boundaries in multi-chunk sessions.
+
+When I call `handle.seek(480)` (8:00) in a 12-minute session:
+- Playback-engine calculates offset into concatenated blob
+- HTML5 `<audio>` element `.currentTime` is set to 480
+- Audio jumps to 8:00 (which may be in chunk 120 of a long session)
+- I do NOT need to know which chunk contains 8:00
+
+Playback-engine handles all chunk offset calculations internally. My seek bar just calls `handle.seek(seconds)` with linear time.
+
+### Error Handling Patterns
+
+**Pre-playback errors** (before audio starts):
+- `playSession` returns `{error: 'session_not_found'}` → I show error toast "Session not found. Playback unavailable."
+- `playSession` returns `{error: 'chunks_missing', missingChunkIds: []}` → I show error toast "Session has no playable audio."
+- `playChunk` returns `{error: 'chunk_not_found'}` → I show error toast "Chunk not found."
+
+I check return value for `error` field. If error exists, I do NOT get a playback handle.
+
+**Runtime errors** (during playback):
+- Playback starts successfully (handle returned), then fails
+- Playback-engine emits `playbackError` event with reason
+- I subscribe to `playbackError`, show error toast, log error
+- Playback auto-stops on error (I just reset UI to idle state)
+
+**User navigates away during playback**:
+- User plays session, then taps Back button or navigates to Home
+- I MUST call `handle.stop()` in component cleanup (React useEffect cleanup, Vue onBeforeUnmount, etc.)
+- If I don't call `stop()`, audio continues playing in background and handle leaks (blob URL not revoked, event listeners not removed)
+
+### Handle Lifecycle Management
+
+**When is handle released?**
+- Automatically when `ended` event fires (audio reaches end)
+- Automatically when `stop()` is called
+- Automatically when `playbackError` fires (error auto-stops playback)
+
+**Do I need to call `stop()` before releasing handle reference?**
+- YES, if playback is still active (playing or paused) and I'm navigating away or unmounting component
+- NO, if playback already ended (handle auto-released on `ended` event)
+
+**Can multiple handles be active simultaneously?**
+- Yes, playback-engine allows simultaneous playback (multiple HTML5 audio elements)
+- My responsibility: Call `stop()` on previous handle before starting new playback (avoid user confusion of overlapping audio)
+- Exception: Developer mode may play chunk + session simultaneously for debugging (acceptable)
+
+### Session-Store Integration Expectations
+
+Playback-engine MUST read from session-store:
+- `getSession(sessionId)` → session metadata (duration, chunkCount, etc.)
+- `getChunksForSession(sessionId)` → chunk list (metadata only, NO blobs, sorted by seq asc)
+- `getChunk(chunkId)` → chunk blob + metadata
+- `getSnip(snipId)` → snip metadata (chunkRefs, startTime, endTime)
+
+Playback-engine NEVER writes to session-store (read-only customer).
+
+If session-store reads fail:
+- `getSession` returns null → playback-engine returns `{error: 'session_not_found'}` to me
+- `getChunk` returns null → playback-engine emits `playbackError('chunk_missing')` or skips chunk and continues
+- `getChunksForSession` returns error → playback-engine returns error to me
+
+### Performance Expectations
+
+- `playSession` should start playback within 500ms for typical sessions (< 2 minutes, < 30 chunks)
+- `playChunk` should start playback within 100ms (single chunk, small blob)
+- Seek should be instantaneous (< 50ms) for HTML5 audio `.currentTime` set
+
+If playback-engine needs to concatenate chunks, it should do so in memory (not write temporary files). Blob concatenation should be fast (< 100ms for 30 chunks).
+
+### What I Do NOT Need
+
+- I do NOT need playback-engine to manage UI state (play/pause button states, progress bar) — I own UI
+- I do NOT need playback-engine to read snips or transcripts for display — I read those from session-store myself
+- I do NOT need playback-engine to decide which audio to play — I decide (session, chunk, or snip) and call appropriate interface
+
+### Summary of Interfaces
+
+| Interface | Input | Output | Failure Result |
+|-----------|-------|--------|----------------|
+| `playSession(sessionId)` | sessionId (string) | Playback handle | `{error: 'session_not_found'}` or `{error: 'chunks_missing', missingChunkIds}` |
+| `playChunk(chunkId)` | chunkId (string) | Playback handle | `{error: 'chunk_not_found'}` |
+| `playSnip(snipId)` | snipId (string) | Playback handle | `{error: 'snip_not_found'}` or `{error: 'snip_chunks_missing', missingChunkIds}` |
+| `handle.pause()` | None | void | None (no-op if already stopped) |
+| `handle.resume()` | None | void | None (no-op if already stopped) |
+| `handle.seek(time)` | time (number, seconds) | void | None (clamp to [0, duration] if out of range) |
+| `handle.stop()` | None | void | None (no-op if already stopped, idempotent) |
+
+All pre-playback errors returned as structured objects (NOT thrown exceptions). Runtime errors emitted as `playbackError` event.
 
 ## Producer Response
 

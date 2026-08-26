@@ -107,9 +107,217 @@ Playback-engine NEVER calls:
 
 ## Customer Request
 
-(To be filled by Phase 04 customer-request agent for playback-engine → session-store)
+I'm playback-engine. I need session-store to provide read-only access to sessions, chunks (with blobs), and snips for audio playback. Playback is the proof of recording: if users can't play it, they didn't record it. Here's what I need:
 
-Playback-engine customer will write its request here: exact interfaces it needs (`getSession`, `getChunksForSession`, `getChunk`, `getSnip`), what inputs it will provide (sessionId, chunkId, snipId), what outputs it expects (session metadata, chunk list with blobs, single chunk blob + metadata, snip metadata + chunkIds), error handling expectations (what errors are possible: session/chunk/snip not found, blob missing, blob corrupt).
+### Core Interfaces I Need
+
+**`getSession(sessionId)`** (playback preparation)
+
+When I call it: PWA calls my `playSession(sessionId)`, I need session metadata first
+
+Input: `sessionId: string` (from PWA)
+
+Output I expect:
+- Success: `{id: string, createdAt: string, updatedAt: string, duration: number, chunkCount: number, sizeBytes: number, hasVolumeProfile: boolean, hasSnips: boolean, hasTranscript: boolean}`
+- Not found: `null`
+
+How I use it:
+- I validate session exists before starting playback
+- If `null` → I return error to PWA: `{error: 'session_not_found', sessionId}`
+- PWA shows error toast: "Session not found. Cannot play."
+- If session exists → I use `session.duration` for playback UI (total duration display)
+- I use `session.chunkCount` to validate expected number of chunks
+
+**`getChunksForSession(sessionId)`** (chunk list for session/snip playback)
+
+When I call it: PWA calls my `playSession(sessionId)`, I need ordered chunk list to assemble audio
+
+Input: `sessionId: string`
+
+Output I expect:
+```javascript
+{
+  chunks: [
+    {
+      id: string,
+      sessionId: string,
+      seq: number, // 0-indexed, sorted by seq ASC
+      startTime: number, // seconds (float)
+      endTime: number, // seconds (float)
+      duration: number, // seconds (float)
+      sizeBytes: number
+      // NO BLOB for performance (I'll call getChunk per chunk to fetch blobs)
+    },
+    // ... more chunks, sorted by seq ASC
+  ]
+}
+```
+
+Failure: `{error: 'database_unavailable', reason?: string}`
+
+How I use it:
+- I get chunk list (metadata only, fast query)
+- I iterate chunk list → call `getChunk(chunkId)` for each chunk to fetch blob
+- I concatenate MP3 blobs: `new Blob([blob1, blob2, blob3], {type: 'audio/mpeg'})`
+- I play concatenated blob via HTML5 `<audio>` element: `audioElement.src = URL.createObjectURL(concatenatedBlob)`
+
+Sorting requirement: **MUST be sorted by seq ASC**. If chunks are out of order, concatenated playback will sound scrambled.
+
+**`getChunk(chunkId)`** (per-chunk blob fetch for playback)
+
+When I call it: After `getChunksForSession`, I iterate chunk list and call `getChunk` for each chunk
+
+Input: `chunkId: string` (from chunk list or snip.chunkIds)
+
+Output I expect:
+- Success: `{id: string, sessionId: string, seq: number, startTime: number, endTime: number, duration: number, blob: Blob, sizeBytes: number}`
+- Not found: `null`
+
+Blob format requirement: `blob` field MUST be JavaScript Blob object with MIME type `'audio/mpeg'`. I will use `URL.createObjectURL(blob)` for HTML5 Audio or `audioContext.decodeAudioData()` for Web Audio API.
+
+How I use it:
+- I fetch chunk blob for playback
+- If `null` (chunk not found or blob missing):
+  - I log warning: "Chunk {chunkId} not found. Skipping."
+  - I continue with remaining chunks (play available chunks only, skip missing ones)
+  - If ALL chunks return null → I emit `playbackError('chunks_missing')` to PWA → PWA shows error toast "Session has no playable audio."
+- If blob is corrupt (HTML5 audio decode fails):
+  - I emit `playbackError('audio_decode_failed', {chunkId})` to PWA → PWA shows error toast "Playback failed: audio decode error"
+  - I may skip corrupt chunk and continue with remaining chunks (graceful degradation)
+
+**`getSnip(snipId)`** (snip playback)
+
+When I call it: PWA calls my `playSnip(snipId)`, I need snip metadata (chunkIds) to assemble audio
+
+Input: `snipId: string` (from PWA)
+
+Output I expect:
+- Success: `{id: string, sessionId: string, startChunkIndex: number, endChunkIndex: number, startTime: number, endTime: number, duration: number, chunkIds: string[], confidence: number, createdAt: string}`
+- Not found: `null`
+
+How I use it:
+- I validate snip exists before starting playback
+- If `null` → I return error to PWA: `{error: 'snip_not_found', snipId}`
+- PWA shows error toast: "Snip not found. Cannot play."
+- If snip exists → I iterate `snip.chunkIds` → call `getChunk(chunkId)` for each chunk
+- I concatenate chunk blobs → play via HTML5 Audio
+- I may trim start/end of concatenated audio based on `snip.startTime` and `snip.endTime` if needed (optional optimization, NOT required for Phase 04)
+
+### Error Handling Patterns
+
+**`null` from `getSession`** (session not found):
+
+When this happens: Session was deleted between PWA's listSessions call and my playSession call
+
+What I do:
+- Return error to PWA: `{error: 'session_not_found', sessionId}`
+- PWA shows error toast: "Session not found. Cannot play."
+
+**`null` from `getChunk`** (chunk not found or blob missing):
+
+When this happens: Chunk was deleted, corrupted, or blob is missing
+
+What I do:
+- Log warning: "Chunk {chunkId} not found. Skipping."
+- Continue with remaining chunks (play available chunks only)
+- If ALL chunks return null → emit `playbackError('chunks_missing', {sessionId})` to PWA
+- PWA shows error toast: "Session has no playable audio."
+
+**`null` from `getSnip`** (snip not found):
+
+When this happens: Snip was deleted between PWA's getSnipsForSession call and my playSnip call
+
+What I do:
+- Return error to PWA: `{error: 'snip_not_found', snipId}`
+- PWA shows error toast: "Snip not found. Cannot play."
+
+**`{error: 'database_unavailable'}`** from `getChunksForSession`:
+
+When this happens: IndexedDB read fails (browser storage error, permissions issue, etc.)
+
+What I do:
+- Return error to PWA: `{error: 'database_unavailable', reason}`
+- PWA shows error toast: "Storage unavailable. Cannot play."
+
+**HTML5 Audio decode error** (during playback, not pre-playback):
+
+When this happens: Blob is corrupt or unsupported format, HTML5 Audio element emits `error` event
+
+What I do:
+- Emit `playbackError('audio_decode_failed', {chunkId or sessionId})` to PWA
+- PWA shows error toast: "Playback failed: audio decode error"
+- I may skip corrupt chunk and continue with remaining chunks (graceful degradation)
+
+### Blob Concatenation Requirements
+
+For session playback (multiple chunks):
+- I call `getChunksForSession(sessionId)` → get chunk list
+- I iterate chunk list → call `getChunk(chunkId)` for each → collect blobs
+- I concatenate MP3 blobs: `new Blob([blob1, blob2, ...], {type: 'audio/mpeg'})`
+- I play concatenated blob: `audioElement.src = URL.createObjectURL(concatenatedBlob)`
+
+**Critical requirement**: Chunks MUST be sorted by seq ASC. If chunks are out of order, concatenated audio will sound scrambled (chunk 2 plays before chunk 1, etc.).
+
+**Seamless playback requirement**: MP3 chunks concatenated as single blob MUST play seamlessly with NO audible gaps between chunks. HTML5 Audio element treats concatenated blob as single continuous stream.
+
+Alternative (sequential chunk playback with `ended` event chaining): NOT acceptable because it introduces gaps between chunks. I MUST use blob concatenation.
+
+### Performance Requirements
+
+- `getSession`: < 50ms (single record read by primary key)
+- `getChunksForSession`: < 100ms for typical chunk counts (< 50 chunks)
+- `getChunk`: < 50ms per call (I may implement lookahead buffering: pre-fetch next 5 chunks while playing current chunk to avoid playback stalls)
+- `getSnip`: < 50ms (single record read)
+
+If `getChunk` is slow (> 100ms per chunk), playback startup becomes sluggish (user waits 5+ seconds for 50-chunk session to load). Optimize with IndexedDB by-id index (primary key lookup).
+
+### Blob Format Requirements
+
+**Chunk blobs MUST be valid MP3 format**: I use HTML5 `<audio>` element or Web Audio API to decode/play. If blob is corrupt or wrong format, decode fails → playback error.
+
+**Blob MIME type**: Blob should have `type: 'audio/mpeg'` (not required, but helpful for debugging).
+
+**Blob size**: I expect `blob.size` to match `chunk.sizeBytes` metadata. If mismatch, I log warning (may indicate blob corruption).
+
+### What I Do NOT Need
+
+- I do NOT need `createSession` (PWA does that)
+- I do NOT need `listSessions` (PWA does that)
+- I do NOT need ANY write operations (I am read-only customer)
+  - Do NOT need `writeChunk` (capture-engine does that)
+  - Do NOT need `writeVolumeProfile` or `writeSnip` (volume-analyzer does that)
+  - Do NOT need `writeTranscript` (PWA does that)
+- I do NOT need `deleteSession` (PWA does that)
+- I do NOT need `enforceRetentionPolicy` (PWA does that)
+- I do NOT need `getVolumeProfile` (I do NOT display volume histogram; PWA reads volume profile for UI display)
+- I do NOT need `getTranscriptsForSession` (I do NOT display transcripts; PWA reads transcripts for UI display)
+
+I am a **read-only playback customer**: read sessions → read chunks → concatenate blobs → play audio. Session-store must provide fast single-record reads and ordered chunk reads with blobs.
+
+### Graceful Degradation for Missing Chunks
+
+**Edge case**: Session has 10 chunks, but chunks 3 and 7 are missing (deleted or corrupted)
+
+What I do:
+- Call `getChunksForSession(sessionId)` → get list of 10 chunks
+- Iterate list → call `getChunk(chunkId)` for each
+- Chunks 3 and 7 return `null` → I log warning, skip them
+- I concatenate remaining 8 chunks → play audio with gaps where chunks 3 and 7 should be
+- User hears "jumps" in playback (audio skips from chunk 2 end to chunk 4 start)
+- This is acceptable behavior (better than failing playback entirely)
+
+Alternative (strict mode): If ANY chunk is missing → I emit `playbackError('chunks_missing')` and refuse to play. This is NOT required for Phase 04 (graceful degradation is preferred).
+
+### Summary of Interfaces
+
+| Interface | Input | Output | Failure Result |
+|-----------|-------|--------|----------------|
+| `getSession(sessionId)` | sessionId (string) | Session object or `null` | N/A (null is expected return) |
+| `getChunksForSession(sessionId)` | sessionId (string) | `{chunks: [...]}` (NO blobs, sorted by seq ASC) | `{error: 'database_unavailable'}` |
+| `getChunk(chunkId)` | chunkId (string) | Chunk object with blob or `null` | N/A (null is expected return) |
+| `getSnip(snipId)` | snipId (string) | Snip object or `null` | N/A (null is expected return) |
+
+All pre-playback errors returned as null (NOT error objects, for single-record reads) or structured error objects (for queries). Runtime playback errors (audio decode failures) handled by HTML5 Audio error events (I emit `playbackError` to PWA).
 
 ## Producer Response
 

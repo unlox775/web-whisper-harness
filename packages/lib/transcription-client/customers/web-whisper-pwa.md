@@ -123,9 +123,188 @@ The PWA considers transcription-client successful if:
 
 ## Customer Request
 
-(To be filled by Phase 04 customer-request agent for web-whisper-pwa → transcription-client)
+I'm the Web Whisper PWA. I need transcription-client to handle the Groq Whisper API boundary: key validation and audio transcription. Here's what I need:
 
-The PWA customer will write its request here: exact interfaces it needs (`validateKey`, `transcribeAudio`), error handling expectations (what errors are recoverable, what errors should stop immediately), retry logic expectations (how many retries, what delays, what errors to retry), transcript format expectations (plaintext, any post-processing needed).
+### Core Workflow
+
+**First-time setup (Settings screen):**
+1. User opens Settings, pastes Groq API key into input field
+2. User tabs out or clicks "Save" → I call `validateKey(apiKey)`
+3. If valid: I save key to localStorage, show green "Valid ✓" indicator, enable transcription
+4. If invalid: I show red "Invalid ✗" indicator with reason, keep transcription disabled
+
+**Per-session transcription (Session Detail screen):**
+1. User taps "Transcribe Session" button
+2. I read snip list from session-store (created by volume-analyzer)
+3. For each snip:
+   - I read chunk blobs for snip's `chunkRefs` from session-store
+   - I concatenate chunk blobs into snip audio blob (single MP3 blob)
+   - I call `transcribeAudio(snipAudioBlob, apiKey)`
+   - If success: I write transcript text to session-store via `writeTranscript(snipId, text)`
+   - If failure: I mark snip as failed, continue to next snip
+4. After all snips: I display full transcript text in session detail
+
+### Interfaces I Need
+
+**`validateKey(apiKey)`**
+
+When I call it:
+- User inputs/changes API key in Settings (on blur or "Save" button)
+- User clicks "Recheck key" button in Settings
+- App launch (if key exists in localStorage, I auto-validate in background to update status)
+
+Input:
+- `apiKey` (string): Groq API key from Settings input field (format `gsk_...`)
+
+Output I expect:
+- `{valid: true}` if key works
+- `{valid: false, reason: string}` if key doesn't work
+
+Reason codes I need to handle:
+- `"Invalid API key"` → I show in Settings: "Key status: Invalid - Invalid API key format"
+- `"Network error"` → I show: "Key status: Unable to validate - Network error"
+- `"Groq service unavailable"` → I show: "Key status: Unable to validate - Service unavailable"
+- `"Key format incorrect"` → I show: "Key status: Invalid - Key format incorrect"
+
+How I use it:
+- If `valid === true`: Save key to localStorage, update status chip to "ENABLE" (cyan), show "Key status: Valid ✓" (green)
+- If `valid === false`: Do NOT save key, keep status chip "DISABLED" (gray), show "Key status: Invalid ✗ - [reason]" (red)
+
+Validation strategy preference: Zero-cost if Groq provides a test endpoint. If not, a minimal audio test (< 1 second MP3 blob) is acceptable. DO NOT validate on every transcription call (too slow); validate once in Settings.
+
+**Does `validateKey` throw exceptions? NO.** Always return `{valid: boolean, reason?: string}`. I need to handle validation failure gracefully (show UI message, not crash).
+
+**`transcribeAudio(audioBlob, apiKey)`**
+
+When I call it: Per snip, after user taps "Transcribe Session" and I've assembled snip audio blobs.
+
+Input:
+- `audioBlob` (Blob): MP3 audio data for one snip (typically 4–60 seconds, concatenated from chunks)
+- `apiKey` (string): Groq API key from localStorage (already validated via `validateKey`, but transcribeAudio must handle expired/revoked keys gracefully)
+
+Output I expect:
+- Success: `{text: string, language?: string}`
+  - `text`: Transcribed plaintext (UTF-8, no markdown)
+  - `language`: ISO 639-1 code (e.g., "en", "es") if Groq returns it (optional)
+- Failure: `{error: string}` (NOT thrown exception)
+
+Error codes I need to handle:
+- `"Network failure"` → I show error toast "Transcription failed: Network error", mark snip as failed, continue to next snip
+- `"Rate limit exceeded"` → I show error toast "Rate limit exceeded. Retry later.", STOP transcription for remaining snips (don't hammer Groq)
+- `"Invalid API key"` → I show error toast "API key invalid or expired", STOP transcription for remaining snips, prompt user to update key in Settings
+- `"Invalid audio format"` → I show error toast "Transcription failed: Invalid audio format", mark snip as failed, continue to next snip (shouldn't happen if I provide MP3)
+- `"Groq service unavailable"` → I show error toast "Groq service unavailable", mark snip as failed, continue to next snip
+
+How I use it:
+- If success: Write `text` to session-store via `writeTranscript(snipId, text)`, update progress bar ("3 / 8 snips transcribed"), display language badge if provided
+- If error: Log error, mark snip as failed, display error message, handle per error code (stop or continue)
+
+**Does `transcribeAudio` throw exceptions? NO.** Always return `{text, language}` or `{error}`. I need to handle transcription failure gracefully (per snip, not crash entire flow).
+
+### Retry Logic I Expect
+
+Transcription-client MUST retry on:
+- Network failures (timeout, connection refused)
+- HTTP 429 (rate limit) with exponential backoff
+- HTTP 5xx (server error) with exponential backoff
+
+Retry schedule I expect: 1s, 2s, 4s (exponential backoff, max 3 attempts total = 1 initial + 2 retries)
+
+DO NOT retry on:
+- HTTP 400 (invalid audio format) → permanent error
+- HTTP 401/403 (invalid API key) → permanent error
+
+After retries exhausted, return `{error: "..."}` to me. I handle the error and decide whether to retry the entire transcription flow later.
+
+### Progress and Timeout
+
+Transcription typically takes 1–5 seconds per snip for short audio. I expect < 30s timeout per `transcribeAudio` call. If transcription takes > 30s, return `{error: "Network failure: timeout"}` and I'll mark snip as failed.
+
+I display progress to user:
+- "Transcribing..." (spinner)
+- "3 / 8 snips transcribed" (progress bar)
+- Update every time `transcribeAudio` returns
+
+### Partial Transcription Failure Handling
+
+If some snips succeed and others fail:
+- I display message: "7 of 8 snips transcribed. 1 failed."
+- I show transcript text for successful snips
+- I show "[Snip 5 failed to transcribe]" inline where failure occurred
+- I offer "Retry Failed" button → re-calls `transcribeAudio` for only failed snips
+
+If ALL snips fail with same error (e.g., all "Invalid API key"):
+- I do NOT retry snip-by-snip
+- I show global error: "Transcription failed: Invalid API key. Check Settings."
+- I do NOT write any transcripts to session-store
+
+### Transcription Disabled Handling
+
+If no Groq API key in localStorage OR key validation returned `valid: false`:
+- I do NOT call `transcribeAudio` (key not valid)
+- I show in session detail: "Transcription disabled. Add API key in Settings." (informational, NOT error)
+- Playback still works (recording + playback work without transcription)
+
+This is NOT a failure case. It's a valid product state: recorder without transcription.
+
+### Snip Audio Assembly (My Responsibility)
+
+Before calling `transcribeAudio`, I assemble snip audio blob:
+
+1. Read snip metadata from session-store: `{snipId, chunkRefs: [chunkId1, chunkId2, ...]}`
+2. For each chunkId in chunkRefs:
+   - Read chunk blob from session-store via `getChunksForSession` or `getChunk`
+3. Concatenate chunk blobs: `new Blob([blob1, blob2, blob3], {type: 'audio/mpeg'})`
+4. Pass concatenated blob to `transcribeAudio(blob, apiKey)`
+
+Transcription-client does NOT assemble audio. I provide ready-to-transcribe MP3 blob per snip.
+
+### Error Recovery Patterns
+
+**Invalid API key during transcription:**
+- First snip fails with `{error: "Invalid API key"}`
+- I STOP transcription for remaining snips (don't retry)
+- I show error: "API key invalid or expired. Update key in Settings."
+- I do NOT auto-navigate to Settings (user may want to view partial transcript or delete session)
+
+**Network failure during transcription:**
+- Transcription-client retries per snip (1s, 2s, 4s backoff)
+- After retries exhausted: `{error: "Network failure"}`
+- I mark snip as failed, continue to next snip
+- If multiple snips fail, I show "3 snips failed to transcribe" with "Retry Failed" button
+
+**Rate limit exceeded:**
+- Transcription-client retries with exponential backoff (as per Groq API retry-after header if provided)
+- After retries exhausted: `{error: "Rate limit exceeded"}`
+- I STOP transcription for remaining snips
+- I show error: "Rate limit exceeded. Retry transcription later."
+- I do NOT auto-retry (user decides when to retry)
+
+### Events (Optional)
+
+If transcription-client emits events for telemetry, I can subscribe:
+
+- `transcriptionStarted(snipId, audioDuration)` → I log for debugging
+- `transcriptionComplete(snipId, textLength, language)` → I log for debugging
+- `transcriptionFailed(snipId, error, retryCount)` → I log for debugging
+
+These are NOT required for core functionality. Events are bonus for developer mode logging.
+
+### What I Do NOT Need
+
+- I do NOT need transcription-client to read snips from session-store (I read snips and assemble audio)
+- I do NOT need transcription-client to write transcripts to session-store (I write transcripts after `transcribeAudio` returns)
+- I do NOT need transcription-client to display progress UI (I own progress bar and status text)
+- I do NOT need transcription-client to decide transcription strategy (I decide which snips to transcribe)
+
+### Summary of Interfaces
+
+| Interface | Input | Output | Failure Result |
+|-----------|-------|--------|----------------|
+| `validateKey(apiKey)` | apiKey (string) | `{valid: boolean, reason?: string}` | Always structured return (NO exception) |
+| `transcribeAudio(audioBlob, apiKey)` | audioBlob (Blob), apiKey (string) | `{text, language?}` or `{error}` | Always structured return (NO exception) |
+
+NO thrown exceptions for normal failure cases. All errors returned as structured objects with descriptive error strings.
 
 ## Producer Response
 

@@ -68,9 +68,177 @@ Volume-analyzer understands that the PWA is the primary production customer repr
 
 ## Customer Request
 
-(To be filled by Phase 04 customer-request agent for web-whisper-pwa → volume-analyzer)
+I'm the Web Whisper PWA. I need volume-analyzer to turn long recordings into intelligent transcription segments. Here's what I need:
 
-The PWA customer will write its request here: exact interfaces it needs (`analyzeVolume`, `proposeSnips`), session-store integration expectations (does PWA call analyzeVolume first, or does proposeSnips call it automatically if missing?), error handling expectations, edge case handling.
+### Core Workflow
+
+**After recording completes:**
+1. User taps "Stop" → capture-engine returns completion summary
+2. I navigate to session detail (or update session card on Home)
+3. I immediately call `analyzeVolume(sessionId)` in background (non-blocking)
+4. While volume analysis runs, user can play the session (playback doesn't need volume profiles)
+5. After `analyzeVolume` succeeds, I call `proposeSnips(sessionId)`
+6. Snips are now available for transcription (if Groq key present) or developer mode inspection
+
+**If transcription enabled:**
+7. For each snip from `proposeSnips`, I read chunk blobs from session-store
+8. I concatenate chunks for snip time range into snip audio blob
+9. I call `transcription-client.transcribeAudio(snipBlob, apiKey)` per snip
+10. I write transcript text to session-store per snip
+
+### Interfaces I Need
+
+**`analyzeVolume(sessionId)`**
+
+When I call it: Automatically after recording completes, or when user clicks "Recompute Volume" in developer mode.
+
+Input:
+- `sessionId` (string): Valid session ID with chunks already written by capture-engine
+
+Output I expect:
+- `{success: true, profileSummary: {chunkCount: number, avgVolume: number, maxVolume: number, sampleCount: number}}`
+- OR `{success: false, error: string}` (NOT thrown exception)
+
+Error codes I need to handle:
+- `"session_not_found"` → I log error and show toast "Session not found"
+- `"no_chunks_for_session"` → I log error and show toast "No audio chunks found" (shouldn't happen if capture-engine completed successfully)
+- `"chunk_decode_failed"` → I log error and show toast "Unable to analyze volume: audio decode error"
+- `"session_store_write_failed"` → I log error and show toast "Volume analysis failed: storage error"
+
+How I use it:
+- If `success === true`: Volume profile is now written to session-store. I can call `proposeSnips` next.
+- If `success === false`: I log error, skip snip proposal, fall back to transcribe full session (no snips) OR skip transcription and allow playback only.
+
+**Does `proposeSnips` call `analyzeVolume` automatically if volume profile missing?**
+
+**My preference: NO.** I want explicit control over the workflow. If `proposeSnips` is called before volume profile exists, return `{success: false, error: "volume_profile_missing"}` and I will call `analyzeVolume` first, then retry.
+
+This makes the sequence explicit:
+1. `analyzeVolume(sessionId)` → writes volume profile to session-store
+2. `proposeSnips(sessionId)` → reads volume profile from session-store → writes snips
+
+If volume-analyzer prefers to auto-call `analyzeVolume` when missing, that's acceptable but not required. Either way, I need clear success/failure return values.
+
+**`proposeSnips(sessionId, options?)`**
+
+When I call it: After `analyzeVolume` succeeds, or when user adjusts threshold in developer mode and clicks "Re-snip".
+
+Input:
+- `sessionId` (string): Valid session ID with volume profile already computed
+- `options` (optional): `{quietThreshold?: number, minSnipDuration?: number, maxSnipDuration?: number}`
+  - Default threshold -40dB is fine
+  - In developer mode, user can adjust threshold slider (-60dB to -20dB) and I pass new value
+
+Output I expect:
+- `{success: true, snips: [{snipId, startTime, endTime, startChunkIndex, endChunkIndex, chunkRefs: [chunkIds], confidence}]}`
+- OR `{success: false, error: string}`
+
+Error codes I need to handle:
+- `"session_not_found"` → I log error and show toast "Session not found"
+- `"volume_profile_missing"` → I call `analyzeVolume(sessionId)` first, then retry `proposeSnips`
+- `"session_store_write_failed"` → I log error and show toast "Snip proposal failed: storage error"
+
+Edge cases I expect:
+- **All-quiet session** (no loud samples): `{success: true, snips: []}` (empty array, NOT an error)
+  - I display "No speech detected (transcription skipped)" in session detail
+  - Playback still works (user can hear the quiet recording)
+- **All-loud session** (no silence gaps): `{success: true, snips: [{snipId, startTime: 0, endTime: sessionDuration, ...}]}` (1 snip covering entire session)
+  - I transcribe the whole session as one snip (acceptable)
+- **Very short session** (< 5s): `{success: true, snips: [{snipId, startTime: 0, endTime: sessionDuration, ...}]}` (1 snip covering entire session)
+  - I transcribe normally
+
+How I use snips:
+- For transcription: Read `chunkRefs` array, fetch chunk blobs from session-store via `getChunksForSession`, concatenate blobs for snip time range, send to transcription-client
+- For developer mode display: Show snip list in session detail with "Play Snip" button per snip (call playback-engine)
+- For transcript display: Roll up per-snip transcripts into full session transcript
+
+**`recomputeSnipsWithThreshold(sessionId, quietThreshold)`**
+
+When I call it: User adjusts threshold slider in developer mode and clicks "Re-snip".
+
+Input:
+- `sessionId` (string): Session with existing volume profile
+- `quietThreshold` (number): New threshold value from slider (-60dB to -20dB range, or 10% to 50% relative)
+
+Output: Same as `proposeSnips`: `{success: true, snips: [...]}` or `{success: false, error: string}`
+
+How I use it: Same as `proposeSnips`. This is a fast re-run (reuses existing volume profile, only re-runs snip algorithm). I expect < 50ms latency so I can call it in response to threshold slider changes (with debounce if slider is continuous).
+
+### Session-Store Integration Expectations
+
+Volume-analyzer MUST:
+- Read chunks from session-store via `getChunksForSession(sessionId)`
+- Write volume profile to session-store via `saveVolumeProfile(sessionId, profile)`
+- Write snips to session-store via `saveSnips(sessionId, snips)`
+
+I do NOT call these session-store methods myself. Volume-analyzer owns all volume profile and snip writes.
+
+Volume profile schema I expect in session-store (for developer mode histogram display):
+- `{sessionId, chunkVolumes: [{chunkId, peakDb}], createdAt}`
+
+Snip schema I expect:
+- `{snipId, sessionId, startTime, endTime, startChunkIndex, endChunkIndex, chunkRefs: [chunkIds], confidence, createdAt}`
+
+### Timing and Async Behavior
+
+- `analyzeVolume` may take 1–5 seconds for a 60s session (MP3 decode + volume computation per chunk). I call this async and show "Analyzing volume..." status indicator if needed.
+- `proposeSnips` should be fast (< 100ms, reads existing volume profile). I call this synchronously after `analyzeVolume` completes.
+- `recomputeSnipsWithThreshold` should be very fast (< 50ms). I call this in response to threshold slider changes with debounce.
+
+### Error Handling Strategy
+
+**If `analyzeVolume` fails:**
+- I do NOT call `proposeSnips` (volume profile required)
+- Fall back options:
+  1. Transcribe full session (no snips) if Groq key present
+  2. Skip transcription, allow playback only
+- Display user-facing message: "Unable to analyze volume. Playback is available, but transcription may not work optimally."
+
+**If `proposeSnips` fails with "volume_profile_missing":**
+- I call `analyzeVolume(sessionId)` first
+- Then retry `proposeSnips(sessionId)`
+- If retry fails, fall back to option 1 or 2 above
+
+**If `proposeSnips` succeeds with empty snip list (all-quiet):**
+- I do NOT retry or treat as error
+- Display "No speech detected" in session detail
+- Skip transcription (nothing to transcribe)
+- Playback still works
+
+### Developer Mode vs Normal Mode
+
+**Normal mode (default):**
+- I call `analyzeVolume` + `proposeSnips` automatically after recording stops
+- User sees session card with duration, transcript text (when Groq key present), playback affordance
+- Snips are invisible to user (used internally for transcription)
+
+**Developer mode (Settings → Developer mode ON):**
+- I expose volume/snip details in session detail:
+  - Snip count: "Snips: 4"
+  - Snip list: Table with snip ID, time range, duration, "Play Snip" button
+  - Threshold slider: (-60dB to -20dB, default -40dB) with "Re-snip" button
+  - Volume histogram (future Phase 07): Line graph with snip boundaries overlaid
+- User can adjust threshold, click "Re-snip" → I call `recomputeSnipsWithThreshold`
+- Snip boundaries update in real-time (histogram + snip list)
+
+Volume-analyzer provides data; I own histogram rendering and developer mode UI controls.
+
+### What I Do NOT Need
+
+- I do NOT need volume-analyzer to generate waveform UI components (I own histogram rendering if needed)
+- I do NOT need volume-analyzer to decide whether to transcribe (I decide based on Groq key + snip list)
+- I do NOT need volume-analyzer to call transcription-client or playback-engine (I orchestrate those)
+- I do NOT need volume-analyzer to read/write session-store directly in my code (volume-analyzer calls session-store internally)
+
+### Summary of Interfaces
+
+| Interface | Input | Output | Failure Result |
+|-----------|-------|--------|----------------|
+| `analyzeVolume(sessionId)` | sessionId (string) | `{success, profileSummary}` | `{success: false, error: string}` (NOT exception) |
+| `proposeSnips(sessionId, options?)` | sessionId (string), options (optional) | `{success, snips: [...]}` | `{success: false, error: string}` |
+| `recomputeSnipsWithThreshold(sessionId, threshold)` | sessionId (string), threshold (number) | `{success, snips: [...]}` | `{success: false, error: string}` |
+
+All interfaces return structured results with `success` flag. NO thrown exceptions for normal failure cases (session not found, volume profile missing, etc.).
 
 ## Producer Response
 

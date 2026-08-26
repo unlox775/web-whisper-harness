@@ -111,9 +111,343 @@ The Isolation Demo validates:
 
 ## Customer Request
 
-(To be filled by Phase 04 customer-request agent for isolation-demo → playback-engine)
+I'm the Isolation Demo for playback-engine. I'm the package factory floor that proves audio playback works correctly, including seamless multi-chunk concatenation, playback controls (pause/resume/seek/stop), and event emission. Here's what I need:
 
-The isolation-demo customer will write its request here: what interfaces it needs from playback-engine (`playSession`, `playChunk`, `playSnip`, playback handle methods), what inputs it will provide (fixture session ID or real session ID from sandbox store), what outputs it expects (playback handle with methods and events), and what validation it needs to see to trust the package.
+### Core Requirement: Fixture Data First (Safe Default)
+
+**Safe default**: Fixture session with 3 distinguishable chunks (no session-store dependency, audio blobs in memory).
+
+Fixture session:
+- Session ID: `demo-session-001`
+- Total duration: 11.6s
+- Chunks: 3
+  - Chunk 0: seq=0, startTime=0.0s, endTime=4.0s, duration=4.0s, blob=fixture MP3 (tone A or "Hello")
+  - Chunk 1: seq=1, startTime=4.0s, endTime=8.1s, duration=4.1s, blob=fixture MP3 (tone B or "World")
+  - Chunk 2: seq=2, startTime=8.1s, endTime=11.6s, duration=3.5s, blob=fixture MP3 (tone C or "Test")
+- Snips: 2
+  - Snip 0: chunks 0–1, startTime=0.0s, endTime=8.1s, duration=8.1s
+  - Snip 1: chunks 2–2, startTime=8.1s, endTime=11.6s, duration=3.5s
+
+**Critical**: Chunks MUST be distinguishable (different tones or speech samples) so operator can hear whether concatenation is correct and seek is working. If all chunks sound identical, operator cannot tell if playback is playing wrong chunk or seeking to wrong position.
+
+Fixture audio options:
+- Pre-recorded MP3 files bundled with demo (e.g., speech samples: "Hello", "World", "Test")
+- OR generated at runtime using Web Audio API (OscillatorNode with different frequencies: 440 Hz, 550 Hz, 660 Hz, encoded to MP3)
+
+### Interfaces I Need
+
+**`playSession(sessionId)`** (play entire session)
+
+When I call it: Operator selects "Session" in playback target selector, clicks "Play" button
+
+Input: `sessionId: string` (fixture: `"demo-session-001"`)
+
+Output I expect: Playback handle object with methods, properties, and events
+
+Playback handle must provide:
+- `pause()` → Pause playback
+- `resume()` → Resume from paused position
+- `seek(time)` → Jump to specific time in seconds (0 to duration)
+- `stop()` → Stop playback, reset to 0:00, release handle
+- `state` (readonly property) → Current state: `'playing'`, `'paused'`, `'stopped'`
+- `currentTime` (readonly property) → Current position in seconds (updated in real-time)
+- `duration` (readonly property) → Total duration in seconds (11.6s for fixture session)
+- Event subscription: `on(eventName, callback)` and `off(eventName, callback)`
+
+How I use it:
+- I call `playSession('demo-session-001')`
+- Playback-engine reads fixture chunks (from in-memory fixture store or mock session-store)
+- Playback-engine concatenates 3 MP3 blobs → plays as single continuous stream
+- I subscribe to events to update UI (play/pause button states, time display, progress bar, event feed)
+- Operator listens to audio → should hear tone A (4s) → tone B (4.1s) → tone C (3.5s) with NO gaps
+
+**`playChunk(chunkId)`** (play single chunk, developer mode)
+
+When I call it: Operator selects "Chunk" in playback target selector, selects chunk from dropdown, clicks "Play" button
+
+Input: `chunkId: string` (fixture: `"demo-chunk-000"`, `"demo-chunk-001"`, `"demo-chunk-002"`)
+
+Output I expect: Same playback handle interface as `playSession`
+
+How I use it:
+- I call `playChunk('demo-chunk-001')` (chunk 1, tone B, 4.1s)
+- Playback-engine reads single chunk blob → plays
+- Operator listens → should hear tone B for 4.1s
+- Proves: single-chunk playback works
+
+**`playSnip(snipId)`** (play snip)
+
+When I call it: Operator selects "Snip" in playback target selector, selects snip from dropdown, clicks "Play" button
+
+Input: `snipId: string` (fixture: `"demo-snip-000"`, `"demo-snip-001"`)
+
+Output I expect: Same playback handle interface as `playSession`
+
+How I use it:
+- I call `playSnip('demo-snip-000')` (snip 0, chunks 0–1, 8.1s)
+- Playback-engine reads chunks 0–1 → concatenates → plays
+- Operator listens → should hear tone A (4s) → tone B (4.1s) with NO gap at 4.0s boundary
+- Proves: snip playback works, multi-chunk concatenation seamless
+
+### Playback Control Methods I Need
+
+**`handle.pause()`**
+
+When I call it: Operator clicks "Pause" button during playback
+
+Expected behavior:
+- Audio pauses immediately
+- `state` changes to `'paused'`
+- `currentTime` freezes (e.g., 5.2s)
+- `paused` event emitted with `{currentTime: 5.2}`
+
+How I validate:
+- Time display freezes: "5.2s / 11.6s"
+- Play button replaces pause button
+- Event feed logs: `[15:23:45.123] paused(5.2s)` (yellow text)
+
+**`handle.resume()`**
+
+When I call it: Operator clicks "Resume" button after pause
+
+Expected behavior:
+- Audio resumes from paused position (5.2s)
+- `state` changes to `'playing'`
+- `currentTime` continues updating
+- `playing` event emitted with `{currentTime: 5.2, duration: 11.6}`
+
+How I validate:
+- Time display continues updating: "5.2s / 11.6s" → "5.3s / 11.6s" → ...
+- Pause button replaces play button
+- Event feed logs: `[15:23:47.456] playing(5.2s, 11.6s)` (green text)
+
+**`handle.seek(time)`**
+
+When I call it: Operator drags seek slider to new position (e.g., 8.0s)
+
+Expected behavior:
+- Audio jumps to 8.0s (chunk 2, tone C)
+- `currentTime` updates to 8.0
+- `seeked` event emitted with `{currentTime: 8.0}`
+- If was playing before seek → resumes playing from 8.0s
+- If was paused before seek → remains paused at 8.0s
+
+How I validate:
+- Time display jumps: "5.2s / 11.6s" → "8.0s / 11.6s"
+- Operator hears tone C (not tone A or B), confirms seek jumped to correct chunk
+- Event feed logs: `[15:23:50.789] seeked(8.0s)` (cyan text)
+
+**`handle.stop()`**
+
+When I call it: Operator clicks "Stop" button during playback
+
+Expected behavior:
+- Audio stops immediately
+- `currentTime` resets to 0.0
+- `state` changes to `'stopped'`
+- `stopped` event emitted
+- Handle released (blob URL revoked, event listeners removed)
+
+How I validate:
+- Time display resets: "5.2s / 11.6s" → "0.0s / 11.6s"
+- Play button visible, pause/resume buttons hidden
+- Event feed logs: `[15:23:55.012] stopped()` (red text)
+
+### Playback Events I Need
+
+**`playing` event**
+
+Payload: `{currentTime: number, duration: number}`
+
+When emitted: Playback starts or resumes
+
+How I use it:
+- Update play button → pause icon
+- Start time display ticker (poll `handle.currentTime` every 100ms)
+- Start progress bar animation
+- Log to event feed: `[timestamp] playing(currentTime, duration)` (green text)
+
+**`paused` event**
+
+Payload: `{currentTime: number}`
+
+When emitted: Playback pauses
+
+How I use it:
+- Update pause button → play/resume icon
+- Stop time display ticker
+- Freeze progress bar
+- Log to event feed: `[timestamp] paused(currentTime)` (yellow text)
+
+**`timeupdate` event**
+
+Payload: `{currentTime: number}`
+
+When emitted: Every ~250ms during playback
+
+How I use it:
+- Update time display: "5.2s / 11.6s"
+- Update progress bar scrubber position: `(currentTime / duration) * 100%`
+- Log to event feed: `[timestamp] timeupdate(currentTime)` (gray text, many entries)
+
+**`seeked` event**
+
+Payload: `{currentTime: number}`
+
+When emitted: Seek operation completes
+
+How I use it:
+- Update time display to new position
+- Update progress bar scrubber to new position
+- Log to event feed: `[timestamp] seeked(currentTime)` (cyan text)
+
+**`ended` event**
+
+Payload: `{}`
+
+When emitted: Playback reaches end of audio
+
+How I use it:
+- Reset to idle state: play button visible, pause button hidden
+- Reset time display: "11.6s / 11.6s" or "0.0s / 11.6s"
+- Reset progress bar scrubber to start or end
+- Log to event feed: `[timestamp] ended()` (blue text)
+
+**`stopped` event**
+
+Payload: `{}`
+
+When emitted: `handle.stop()` is called
+
+How I use it:
+- Reset to idle state (same as `ended`)
+- Log to event feed: `[timestamp] stopped()` (red text)
+
+**`playbackError` event**
+
+Payload: `{reason: string, detail?: any}`
+
+Reason codes I need to handle:
+- `'audio_decode_failed'` → HTML5 audio decode error
+- `'chunk_missing'` → Chunk not found or blob null
+- `'chunk_read_failed'` → Unable to read chunk blob
+
+When emitted: Playback error occurred during playback
+
+How I use it:
+- Display error banner: "Playback failed: {reason}" (red background, white text)
+- Log to event feed: `[timestamp] playbackError({reason}, {detail})` (red text)
+- Stop playback (handle auto-stops on error)
+
+### Visual Proof I Need to See
+
+**Seamless multi-chunk concatenation** (critical validation):
+
+1. Operator clicks "Play Session" (demo-session-001, 3 chunks, 11.6s)
+2. Audio plays: tone A (4s) → tone B (4.1s) → tone C (3.5s)
+3. Operator listens carefully at chunk boundaries (4.0s and 8.1s)
+4. **NO audible gap, click, or time skip** at boundaries
+5. Audio sounds like one continuous recording, not three separate clips
+6. Time display climbs smoothly: "4.0s / 11.6s" → "4.1s / 11.6s" (no jump from 4.0s to 4.2s)
+7. Proves: blob concatenation works, HTML5 Audio plays concatenated blob seamlessly
+
+**Seek across chunks** (chunk boundary transparency):
+
+1. Operator plays session (demo-session-001)
+2. Operator drags seek slider to 4.0s (exact chunk 0/1 boundary)
+3. Audio jumps to 4.0s → operator hears tone B immediately (not tone A)
+4. Operator drags seek slider to 8.1s (exact chunk 1/2 boundary)
+5. Audio jumps to 8.1s → operator hears tone C immediately (not tone B)
+6. Proves: seek works transparently across chunk boundaries, playback-engine calculates offsets correctly
+
+**Control flow validation**:
+
+1. Play session → Pause at 5.2s → time freezes → Resume → time continues → Stop → time resets to 0.0s
+2. Event feed logs all events in correct order: `playing` → `paused` → `playing` → `stopped`
+3. Proves: control methods work, event emission correct
+
+### UI Panels I Need
+
+**Top Chrome Panel** (fixed header):
+- Heading: "Playback Engine Isolation Demo"
+- Data mode chip: "FIXTURE MODE (mock audio)" (gray) or "REAL STORE (read-only)" (cyan, if optional toggle ON)
+
+**Playback Control Panel** (left third):
+- Playback target selector: Radio buttons: Session / Chunk / Snip
+- Target dropdown: (Session: demo-session-001, Chunk: demo-chunk-000/001/002, Snip: demo-snip-000/001)
+- "Play" button (cyan, enabled when target selected and not playing)
+- "Pause" button (yellow, enabled when playing)
+- "Resume" button (cyan, enabled when paused)
+- "Stop" button (red, enabled when playing or paused)
+- Seek slider (horizontal, 0 to duration)
+- Time display: "5.2s / 11.6s"
+
+**Fixture Data Panel** (center third):
+- Heading: "Fixture Session"
+- Session info: ID, Duration, Chunks count
+- Chunks table: Seq, Start Time, End Time, Duration (rows: 0, 1, 2)
+- Snips table: Snip ID, Chunks, Duration (rows: 0, 1)
+
+**Event Feed Panel** (right third, scrollable):
+- Heading: "Playback Events"
+- Log entries: timestamp, event name, payload
+- Color-coded: green (playing), yellow (paused), gray (timeupdate), cyan (seeked), blue (ended), red (stopped, playbackError)
+- Example: `[15:23:45.123] playing(0.0s, 11.6s)`
+
+### Optional: Real Store Read-Only Mode
+
+**Optional mode**: "Enable Real Store" toggle → demo reads from sandbox IndexedDB (`web-whisper-sandbox-db`, NOT production).
+
+When toggled ON:
+- Data mode chip: "REAL STORE (read-only)" (cyan)
+- Target dropdown populates with real sessions from sandbox DB (if any exist)
+- Operator can play real sessions, chunks, snips from sandbox store
+- Proves: session-store integration works, playback-engine reads real chunks correctly
+
+This is optional; fixture mode is sufficient for validation.
+
+### Performance Expectations
+
+- `playSession`: < 500ms to start playback for typical sessions (< 30 chunks)
+- `playChunk`: < 100ms to start playback (single chunk)
+- `playSnip`: < 300ms to start playback for typical snips (< 10 chunks)
+- `pause`, `resume`, `stop`: < 50ms (instant UI response)
+- `seek`: < 50ms (HTML5 Audio `.currentTime` set is synchronous)
+
+If `playSession` takes > 1s for fixture session (3 chunks), operator will perceive sluggishness.
+
+### Error Handling Expectations
+
+Playback-engine MUST emit `playbackError` event (NOT throw exceptions) so I can display error banners gracefully.
+
+Error codes I need to handle:
+- `'chunk_missing'` → "Chunk not found. Playback failed."
+- `'audio_decode_failed'` → "Audio decode error. Playback failed."
+- `'session_not_found'` → "Session not found. Cannot play."
+
+All errors include reason code + optional detail. I display error banner + log to event feed.
+
+### What I Do NOT Need
+
+- I do NOT need session-store writes (I operate read-only on fixture data or sandbox store)
+- I do NOT need capture logic (capture-engine's job)
+- I do NOT need volume analysis (volume-analyzer's job)
+- I do NOT need transcription (transcription-client's job)
+- I do NOT need session management (PWA's job; I play whatever session ID is provided)
+
+### Summary of Interfaces
+
+| Interface | Input | Output | Failure Result |
+|-----------|-------|--------|----------------|
+| `playSession(sessionId)` | sessionId (string) | Playback handle | `{error: 'session_not_found'}` or emits `playbackError` event |
+| `playChunk(chunkId)` | chunkId (string) | Playback handle | `{error: 'chunk_not_found'}` or emits `playbackError` event |
+| `playSnip(snipId)` | snipId (string) | Playback handle | `{error: 'snip_not_found'}` or emits `playbackError` event |
+| `handle.pause()` | None | void | None |
+| `handle.resume()` | None | void | None |
+| `handle.seek(time)` | time (number) | void | None (clamp to [0, duration] if out of range) |
+| `handle.stop()` | None | void | None |
+
+All pre-playback errors returned as structured objects. Runtime errors emitted as `playbackError` events. Fixture mode works without session-store dependency.
 
 ## Producer Response
 
