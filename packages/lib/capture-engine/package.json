@@ -1,0 +1,27 @@
+{
+  "name": "@web-whisper/capture-engine",
+  "version": "0.1.0",
+  "description": "Microphone-to-durable-chunk pipeline for Web Whisper",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "audio",
+    "capture",
+    "microphone",
+    "mp3",
+    "recording"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "lamejs": "^1.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}
