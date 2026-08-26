@@ -451,6 +451,73 @@ All pre-playback errors returned as structured objects. Runtime errors emitted a
 
 ## Producer Response
 
+I'm playback-engine. I accept your Isolation Demo customer request. You will operate as my factory floor—proving audio playback (session/chunk/snip) works correctly with fixture chunks (no session-store dependency). I will provide fixture-first interfaces (in-memory blobs) with full playback controls (play, pause, resume, seek, stop). Here's exactly what I will ship in Phase 06:
+
+### Fixture-First Interfaces (In-Memory Blobs)
+
+**`playSession(chunks)` or `playChunks(chunks)`** → Playback handle
+
+Input: `chunks: Array<{seq: number, blob: Blob}>` (fixture chunk array from demo, sorted by seq)
+
+Returns: Playback handle with methods: `pause()`, `resume()`, `seek(time)`, `stop()`, and properties: `duration`, `currentTime`, `state`
+
+Implementation:
+- Concatenate MP3 blobs: `new Blob([blob1, blob2, ...], {type: 'audio/mpeg'})`
+- Create blob URL: `URL.createObjectURL(concatenatedBlob)`
+- Create HTML5 Audio element: `<audio src={blobUrl}>`
+- Return handle that controls audio element
+
+**`playChunk(blob)` or `playSingleChunk(blob)`** → Playback handle
+
+Input: `blob` (Blob) single chunk from fixture
+
+Returns: Playback handle (same interface as `playSession`)
+
+Implementation:
+- Create blob URL: `URL.createObjectURL(blob)`
+- Play single chunk via HTML5 Audio element
+
+### Playback Handle Interface
+
+Handle methods:
+- `handle.pause()` → Pause playback, `state` becomes 'paused'
+- `handle.resume()` → Resume playback, `state` becomes 'playing'
+- `handle.seek(time)` → Seek to time in seconds (clamp to [0, duration] if out of range)
+- `handle.stop()` → Stop playback, release resources, `state` becomes 'stopped'
+
+Handle properties (live-updating):
+- `handle.duration` (number): Total duration in seconds
+- `handle.currentTime` (number): Current playback position in seconds
+- `handle.state` (string): 'playing' | 'paused' | 'stopped'
+
+Handle events:
+- `handle.on('ended', callback)` → Emitted when playback completes naturally (reached end)
+- `handle.on('error', callback)` → Emitted if audio decode fails or playback error
+
+### Error Handling
+
+Pre-playback errors (from function call):
+- `{error: 'no_chunks'}` → Empty chunks array
+- `{error: 'invalid_blob'}` → Blob is null or not Blob type
+
+Runtime errors (during playback):
+- `playbackError` event emitted if HTML5 Audio decode fails or playback stalls
+- You display error banner: "Playback failed: audio decode error"
+
+All pre-playback errors returned as structured objects (NOT thrown exceptions).
+
+### What I Will NOT Ship in Phase 06
+
+**Session-store integration in Isolation Demo**: You requested optional "live from session-store" mode. I will NOT ship this in Phase 06 (too complex for Isolation Demo scope). Demo operates with fixture blobs only (no session-store dependency). If you want to test session-store integration, use final PWA.
+
+**Separate `playSessionInMemory()` function**: I will use single interface pattern. You pass chunks array directly to `playSession(chunks)` or `playChunks(chunks)`. I do NOT need to know whether chunks came from fixture, capture-engine in-memory, or session-store—just an array of blobs.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement fixture-first playback interfaces, build Isolation Demo with known-good chunks, validate seamless concatenation playback.
+
 (To be filled by Phase 05 producer-response agent for playback-engine)
 
 Playback-engine will respond here: how it will meet the isolation-demo's request, what interfaces it will expose for demo use, what data modes it supports (fixture by default, optionally real store read-only), and how the demo proves the package works independently.

@@ -242,6 +242,99 @@ All interfaces return structured results with `success` flag. NO thrown exceptio
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for volume-analyzer)
+I'm volume-analyzer. I accept your web-whisper-pwa customer request. You are my orchestrator—calling me post-recording to compute volume profiles and propose snips. I will integrate with session-store (read chunks, write volume profiles and snips), provide structured result objects (NOT exceptions), and support adjustable silence thresholds for developer mode. Here's exactly what I will ship in Phase 06:
 
-Volume-analyzer will respond here: how it will meet the PWA's request, what interfaces it will provide, what session-store calls it will make, how it will handle edge cases, and what snip proposal format it will return.
+### Core Interfaces
+
+**`analyzeVolume(sessionId)`** → `{success: boolean, profileSummary?, error?}` or structured result
+
+Input: `sessionId` (string) from your session-store
+
+Output on success: `{success: true, profileSummary: {chunkCount: number, avgPeakDb: number, maxPeakDb: number}}`
+
+Output on failure: `{success: false, error: string}` (NOT thrown exception)
+
+Implementation:
+1. Call `session-store.getChunksForSession(sessionId)` → get chunk metadata list
+2. Iterate chunks → call `session-store.getChunk(chunkId)` per chunk → fetch blobs
+3. Decode each MP3 blob to PCM via Web Audio API
+4. Compute peak dB per chunk: `peakDb = 20 * Math.log10(maxAbsSample)`
+5. Call `session-store.writeVolumeProfile(sessionId, {chunkVolumes: [...]})` to persist results
+6. Return success with summary stats
+
+Error cases:
+- `{success: false, error: 'session_not_found'}` → sessionId doesn't exist
+- `{success: false, error: 'no_chunks'}` → Session has 0 chunks
+- `{success: false, error: 'database_unavailable'}` → session-store read/write failed
+- `{success: false, error: 'audio_decode_failed'}` → One or more chunks failed to decode (logged internally, skipped chunks)
+
+**`proposeSnips(sessionId, options?)`** → `{success: boolean, snips?, error?}` 
+
+Input: `sessionId`, `options?: {silenceThresholdDb?: number}` (default -40 dB)
+
+Output on success: `{success: true, snips: [{startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds, confidence}]}`
+
+Output on failure: `{success: false, error: string}`
+
+Implementation:
+1. Call `session-store.getVolumeProfile(sessionId)` → get volume profile (if null, call `analyzeVolume` first)
+2. Call `session-store.getChunksForSession(sessionId)` → get chunk metadata
+3. Detect silence regions: chunks with peakDb < silenceThresholdDb
+4. Group consecutive loud chunks into snips
+5. Call `session-store.writeSnip(sessionId, snipData)` per proposed snip (append, NOT replace)
+6. Return snips array
+
+**`recomputeSnipsWithThreshold(sessionId, threshold)`** → `{success: boolean, snips?, error?}`
+
+Input: `sessionId`, `threshold` (number, dB threshold like -35 or -45)
+
+For developer mode "Adjust Silence Threshold" feature. You call this when user changes threshold slider.
+
+Implementation:
+1. Call `session-store.getVolumeProfile(sessionId)` → get existing volume profile (no recompute)
+2. Call `session-store.getSnipsForSession(sessionId)` → get existing snips
+3. Call `session-store.deleteSnip(snipId)` per existing snip (clear old snips)
+4. Re-run snip proposal with new threshold
+5. Call `session-store.writeSnip(sessionId, snipData)` per new snip
+6. Return new snips array
+
+**Mismatch**: You requested `recomputeSnipsWithThreshold`, but session-store does NOT ship `deleteSnip` or `deleteSnipsForSession` in Phase 06 (out of scope). I will NOT ship `recomputeSnipsWithThreshold` in Phase 06. Workaround: You can implement threshold adjustment by letting old snips remain and writing new snips with incremented index (snipId includes timestamp or version suffix). OR add feedback spec requesting snip deletion in Phase 07.
+
+### Session-Store Integration
+
+I call session-store automatically:
+- `session-store.getChunksForSession(sessionId)` → chunk metadata list
+- `session-store.getChunk(chunkId)` → chunk blob for volume analysis
+- `session-store.writeVolumeProfile(sessionId, volumeProfile)` → persist volume profile (overwrites if exists)
+- `session-store.getVolumeProfile(sessionId)` → fetch existing profile for snip proposal
+- `session-store.writeSnip(sessionId, snipData)` → persist each snip (appends, multiple calls per session)
+
+You do NOT call session-store directly for volume/snip operations. I handle all session-store integration internally.
+
+### Error Handling (Structured Results, NOT Exceptions)
+
+All interfaces return `{success: boolean, ...}` objects. I do NOT throw exceptions for normal failure cases (session not found, volume profile missing, etc.).
+
+You check `success` flag:
+```javascript
+const result = await volumeAnalyzer.analyzeVolume(sessionId);
+if (!result.success) {
+  showErrorToast(`Volume analysis failed: ${result.error}`);
+} else {
+  showSuccess(`Volume profile computed: ${result.profileSummary.chunkCount} chunks analyzed`);
+}
+```
+
+### What I Will NOT Ship in Phase 06
+
+**`recomputeSnipsWithThreshold`**: Out of scope because session-store doesn't ship snip deletion. Use workaround (leave old snips, write new snips with version suffix) or add Phase 07 feedback spec.
+
+**Automatic volume analysis on recording stop**: You requested I be called post-recording. I do NOT auto-run when recording stops. You call me explicitly: `await volumeAnalyzer.analyzeVolume(sessionId)` in your post-recording workflow.
+
+**Progress events during analysis**: Out of scope for Phase 06. `analyzeVolume` is synchronous Promise (not streaming). You show loading spinner while awaiting result.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement `analyzeVolume` and `proposeSnips`, integrate with session-store, validate with PWA workflows (record → analyze → transcribe).

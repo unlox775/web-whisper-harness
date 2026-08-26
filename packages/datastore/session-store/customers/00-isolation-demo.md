@@ -461,6 +461,191 @@ I exercise ALL interfaces to prove session-store works. Sandbox database isolati
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for session-store)
+I'm session-store. I accept your Isolation Demo customer request. You will operate as my factory floor—the standing human customer that proves session-store works independently. I will provide all requested interfaces with sandbox database isolation so you never corrupt production data. Here's exactly what I will ship in Phase 06:
 
-Session-store will respond here: how it will meet the isolation-demo's request, what interfaces it will expose for demo use, how the sandbox database is isolated from production, and how the demo proves the package works independently.
+### Sandbox Database Isolation (Accepted)
+
+**Configuration interface**: `init(options)`
+
+```javascript
+sessionStore.init({
+  databaseName: 'web-whisper-sandbox-db'  // Sandbox mode for demo
+  // Production calls: sessionStore.init({databaseName: 'web-whisper-db'})
+});
+```
+
+**Implementation**: IndexedDB `open(databaseName, version)` where `databaseName` is configurable. Default is `'web-whisper-db'` (production). Demo calls `init({databaseName: 'web-whisper-sandbox-db'})` on page load. Data persists across reloads within same database name. Sandbox and production databases are completely isolated (separate IndexedDB databases, no cross-contamination).
+
+### Interfaces I Will Ship
+
+**`createSession()`** → `{id: string}` or `{error: 'database_unavailable'}`
+
+- Generates unique session ID: `sess_${timestamp}_${randomSuffix}` (e.g., `sess_20260826152037_abc123`)
+- Creates session record: `{id, createdAt, updatedAt, duration: 0, chunkCount: 0, sizeBytes: 0, hasVolumeProfile: false, hasSnips: false, hasTranscript: false}`
+- Writes to `sessions` object store via IndexedDB put
+- Returns `{id}` on success
+- Returns `{error: 'database_unavailable', reason}` if IndexedDB fails (catch exception, return error object)
+
+**`writeChunk(sessionId, chunkData)`** → `{chunkId: string}` or error
+
+Inputs: `sessionId` (string), `chunkData` (`{seq, startTime, endTime, duration, blob, sizeBytes}`)
+
+- Validates `sessionId` exists (call internal `getSession`, if null → return `{error: 'session_not_found', sessionId}`)
+- Checks quota: if `usedBytes + chunkData.sizeBytes > capBytes` → return `{error: 'quota_exceeded', usedBytes, capBytes}` WITHOUT writing
+- Generates `chunkId`: `chunk_${sessionId}_${seq.toString().padStart(3, '0')}`
+- Writes chunk to `chunks` object store: `{id: chunkId, sessionId, seq, startTime, endTime, duration, blob, sizeBytes, createdAt}`
+- Updates session metadata atomically (same transaction): `session.chunkCount += 1`, `session.sizeBytes += chunkData.sizeBytes`, `session.duration = Math.max(session.duration, chunkData.endTime)`, `session.updatedAt = now`
+- Returns `{chunkId}` on success
+- Returns error object if validation fails or IndexedDB fails (NOT thrown exception)
+
+**`writeVolumeProfile(sessionId, volumeProfile)`** → `{written: true}` or error
+
+Inputs: `sessionId`, `volumeProfile` (`{chunkVolumes: [{chunkId, peakDb}]}`)
+
+- Validates `sessionId` exists (if null → return `{error: 'session_not_found'}`)
+- Writes/replaces volume profile to `volume-profiles` object store (key = sessionId, so put operation overwrites existing)
+- Record: `{sessionId, chunkVolumes, createdAt}`
+- Updates session: `session.hasVolumeProfile = true`, `session.updatedAt = now`
+- Returns `{written: true}` on success
+
+**`writeSnip(sessionId, snipData)`** → `{snipId: string}` or error
+
+Inputs: `sessionId`, `snipData` (`{startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds, confidence}`)
+
+- Validates `sessionId` exists (if null → return `{error: 'session_not_found'}`)
+- Generates `snipId`: `snip_${sessionId}_${snipIndex}` (snipIndex = current snip count for session)
+- Writes snip to `snips` object store: `{id: snipId, sessionId, ...snipData, createdAt}`
+- Updates session: `session.hasSnips = true`, `session.updatedAt = now`
+- Returns `{snipId}` on success
+- **Append behavior**: Multiple `writeSnip` calls for same sessionId append snips (unique snipId per write)
+
+**`writeTranscript(snipId, transcriptText)`** → `{written: true}` or error
+
+- Validates `snipId` exists (query `snips` object store, if not found → return `{error: 'snip_not_found', snipId}`)
+- Gets `sessionId` from snip record
+- Writes/replaces transcript to `transcripts` object store (key = snipId, so put operation overwrites)
+- Record: `{snipId, sessionId, text: transcriptText, createdAt, updatedAt}`
+- Updates session: `session.hasTranscript = true`, `session.updatedAt = now`
+- Returns `{written: true}` on success
+
+**`listSessions(options?)`** → `{sessions: [...], total: number}` or error
+
+Options: `{limit = 100, offset = 0}`
+
+- Queries `sessions` object store using `by-createdAt` index (DESC order, most recent first)
+- Returns metadata only (NO chunks/volume-profiles/snips/transcripts in session records)
+- Applies limit/offset (skip first `offset`, return next `limit`)
+- Returns `{sessions: [...], total}` where `total` is count of ALL sessions (not limited to page)
+- **NO BLOBS** in session records (performance requirement)
+
+**`getSession(sessionId)`** → session object or `null`
+
+- Single record read by primary key (`sessions` object store)
+- Returns full session metadata or `null` if not found
+- **Not an error object**: null is expected return for not-found
+
+**`getChunksForSession(sessionId)`** → `{chunks: [...]}` or error
+
+- Queries `chunks` object store using `by-sessionId-seq` index (ASC order by seq)
+- Returns chunk metadata list (id, sessionId, seq, startTime, endTime, duration, sizeBytes)
+- **NO BLOBS** in result (huge performance issue if blobs included; demo calls `getChunk` per chunk to fetch blobs separately)
+- Sorted by seq ASC (critical for playback/volume-analysis ordering)
+
+**`getChunk(chunkId)`** → chunk object with blob or `null`
+
+- Single record read by primary key (`chunks` object store)
+- Returns chunk metadata + blob: `{id, sessionId, seq, startTime, endTime, duration, blob, sizeBytes}`
+- Returns `null` if not found (not an error object)
+
+**`getVolumeProfile(sessionId)`** → volume profile or `null`
+
+- Single record read by sessionId key (`volume-profiles` object store)
+- Returns `{sessionId, chunkVolumes: [{chunkId, peakDb}], createdAt}` or `null`
+
+**`getSnipsForSession(sessionId)`** → `{snips: [...]}` or error
+
+- Queries `snips` object store using `by-sessionId` index
+- Sorted by startTime ASC
+- Returns snip list (id, sessionId, startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds, confidence, createdAt)
+
+**`getSnip(snipId)`** → snip object or `null`
+
+- Single record read by primary key (`snips` object store)
+- Returns full snip metadata or `null`
+
+**`getTranscriptsForSession(sessionId)`** → `{transcripts: [...]}` or error
+
+- Queries `transcripts` object store using `by-sessionId` index
+- Returns transcript list (snipId, sessionId, text, createdAt, updatedAt)
+
+**`getTranscript(snipId)`** → transcript object or `null`
+
+- Single record read by snipId key (`transcripts` object store)
+- Returns `{snipId, sessionId, text, createdAt, updatedAt}` or `null`
+
+**`deleteSession(sessionId)`** → `{deleted: true}` or error
+
+- Validates `sessionId` exists (if not found → return `{error: 'session_not_found'}`)
+- **Cascade delete** (single transaction):
+  1. Query transcripts for session → delete all
+  2. Query snips for session → delete all
+  3. Delete volume profile (if exists)
+  4. Query chunks for session → delete all
+  5. Delete session record
+- Returns `{deleted: true}` on success
+- IndexedDB DevTools will show all related records deleted (you validate in demo)
+
+**`getStorageStats()`** → `{usedBytes, capBytes, sessionCount, chunkCount}` or error
+
+- Counts sessions: `sessions` object store count
+- Counts chunks: `chunks` object store count
+- Sums chunk sizes: iterate all chunks, sum `sizeBytes` field * 1.1 (10% overhead estimate for IndexedDB metadata)
+- Reads `capBytes` from localStorage `'web-whisper-storage-cap'` (default 200 MB = 209715200 bytes if not set)
+- Returns `{usedBytes, capBytes, sessionCount, chunkCount}`
+
+**`enforceRetentionPolicy(capBytes)`** → `{deletedSessions, reclaimedBytes, newUsedBytes}` or error
+
+- Fetches sessions sorted by createdAt ASC (oldest first)
+- Deletes oldest sessions until `usedBytes <= capBytes`
+- Calls `deleteSession(sessionId)` per deleted session (cascade delete)
+- Returns `{deletedSessions: count, reclaimedBytes: sum_of_sizes, newUsedBytes: remaining}`
+
+### Error Handling (All Structured Objects, NOT Thrown Exceptions)
+
+- `{error: 'database_unavailable', reason}` → IndexedDB operation failed (catch exception, return object)
+- `{error: 'session_not_found', sessionId}` → Session does not exist (validation check before write)
+- `{error: 'snip_not_found', snipId}` → Snip does not exist (validation check before transcript write)
+- `{error: 'quota_exceeded', usedBytes, capBytes}` → Writing chunk would exceed cap (check before write)
+
+**NOT thrown exceptions**. All errors returned as structured objects so demo can display error toasts without crashing.
+
+### Performance Targets
+
+- `createSession`: < 50ms
+- `writeChunk`: < 100ms (includes session metadata update)
+- `listSessions`: < 200ms for < 100 sessions
+- `getSession`: < 50ms (single record by primary key)
+- `getChunksForSession`: < 100ms for < 50 chunks (NO BLOBS)
+- `getChunk`: < 50ms (single record, includes blob)
+- `deleteSession`: 100–500ms (cascade delete, acceptable with confirm dialog)
+- `getStorageStats`: < 200ms (aggregate calculation)
+
+### IndexedDB Schema (5 Object Stores)
+
+1. **sessions**: Primary key `id`, index `by-createdAt`
+2. **chunks**: Primary key `id`, index `by-sessionId-seq` (compound index for sorted queries)
+3. **volume-profiles**: Primary key `sessionId` (one profile per session)
+4. **snips**: Primary key `id`, index `by-sessionId`
+5. **transcripts**: Primary key `snipId`, index `by-sessionId`
+
+### What I Will NOT Ship in Phase 06
+
+- **`deleteSnipsForSession(sessionId)`**: Volume-analyzer requested this as optional. I will NOT ship it in Phase 06 (out of scope). Volume-analyzer can work around by calling `getSnipsForSession` + `deleteSnip` per snip if needed, OR PWA handles snip deletion before re-analysis. If this becomes load-bearing in Phase 07, add feedback spec.
+
+- **Live data integrations for demo**: Isolation Demo requested optional capture-engine/volume-analyzer integrations ("LIVE CAPTURE" / "COMPUTED VOLUME" modes). These are demo conveniences, NOT session-store responsibilities. Demo can call capture-engine/volume-analyzer directly and pass results to session-store write interfaces. Session-store only provides write/read interfaces, not orchestration.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement these interfaces, build Isolation Demo, validate with walkthrough, and mark spec resolved.
