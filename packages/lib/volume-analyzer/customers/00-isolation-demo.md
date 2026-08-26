@@ -341,6 +341,61 @@ All errors returned as structured objects (NOT thrown exceptions). Fixture mode 
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for volume-analyzer)
+I'm volume-analyzer. I accept your Isolation Demo customer request. You will operate as my factory floor—proving volume computation and snip proposal algorithms work correctly with known-good fixture data. I will provide fixture-first interfaces (no session-store dependency) so you can validate algorithms instantly. Here's exactly what I will ship in Phase 06:
 
-Volume-analyzer will respond here: how it will meet the isolation-demo's request, what interfaces it will expose for demo use, what data modes it supports (fixture by default, optionally live-from-capture in-memory), and how the demo proves the package works independently.
+### Fixture-First Interfaces (Accepted)
+
+**`analyzeVolume(chunks)`** → `{chunkVolumes: [{chunkId, peakDb}]}` or error
+
+Input: `chunks: Array<{id: string, seq: number, blob: Blob}>` (fixture chunk array from demo)
+
+Output: `{chunkVolumes: [{chunkId: string, peakDb: number}]}`
+
+- I decode each chunk blob to PCM using Web Audio API `audioContext.decodeAudioData(arrayBuffer)`
+- I compute peak dB: `peakDb = 20 * Math.log10(maxAbsSample)` where maxAbsSample is highest PCM sample amplitude in chunk
+- Returns array of per-chunk volume measurements (one entry per chunk, in order)
+
+Error cases:
+- `{error: 'no_chunks'}` → Empty chunks array
+- `{error: 'invalid_audio', chunkId}` → Chunk blob decode failed (corrupt MP3 or wrong format)
+
+**`proposeSnips(chunks, volumeProfile, options?)`** → `{snips: [...]}` or error
+
+Inputs:
+- `chunks: Array<{id, seq, startTime, endTime}>` (metadata only, NO blobs needed for snip proposal)
+- `volumeProfile: {chunkVolumes: [{chunkId, peakDb}]}`
+- `options?: {silenceThresholdDb?: number}` (default -40 dB)
+
+Output: `{snips: [{startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds, confidence}]}`
+
+Algorithm:
+1. Detect silence regions: chunks with peakDb < silenceThresholdDb (default -40 dB)
+2. Group consecutive loud chunks into snips (e.g., chunks 3–11 if chunks 0–2 and 12–14 are silent)
+3. Calculate startTime/endTime from chunk metadata
+4. Calculate confidence (0.0–1.0) based on snip length and silence boundary clarity
+
+Error cases:
+- `{error: 'no_volume_profile'}` → volumeProfile is empty or null
+- `{error: 'invalid_threshold'}` → silenceThresholdDb > 0 or < -100 (unrealistic values)
+
+### Fixture Patterns You Provide
+
+I will accept any fixture chunks you provide. You generate fixture patterns:
+1. **Quiet → Loud → Quiet**: 3 quiet chunks, 9 loud chunks, 3 quiet chunks. I should return 1 snip covering loud region.
+2. **All Quiet**: 10 quiet chunks. I should return 0 snips (no speech).
+3. **All Loud**: 10 loud chunks. I should return 1 snip covering entire session.
+4. **Loud → Quiet → Loud**: 4 loud, 4 quiet, 4 loud. I should return 2 snips.
+
+You validate my output matches expected snips.
+
+### What I Will NOT Ship in Phase 06
+
+**Session-store integration in Isolation Demo**: You requested optional "live from session-store" mode where demo calls `analyzeVolume(sessionId)` and I read chunks from session-store. I will NOT ship this in Phase 06. Too complex for Isolation Demo scope. Demo operates in pure fixture mode (no session-store dependency). If you want to test session-store integration, use session-store's Isolation Demo or final PWA.
+
+**Separate `analyzeVolumeInMemory()` function**: I will use single interface pattern. You pass chunks array directly to `analyzeVolume(chunks)`. I do NOT need to know whether chunks came from fixture, capture-engine in-memory, or session-store—just an array of blobs.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement `analyzeVolume` and `proposeSnips` with fixture-first interface, build Isolation Demo with known-good patterns, validate snip proposals match expected output.

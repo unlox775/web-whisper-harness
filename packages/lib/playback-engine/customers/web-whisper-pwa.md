@@ -327,6 +327,122 @@ All pre-playback errors returned as structured objects (NOT thrown exceptions). 
 
 ## Producer Response
 
+I'm playback-engine. I accept your web-whisper-pwa customer request. You are my orchestrator—calling me to play sessions/chunks/snips from session-store. I will integrate with session-store (read session/chunk/snip metadata + blobs), concatenate chunks for seamless playback, provide full playback controls, and handle missing chunks gracefully. Here's exactly what I will ship in Phase 06:
+
+### Core Interfaces
+
+**`playSession(sessionId)`** → Playback handle or error
+
+Input: `sessionId` (string) from your session detail view
+
+Returns: Playback handle with methods and properties
+
+Pre-playback errors:
+- `{error: 'session_not_found'}` → sessionId doesn't exist
+- `{error: 'chunks_missing', missingChunkIds: [...]}` → All chunks missing or blobs unavailable
+
+Implementation:
+1. Call `session-store.getSession(sessionId)` → validate session exists
+2. Call `session-store.getChunksForSession(sessionId)` → get chunk metadata list
+3. Iterate chunks → call `session-store.getChunk(chunkId)` per chunk → fetch blobs
+4. If any chunk returns `null` → log warning, skip chunk (graceful degradation)
+5. Concatenate available MP3 blobs: `new Blob([blob1, blob2, ...], {type: 'audio/mpeg'})`
+6. Create HTML5 Audio element with concatenated blob
+7. Return playback handle
+
+**`playChunk(chunkId)`** → Playback handle or error
+
+Input: `chunkId` (string) from developer mode chunk list
+
+Pre-playback errors:
+- `{error: 'chunk_not_found'}` → chunkId doesn't exist or blob unavailable
+
+Implementation:
+1. Call `session-store.getChunk(chunkId)` → fetch chunk blob
+2. If null → return error
+3. Create HTML5 Audio element with single chunk blob
+4. Return playback handle
+
+**`playSnip(snipId)`** → Playback handle or error
+
+Input: `snipId` (string) from session detail snip list
+
+Pre-playback errors:
+- `{error: 'snip_not_found'}` → snipId doesn't exist
+- `{error: 'snip_chunks_missing', missingChunkIds: [...]}` → All chunks in snip missing
+
+Implementation:
+1. Call `session-store.getSnip(snipId)` → get snip metadata (chunkIds array)
+2. Iterate snip.chunkIds → call `session-store.getChunk(chunkId)` per chunk → fetch blobs
+3. Skip missing chunks (graceful degradation), log warnings
+4. Concatenate available blobs
+5. Return playback handle
+
+### Playback Handle Interface
+
+Handle methods:
+- `handle.pause()` → Pause playback (no-op if already stopped)
+- `handle.resume()` → Resume playback (no-op if already stopped)
+- `handle.seek(time)` → Seek to time in seconds (clamp to [0, duration] if out of range)
+- `handle.stop()` → Stop playback, release resources (idempotent, safe to call multiple times)
+
+Handle properties:
+- `handle.duration` (number): Total duration in seconds (readonly)
+- `handle.currentTime` (number): Current playback position in seconds (readonly, updates during playback)
+- `handle.state` (string): 'playing' | 'paused' | 'stopped' (readonly)
+
+Handle events:
+- `handle.on('ended', callback)` → Playback completed naturally
+- `handle.on('playbackError', callback)` → Runtime error (audio decode failed, playback stalled)
+- `handle.on('timeupdate', callback)` → Current time updated (emitted every ~100ms during playback)
+
+### Error Handling
+
+**Pre-playback errors** (returned from function call):
+- `{error: 'session_not_found'}` → You show toast "Session not found. Cannot play."
+- `{error: 'chunks_missing'}` → You show toast "Session has no playable audio."
+- `{error: 'snip_not_found'}` → You show toast "Snip not found. Cannot play."
+
+**Runtime errors** (emitted as events during playback):
+- `playbackError` event → You show toast "Playback failed: audio decode error"
+
+**Graceful degradation for missing chunks**: If some chunks missing but not all, I concatenate available chunks and play with gaps. User hears "jumps" in playback (audio skips where chunks missing). Better than failing entirely.
+
+### Session-Store Integration (Automatic)
+
+I call session-store automatically for all reads:
+- `session-store.getSession(sessionId)` → validate session exists
+- `session-store.getChunksForSession(sessionId)` → chunk metadata list (NO BLOBS for performance)
+- `session-store.getChunk(chunkId)` → chunk blob for playback
+- `session-store.getSnip(snipId)` → snip metadata (chunkIds array)
+
+You do NOT call session-store directly for playback. I handle all session-store integration internally.
+
+### Blob Concatenation (Seamless Playback)
+
+For session/snip playback (multiple chunks):
+- I fetch chunks in seq order (guaranteed by session-store `getChunksForSession` sorting)
+- I concatenate MP3 blobs: `new Blob([blob1, blob2, ...], {type: 'audio/mpeg'})`
+- I play concatenated blob via HTML5 Audio element
+
+**Seamless playback requirement**: MP3 chunks concatenated as single blob play seamlessly with NO audible gaps. This is MP3 container property (frame-based, not time-based headers).
+
+### What I Will NOT Ship in Phase 06
+
+**Volume control**: Out of scope. HTML5 Audio element has default volume controls (browser chrome). I do NOT provide custom volume slider in handle interface. If you want volume control, set `audioElement.volume` directly (0.0–1.0 range).
+
+**Playback speed control**: Out of scope. I do NOT provide `setPlaybackRate(rate)` method. If needed, add Phase 07 feedback spec.
+
+**Waveform visualization**: Out of scope. I provide audio playback only, not waveform rendering. If you want waveform, use separate visualization library (Web Audio API AnalyserNode).
+
+**Progress bar seeking**: I provide `seek(time)` method. You implement progress bar UI (slider that calls `handle.seek(time)` on user drag).
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement `playSession`, `playChunk`, `playSnip` with session-store integration, validate seamless concatenation playback, handle missing chunks gracefully.
+
 (To be filled by Phase 05 producer-response agent for playback-engine)
 
 Playback-engine will respond here: how it will meet the PWA's request, what interfaces it will provide, what event formats it will emit, how it will implement audio concatenation (blob concatenation vs sequential playback), how it will handle errors, and what playback handle lifecycle management it expects from caller (does caller need to call `stop()` before releasing handle, or is handle auto-released when playback ends).

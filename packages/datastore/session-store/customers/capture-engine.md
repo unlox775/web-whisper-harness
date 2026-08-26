@@ -271,6 +271,108 @@ All errors returned as structured objects (NOT thrown exceptions). Session metad
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for session-store)
+I'm session-store. I accept your capture-engine customer request. You are my high-frequency writer during recording—the most performance-critical customer. I will provide fast, reliable `writeChunk` with structured error returns (NOT exceptions) so you can emit `captureError` events and stop capture cleanly. Here's exactly what I will ship in Phase 06:
 
-Session-store will respond here: how it will meet capture-engine's request, what `writeChunk` interface it will provide, how it will validate session existence, how it will generate chunk IDs, what error formats it will return, and how it will handle quota exceeded (return error immediately vs attempt to enforce retention policy first).
+### Core Interface: `writeChunk(sessionId, chunkData)`
+
+**Input**: 
+- `sessionId` (string): Session ID provided by PWA when PWA calls your `startCapture(sessionId)`
+- `chunkData` (object): `{seq: number, startTime: number, endTime: number, duration: number, blob: Blob, sizeBytes: number}`
+
+**Output**:
+- Success: `{chunkId: string}` (e.g., `chunk_sess_20260826152037_abc123_000`)
+- Failure: Error object (NOT thrown exception):
+  - `{error: 'session_not_found', sessionId: string}` → Session does not exist
+  - `{error: 'quota_exceeded', usedBytes: number, capBytes: number}` → Writing this chunk would exceed storage cap
+  - `{error: 'database_unavailable', reason?: string}` → IndexedDB write failed
+
+**Implementation**:
+
+1. **Validation BEFORE write**: Call internal `getSession(sessionId)`. If null → return `{error: 'session_not_found', sessionId}` WITHOUT attempting write.
+
+2. **Quota check BEFORE write**: Calculate `usedBytes` (sum of all chunk `sizeBytes` * 1.1 overhead), read `capBytes` from config. If `usedBytes + chunkData.sizeBytes > capBytes` → return `{error: 'quota_exceeded', usedBytes, capBytes}` WITHOUT writing chunk. I will NOT automatically enforce retention policy in `writeChunk` (that is PWA's responsibility after capture stops).
+
+3. **Chunk ID generation**: `chunk_${sessionId}_${seq.toString().padStart(3, '0')}` (e.g., `chunk_sess_20260826152037_abc123_000`, `chunk_sess_20260826152037_abc123_001`). Sortable by seq within session. Unique across all chunks (sessionId prefix guarantees uniqueness).
+
+4. **Atomic write** (single IndexedDB transaction):
+   - Write chunk record to `chunks` object store: `{id: chunkId, sessionId, seq, startTime, endTime, duration, blob, sizeBytes, createdAt: new Date().toISOString()}`
+   - Update session metadata: `session.chunkCount += 1`, `session.sizeBytes += chunkData.sizeBytes`, `session.duration = Math.max(session.duration || 0, chunkData.endTime)`, `session.updatedAt = new Date().toISOString()`
+
+5. **Error handling**: Wrap IndexedDB operations in try-catch. If exception thrown → catch, return `{error: 'database_unavailable', reason: exception.message}`. Do NOT let exceptions propagate (you cannot catch exceptions across module boundary cleanly).
+
+6. **Return**: `{chunkId}` on success.
+
+### Session Metadata Updates (Atomic with Chunk Write)
+
+When `writeChunk` succeeds, session metadata is updated atomically in the same transaction:
+
+- `session.chunkCount += 1` (increment count)
+- `session.sizeBytes += chunkData.sizeBytes` (accumulate size)
+- `session.duration = Math.max(session.duration || 0, chunkData.endTime)` (update to latest chunk end time)
+- `session.updatedAt = new Date().toISOString()` (timestamp)
+
+You do NOT need to call separate update functions. I handle metadata updates internally.
+
+### Error Handling Contract
+
+**`{error: 'session_not_found', sessionId}`**:
+
+When returned: Session was deleted between PWA's `createSession` and your first `writeChunk`, OR sessionId is invalid.
+
+What you do: Emit `captureError(sessionId, 'session_not_found')` event to PWA, stop capture immediately (do NOT attempt more writes).
+
+What I do: Validate `sessionId` exists BEFORE writing chunk. If `getSession(sessionId)` returns null → return error object WITHOUT writing chunk. No orphan chunks.
+
+**`{error: 'quota_exceeded', usedBytes, capBytes}`**:
+
+When returned: Writing this chunk would cause total storage usage to exceed configured cap.
+
+What you do: Emit `captureError(sessionId, 'quota_exceeded', {usedBytes, capBytes})` event to PWA, stop capture immediately. PWA shows "Storage full" toast and may call `enforceRetentionPolicy` to delete old sessions, then optionally resume recording with new session.
+
+What I do: Check quota BEFORE writing chunk. If `usedBytes + chunkData.sizeBytes > capBytes` → return error WITHOUT writing. I do NOT automatically delete old sessions in `writeChunk` (too slow during recording, PWA orchestrates retention policy separately).
+
+**`{error: 'database_unavailable', reason}`**:
+
+When returned: IndexedDB write operation failed (browser storage permissions denied, disk full, IndexedDB corruption).
+
+What you do: Emit `captureError(sessionId, 'database_unavailable', {reason})` event to PWA, stop capture immediately. PWA shows "Storage unavailable" toast.
+
+What I do: Wrap IndexedDB write in try-catch. If exception → catch, return `{error: 'database_unavailable', reason: exception.message}`. Do NOT throw exception.
+
+### Sequential Write Behavior (NOT Concurrent)
+
+You write chunks sequentially (one at a time). I do NOT need to handle concurrent `writeChunk` calls for the same sessionId. You serialize writes (await previous `writeChunk` return before calling next).
+
+Chunk `seq` numbers may have gaps (e.g., 0, 1, 3 if seq 2 encoding failed). I do NOT enforce strict sequential seq. Gaps are allowed.
+
+### Chunk ID Format
+
+- Template: `chunk_${sessionId}_${seq.toString().padStart(3, '0')}`
+- Examples: `chunk_sess_20260826152037_abc123_000`, `chunk_sess_20260826152037_abc123_001`, `chunk_sess_20260826152037_abc123_010`
+- Sortable by seq within session (for playback-engine assembly)
+- Unique across all chunks (sessionId prefix guarantees uniqueness)
+
+### Performance Target
+
+**`writeChunk` must be fast**: < 50ms per call (target), < 100ms acceptable, > 200ms causes problems.
+
+Why: You encode chunks in Web Worker and call `writeChunk` after encoding. If `writeChunk` is slow (> 200ms), PCM buffer may overflow before next encode cycle → audio data lost → gaps in recording.
+
+**Optimization strategy**:
+- Single IndexedDB transaction for chunk write + session metadata update (NOT two separate transactions)
+- Use IndexedDB primary key lookup for session read (fast)
+- Do NOT perform expensive operations in `writeChunk` (e.g., recalculating ALL session stats, database compaction)
+
+### What I Will NOT Ship
+
+- **Automatic retention policy enforcement in `writeChunk`**: You requested that I do NOT automatically call `enforceRetentionPolicy` when quota exceeded. I will return `{error: 'quota_exceeded'}` immediately and let PWA decide whether to delete old sessions. Correct—this is PWA's orchestration responsibility, not session-store's write-path responsibility.
+
+- **Concurrent write handling**: You write sequentially. I will NOT add locks/queues for concurrent writes (unnecessary complexity).
+
+- **Strict sequential seq enforcement**: You may have gaps in seq (e.g., 0, 1, 3). I will NOT validate strict 0-1-2-3 sequence. Gaps allowed.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement `writeChunk`, validate with capture-engine integration tests, measure performance (< 100ms target), and mark spec resolved.

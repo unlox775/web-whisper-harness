@@ -310,6 +310,106 @@ All write errors returned as structured objects (NOT thrown exceptions). Read in
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for session-store)
+I'm session-store. I accept your volume-analyzer customer request. You are my batch processor—read chunks, compute volume profiles, write results. I will provide fast chunk reads with blobs, volume profile overwrites (replace if exists), and snip appends (multiple snips per session). Here's exactly what I will ship in Phase 06:
 
-Session-store will respond here: how it will meet volume-analyzer's request, what interfaces it will provide, how it will handle volume profile overwrites (replace existing or error if exists), how it will handle snip writes (append or replace all snips for session), what error formats it will return.
+### Read Interfaces (Batch Processing)
+
+**`getChunksForSession(sessionId)`** → `{chunks: [...]}` or error
+
+- Queries `chunks` object store using `by-sessionId-seq` compound index (ASC order by seq)
+- Returns chunk metadata list: `{id, sessionId, seq, startTime, endTime, duration, sizeBytes}`
+- **NO BLOBS** in result (performance requirement). You call `getChunk(chunkId)` per chunk to fetch blobs separately.
+- Sorted by seq ASC (critical for your sequential volume analysis)
+- Returns `{error: 'database_unavailable'}` if IndexedDB query fails
+
+**`getChunk(chunkId)`** → chunk object with blob or `null`
+
+- Single record read by primary key (`chunks` object store)
+- Returns full chunk: `{id, sessionId, seq, startTime, endTime, duration, blob: Blob, sizeBytes}`
+- Returns `null` if chunk not found (NOT error object—null is expected return for not-found)
+- Blob is MP3 format (`type: 'audio/mpeg'`), ready for Web Audio API decoding
+
+**`getVolumeProfile(sessionId)`** → volume profile or `null`
+
+- Single record read by sessionId key (`volume-profiles` object store, sessionId is primary key)
+- Returns `{sessionId, chunkVolumes: [{chunkId, peakDb}], createdAt}` or `null`
+- `null` means no volume profile exists yet (not an error)
+
+### Write Interfaces
+
+**`writeVolumeProfile(sessionId, volumeProfile)`** → `{written: true}` or error
+
+Inputs: `sessionId` (string), `volumeProfile` (`{chunkVolumes: [{chunkId: string, peakDb: number}]}`)
+
+**Overwrite behavior (ACCEPTED)**: If volume profile already exists for this sessionId → REPLACE with new one (NOT error, NOT append). Volume profiles object store uses sessionId as primary key, so IndexedDB put operation naturally overwrites.
+
+Implementation:
+1. Validate `sessionId` exists (call internal `getSession`, if null → return `{error: 'session_not_found', sessionId}`)
+2. Write/replace volume profile to `volume-profiles` object store: `{sessionId, chunkVolumes, createdAt: new Date().toISOString()}`
+3. Update session metadata: `session.hasVolumeProfile = true` (if not already true), `session.updatedAt = now`
+4. Return `{written: true}`
+
+**`writeSnip(sessionId, snipData)`** → `{snipId: string}` or error
+
+Inputs: `sessionId` (string), `snipData` (`{startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds: string[], confidence: number}`)
+
+**Append behavior (ACCEPTED)**: Multiple `writeSnip` calls for same sessionId APPEND snips (NOT replace all). Each call generates unique `snipId` and writes new snip record. Snips object store uses `snipId` as primary key, so multiple snips per session coexist.
+
+Implementation:
+1. Validate `sessionId` exists (if null → return `{error: 'session_not_found'}`)
+2. Count existing snips for session (query `by-sessionId` index → count)
+3. Generate `snipId`: `snip_${sessionId}_${snipIndex}` where snipIndex = current snip count
+4. Write snip to `snips` object store: `{id: snipId, sessionId, startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds, confidence, createdAt}`
+5. Update session: `session.hasSnips = true`, `session.updatedAt = now`
+6. Return `{snipId}`
+
+### Snip Replacement Pattern (Optional Interface NOT Shipped in Phase 06)
+
+**`deleteSnipsForSession(sessionId)`** → You requested this as optional convenience for "Recompute Snips" feature.
+
+**I will NOT ship this in Phase 06**. Out of scope for initial implementation. Workaround:
+1. PWA calls `getSnipsForSession(sessionId)` → gets all snip IDs
+2. PWA calls `deleteSnip(snipId)` per snip (if I ship per-snip delete)
+3. PWA calls your `proposeSnips(sessionId)` → you write new snips via `writeSnip`
+
+Alternatively, PWA can leave old snips and write new snips with incremented snip index (snipId includes timestamp or version suffix to distinguish old vs new). PWA's choice.
+
+If this becomes load-bearing in Phase 07, add feedback spec requesting `deleteSnipsForSession` or `replaceSnipsForSession(sessionId, snipDataArray)`.
+
+### Error Handling
+
+- `{error: 'session_not_found', sessionId}` → Session does not exist (validation check before write)
+- `{error: 'database_unavailable', reason}` → IndexedDB operation failed (catch exception, return object)
+- `null` return from `getChunk` or `getVolumeProfile` → Record not found (expected return, NOT error object)
+
+All write errors returned as structured objects (NOT thrown exceptions).
+
+### Performance Targets
+
+- `getChunksForSession`: < 100ms for < 50 chunks (NO BLOBS, metadata only)
+- `getChunk`: < 50ms per call (you call sequentially, one per chunk)
+- `writeVolumeProfile`: < 50ms (volume profile is small: ~50 floats = ~200 bytes JSON)
+- `writeSnip`: < 50ms per snip (snip is small metadata)
+- `getVolumeProfile`: < 50ms (single record read)
+
+### Data Validation
+
+**Chunk list MUST be sorted by seq ASC**: Guaranteed via `by-sessionId-seq` compound index with ASC cursor. You rely on sequential processing for accurate volume profile.
+
+**Chunk blobs MUST be valid MP3**: I store blobs as-is from capture-engine. If capture-engine writes corrupt blob, you will detect decode failure. I do NOT validate blob format during write (performance cost). You handle decode errors gracefully (skip chunk, log warning).
+
+**Session MUST exist before writes**: I validate `sessionId` exists before `writeVolumeProfile` or `writeSnip`. If null → return `{error: 'session_not_found'}` WITHOUT writing orphan data.
+
+### What I Will NOT Ship in Phase 06
+
+- **`deleteSnipsForSession(sessionId)`**: Out of scope. Use workaround (PWA deletes snips individually or leaves old snips).
+
+- **`replaceSnipsForSession(sessionId, snipDataArray)`**: Out of scope. Use append pattern (multiple `writeSnip` calls).
+
+- **Per-snip delete (`deleteSnip(snipId)`)**: Out of scope unless PWA customer explicitly requests it. Snips are typically permanent once written (only session delete cascades snips).
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement these interfaces, validate with volume-analyzer integration tests, confirm volume profile overwrites work correctly, and mark spec resolved.

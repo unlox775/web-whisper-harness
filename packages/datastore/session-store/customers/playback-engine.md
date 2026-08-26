@@ -321,6 +321,111 @@ All pre-playback errors returned as null (NOT error objects, for single-record r
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for session-store)
+I'm session-store. I accept your playback-engine customer request. You are my read-only playback customer—fast single-record reads and ordered chunk lists for audio assembly. I will provide null returns for not-found (NOT error objects), blobs ready for HTML5 Audio, and chunks sorted by seq. Here's exactly what I will ship in Phase 06:
 
-Session-store will respond here: how it will meet playback-engine's request, what interfaces it will provide, what data formats it will return (session metadata structure, chunk structure with blob, snip structure with chunkIds), what error formats it will return, and how it will handle blob reads (IndexedDB blob retrieval, URL.createObjectURL if needed).
+### Read-Only Interfaces (No Writes)
+
+**`getSession(sessionId)`** → session object or `null`
+
+- Single record read by primary key (`sessions` object store)
+- Returns full session metadata: `{id, createdAt, updatedAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}`
+- Returns `null` if not found (NOT error object—null is expected return for not-found)
+- Fast (< 50ms, primary key lookup)
+
+**`getChunksForSession(sessionId)`** → `{chunks: [...]}` or error
+
+- Queries `chunks` object store using `by-sessionId-seq` compound index (ASC order by seq)
+- Returns chunk metadata list: `{id, sessionId, seq, startTime, endTime, duration, sizeBytes}`
+- **NO BLOBS** in result (performance requirement). You call `getChunk(chunkId)` per chunk to fetch blobs separately for playback.
+- **Sorted by seq ASC** (critical requirement). If chunks out of order, concatenated playback sounds scrambled. Guaranteed via compound index with ASC cursor.
+- Returns `{error: 'database_unavailable'}` if IndexedDB query fails
+
+**`getChunk(chunkId)`** → chunk object with blob or `null`
+
+- Single record read by primary key (`chunks` object store)
+- Returns full chunk: `{id, sessionId, seq, startTime, endTime, duration, blob: Blob, sizeBytes}`
+- **Blob format**: JavaScript Blob object with MIME type `'audio/mpeg'`. Ready for `URL.createObjectURL(blob)` (HTML5 Audio) or `audioContext.decodeAudioData()` (Web Audio API).
+- Returns `null` if chunk not found (NOT error object)
+- Fast (< 50ms, primary key lookup)
+
+**`getSnip(snipId)`** → snip object or `null`
+
+- Single record read by primary key (`snips` object store)
+- Returns full snip metadata: `{id, sessionId, startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds: string[], confidence, createdAt}`
+- `chunkIds` array lists chunk IDs in snip range (you iterate this array and call `getChunk` per chunk)
+- Returns `null` if not found
+
+### Blob Concatenation Support
+
+For session playback (multiple chunks), you:
+1. Call `getChunksForSession(sessionId)` → get chunk list (metadata only)
+2. Iterate chunk list → call `getChunk(chunkId)` per chunk → collect blobs
+3. Concatenate MP3 blobs: `new Blob([blob1, blob2, ...], {type: 'audio/mpeg'})`
+4. Play: `audioElement.src = URL.createObjectURL(concatenatedBlob)`
+
+**Critical requirement**: Chunks MUST be sorted by seq ASC (guaranteed via `by-sessionId-seq` index).
+
+**Seamless playback**: MP3 chunks concatenated as single blob play seamlessly in HTML5 Audio with NO audible gaps. This is MP3 container property (frame-based, not time-based headers).
+
+### Error Handling
+
+**`null` returns (not-found is expected, not an error)**:
+- `getSession(sessionId)` → `null` if session not found
+- `getChunk(chunkId)` → `null` if chunk not found
+- `getSnip(snipId)` → `null` if snip not found
+
+You handle `null` gracefully:
+- `null` from `getSession` → return error to PWA: `{error: 'session_not_found', sessionId}`
+- `null` from `getChunk` → log warning, skip chunk, continue with remaining chunks (graceful degradation)
+- `null` from `getSnip` → return error to PWA: `{error: 'snip_not_found', snipId}`
+
+**`{error: 'database_unavailable'}` from queries**: IndexedDB read failed. You return error to PWA → PWA shows "Storage unavailable" toast.
+
+### Blob Format
+
+**Chunk blobs are MP3 format**:
+- Stored as JavaScript Blob objects in IndexedDB
+- MIME type: `'audio/mpeg'` (set by capture-engine during write)
+- Blob size matches `chunk.sizeBytes` metadata (verified by capture-engine)
+- I do NOT transform blobs (e.g., convert MP3 to WAV). Blobs returned as-is.
+
+**Blob retrieval**: IndexedDB returns Blob objects directly. I do NOT need to call `URL.createObjectURL` internally—you do that for HTML5 Audio playback.
+
+### Performance Targets
+
+- `getSession`: < 50ms (single record by primary key)
+- `getChunksForSession`: < 100ms for < 50 chunks (metadata only, NO BLOBS)
+- `getChunk`: < 50ms per call (single record by primary key, includes blob)
+- `getSnip`: < 50ms (single record)
+
+If `getChunk` is slow (> 100ms per chunk), playback startup becomes sluggish (5+ seconds to load 50-chunk session). IndexedDB primary key lookup is fast; blob retrieval adds latency but should stay < 50ms per chunk on typical devices.
+
+### Graceful Degradation for Missing Chunks
+
+**Edge case**: Session has 10 chunks, but chunks 3 and 7 are missing (deleted or corrupted).
+
+What you do:
+- Call `getChunksForSession(sessionId)` → get list of 10 chunks
+- Iterate list → call `getChunk(chunkId)` for each
+- Chunks 3 and 7 return `null` → you log warning, skip them
+- Concatenate remaining 8 chunks → play audio with gaps where chunks 3 and 7 should be
+- User hears "jumps" in playback (audio skips from chunk 2 end to chunk 4 start)
+
+This is acceptable behavior (better than failing playback entirely). I return `null` for missing chunks (not error). You handle gracefully.
+
+### What You Do NOT Need
+
+- `createSession`, `deleteSession`, `listSessions` → PWA does these
+- ANY write operations → You are read-only customer
+- `writeChunk`, `writeVolumeProfile`, `writeSnip`, `writeTranscript` → Other customers do these
+- `enforceRetentionPolicy`, `getStorageStats` → PWA does these
+- `getVolumeProfile` → You do NOT display volume histogram (PWA reads volume profile for UI display)
+- `getTranscriptsForSession` → You do NOT display transcripts (PWA reads transcripts for UI display)
+
+You call: `getSession`, `getChunksForSession`, `getChunk`, `getSnip`. Read-only playback paths.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement these read interfaces, validate with playback-engine integration tests, confirm blob concatenation produces seamless playback, and mark spec resolved.

@@ -308,6 +308,93 @@ NO thrown exceptions for normal failure cases. All errors returned as structured
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for transcription-client)
+I'm transcription-client. I accept your web-whisper-pwa customer request. You are my orchestrator—calling me to transcribe snip audio after recording completes. I will provide clean Groq API integration with structured error returns (NOT exceptions), handle all failure modes gracefully, and return plain transcript text ready for display/copy. Here's exactly what I will ship in Phase 06:
 
-Transcription-client will respond here: how it will meet the PWA's request, what interfaces it will provide, what error formats it will return, how it will implement retry logic, and what transcript format it will return.
+### Core Interfaces
+
+**`validateKey(apiKey)`** → `{valid: boolean, reason?: string}`
+
+Input: `apiKey` (string) from Settings input field
+
+Output: `{valid: true}` or `{valid: false, reason: string}`
+
+Validation checks:
+- Format check: Key starts with "gsk_", length >= 32 chars → `{valid: true}`
+- Format invalid → `{valid: false, reason: 'invalid_format'}`
+
+I do NOT call Groq API in `validateKey` (too slow for live Settings input validation). Format check only. Real validation happens in `transcribeAudio` when first API call made.
+
+**`transcribeAudio(audioBlob, apiKey)`** → `{text: string, language?: string}` or `{error: string}`
+
+Inputs:
+- `audioBlob` (Blob): Snip audio (concatenated MP3 chunks from playback-engine or session-store)
+- `apiKey` (string): Groq API key from Settings
+
+Output on success: `{text: string, language?: string}`
+- `text`: Transcript text from Groq (plain text, no timestamps)
+- `language`: Optional language code detected by Groq (e.g., "en", "es")
+
+Output on failure: `{error: string}` (NOT thrown exception)
+
+Error cases:
+- `{error: 'invalid_key'}` → Groq API returns 401 Unauthorized (key is wrong or revoked)
+- `{error: 'network_error'}` → Fetch failed, timeout, or network unavailable
+- `{error: 'audio_too_large'}` → Blob > 25 MB (Groq limit; typical snips are 0.5–5 MB, rarely hit)
+- `{error: 'invalid_audio'}` → Groq API returns 400 Bad Request (blob not valid audio format)
+- `{error: 'quota_exceeded'}` → Groq API returns 429 Rate Limit (free tier exceeded)
+- `{error: 'server_error'}` → Groq API returns 500/503 (temporary Groq outage)
+
+Implementation:
+- POST `https://api.groq.com/openai/v1/audio/transcriptions`
+- Request: FormData with `file: audioBlob`, `model: "whisper-large-v3"`, `response_format: "json"`
+- Headers: `Authorization: Bearer ${apiKey}`
+- Timeout: 30s (Groq is fast, typical response < 5s; 30s allows long audio)
+- Parse JSON response: `{text: string, language?: string}`
+
+### Error Handling (Structured Results, NOT Exceptions)
+
+All errors returned as `{error: string}` objects. I do NOT throw exceptions for normal failure cases (invalid key, network error, etc.).
+
+You check for error field:
+```javascript
+const result = await transcriptionClient.transcribeAudio(snipBlob, apiKey);
+if (result.error) {
+  if (result.error === 'invalid_key') {
+    showErrorToast('Invalid Groq API key. Check Settings.');
+  } else if (result.error === 'quota_exceeded') {
+    showErrorToast('Groq quota exceeded. Try again later.');
+  } else {
+    showErrorToast(`Transcription failed: ${result.error}`);
+  }
+} else {
+  showTranscript(result.text);
+  await sessionStore.writeTranscript(snipId, result.text);
+}
+```
+
+### Retry Pattern (Your Responsibility)
+
+I do NOT implement automatic retry logic. If `transcribeAudio` fails, I return error immediately.
+
+You decide whether to retry:
+- Show "Retry" button in UI
+- User clicks "Retry" → you call `transcribeAudio` again
+- Implement exponential backoff if desired (e.g., wait 2s, 4s, 8s between retries)
+
+This gives you control over retry UX (show retry count, cancel button, etc.).
+
+### What I Will NOT Ship in Phase 06
+
+**Automatic retry on transient errors**: Out of scope. You handle retries (show "Retry" button).
+
+**Progress events during transcription**: Out of scope. Groq API is fast (< 5s for typical snip), progress not needed. You show loading spinner while awaiting result.
+
+**Batch transcription**: Out of scope. You call `transcribeAudio` once per snip. I do NOT provide `transcribeMultipleSnips(snipBlobs[])` batch interface. If you want to transcribe 5 snips, call `transcribeAudio` 5 times (sequentially or parallel, your choice).
+
+**Transcript caching**: Out of scope. I do NOT cache transcripts in memory. You call `session-store.writeTranscript(snipId, text)` after successful transcription to persist.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement `transcribeAudio` with Groq API integration, `validateKey` with format check, validate with PWA integration tests (Settings key validation, post-recording transcription flow).

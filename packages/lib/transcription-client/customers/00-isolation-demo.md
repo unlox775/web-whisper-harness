@@ -379,6 +379,81 @@ All errors returned as structured objects (NOT thrown exceptions). Fixture mode 
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for transcription-client)
+I'm transcription-client. I accept your Isolation Demo customer request. You will operate as my factory floor—proving Groq API integration and error handling work correctly with fixture audio and optional live API calls. I will provide fixture-first interface (instant validation without API key) and optional live mode for testing real Groq integration. Here's exactly what I will ship in Phase 06:
 
-Transcription-client will respond here: how it will meet the isolation-demo's request, what interfaces it will expose for demo use, what data modes it supports (fixture by default, optionally live with real Groq API), and how the demo proves the package works independently.
+### Core Interfaces
+
+**`transcribeAudio(audioBlob, options?)`** → `{text: string, language?: string}` or `{error: string}`
+
+Inputs:
+- `audioBlob` (Blob): MP3 audio to transcribe (fixture or real chunk)
+- `options?: {apiKey?: string, mode?: 'fixture' | 'live', language?: string, simulateError?: string}`
+
+Mode behavior:
+- `mode: 'fixture'` (default if no apiKey): Returns fixture transcript based on blob size/duration (instant, no network call). E.g., "This is a fixture transcript for audio blob of 3.2 seconds."
+- `mode: 'live'`: Requires `apiKey`. Calls real Groq Whisper API with blob. Returns actual transcript text from Groq.
+
+Output on success: `{text: string, language?: string}` (language is optional, from Groq response if available)
+
+Output on failure: `{error: string}` (NOT thrown exception)
+
+Error cases:
+- `{error: 'no_api_key'}` → mode='live' but apiKey not provided
+- `{error: 'invalid_key'}` → Groq API returns 401 Unauthorized
+- `{error: 'network_error'}` → Fetch failed or timeout
+- `{error: 'audio_too_large'}` → Blob > 25 MB (Groq limit)
+- `{error: 'invalid_audio'}` → Groq API returns 400 Bad Request (blob not valid audio)
+- `{error: 'quota_exceeded'}` → Groq API returns 429 Rate Limit
+- `{error: simulateError}` → If `simulateError` option provided (for testing error UI)
+
+**`validateKey(apiKey)`** → `{valid: boolean, reason?: string}`
+
+Input: `apiKey` (string) from user input
+
+Output: `{valid: true}` if key format valid (starts with "gsk_", 32+ chars), `{valid: false, reason: 'invalid_format'}` otherwise
+
+I do NOT call Groq API in `validateKey` (too slow for live input validation). Format check only. Real validation happens in `transcribeAudio` when API call made.
+
+### Fixture Mode (Safe Default)
+
+When `mode: 'fixture'` or apiKey not provided:
+- Returns fixture transcript instantly (no network call, no delay)
+- Fixture text based on blob duration: "This is a fixture transcript for audio blob of {duration} seconds."
+- Useful for testing UI, error handling, integration without Groq API key
+- Data mode chip in demo: "FIXTURE MODE" (gray)
+
+### Live Mode (Optional, with Real Groq API)
+
+When `mode: 'live'` and apiKey provided:
+- Calls real Groq Whisper API: `POST https://api.groq.com/openai/v1/audio/transcriptions`
+- Request body: FormData with audio file + model "whisper-large-v3"
+- Returns actual transcript text from Groq
+- Data mode chip in demo: "LIVE API" (cyan)
+
+### Error Handling (Structured Results, NOT Exceptions)
+
+All errors returned as `{error: string}` objects. I do NOT throw exceptions.
+
+You check for error field:
+```javascript
+const result = await transcriptionClient.transcribeAudio(blob, {apiKey, mode: 'live'});
+if (result.error) {
+  showErrorToast(`Transcription failed: ${result.error}`);
+} else {
+  showTranscript(result.text);
+}
+```
+
+### What I Will NOT Ship in Phase 06
+
+**Automatic retry logic**: Out of scope. If Groq API call fails, I return error. You decide whether to retry (show "Retry" button in UI).
+
+**Progress events during transcription**: Out of scope. `transcribeAudio` is single Promise (not streaming). Groq API is fast (< 5s for typical snip), progress not needed.
+
+**Language auto-detection configuration**: I use Groq's default (auto-detect language). Language parameter in options is for future extension.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement `transcribeAudio` with fixture/live modes, `validateKey` with format check, build Isolation Demo with fixture and optional live testing.
