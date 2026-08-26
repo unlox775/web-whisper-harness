@@ -18,10 +18,10 @@
     "paths": {
       "@/*": ["./src/*"],
       "@session-store": ["../../packages/datastore/session-store/src/index.js"],
-      "@capture-engine": ["../../packages/lib/capture-engine/dist/index.d.ts"],
-      "@playback-engine": ["../../packages/lib/playback-engine/dist/index.d.ts"],
+      "@capture-engine": ["../../packages/lib/capture-engine/src/index.ts"],
+      "@playback-engine": ["../../packages/lib/playback-engine/src/index.ts"],
       "@transcription-client": ["../../packages/lib/transcription-client/src/index.js"],
-      "@volume-analyzer": ["../../packages/lib/volume-analyzer/dist/index.d.ts"]
+      "@volume-analyzer": ["../../packages/lib/volume-analyzer/src/index.ts"]
     }
   },
   "include": ["src"],
