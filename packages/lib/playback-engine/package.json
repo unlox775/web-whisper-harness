@@ -1,0 +1,16 @@
+{
+  "name": "@web-whisper/playback-engine",
+  "version": "0.1.0",
+  "description": "Audio playback for sessions, chunks, and snips",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
