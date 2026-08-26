@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: initial-product-spec
 Created: 2026-08-26T15:20:37Z
 Product: packages/datastore/session-store
