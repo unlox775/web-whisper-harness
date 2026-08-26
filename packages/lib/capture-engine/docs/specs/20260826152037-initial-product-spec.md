@@ -339,3 +339,96 @@ Customers of capture-engine:
 - Isolation Demo (standing human customer; see `customers/00-isolation-demo.md`)
 
 Customer request sections will be filled by Phase 04 customer-request agents. Producer response sections will be filled by Phase 05 producer-response agent.
+
+## Resolution
+
+**Resolved:** 2026-08-26
+
+The capture-engine library and its isolation demo have been implemented according to the specifications in this document.
+
+### What Was Implemented
+
+**Core Library (`packages/lib/capture-engine/src/`):**
+- `captureEngine.ts` - Main capture session logic with ScriptProcessor-based PCM capture
+- `encoder.ts` - MP3 encoding wrapper around lamejs library
+- `types.ts` - TypeScript interfaces for all public APIs
+- `index.ts` - Public exports
+
+**Key Features:**
+- ✅ Live microphone acquisition via getUserMedia
+- ✅ Simulated PCM stream for testing (OscillatorNode-based)
+- ✅ ScriptProcessor-based PCM capture (4096 sample buffer)
+- ✅ MP3 encoding with lamejs (128 kbps, ~4s chunks)
+- ✅ Sample-based duration calculation (not wall clock)
+- ✅ 10-second watchdog timer for mic ghost detection
+- ✅ Event system (chunkEncoded, captureError, captureStopped)
+- ✅ In-memory mode for isolation demo (no session-store dependency)
+- ✅ Session-store integration path (dynamic import, graceful fallback)
+
+**Isolation Demo (`packages/lib/capture-engine/isolation-demo/`):**
+- ✅ 5-panel desktop layout as specified in isolation-demo/README.md
+- ✅ Top chrome with data mode chip and mic permission status
+- ✅ Control panel with Start/Stop/Reset buttons and audio source toggle
+- ✅ Live meters (duration, PCM buffer, chunk count, watchdog countdown)
+- ✅ Chunk tape with Play buttons (in-memory playback)
+- ✅ Collapsible event feed for telemetry
+- ✅ Simulated PCM mode (default, no mic permission required)
+- ✅ Live microphone mode (requests permission, captures real audio)
+- ✅ Launch command: `cd packages/lib/capture-engine/isolation-demo && npm install && npm start`
+
+### Demo Validation
+
+The isolation demo exercises all core paths:
+1. **Start/Stop capture** - Both simulated and live mic modes work
+2. **Simulated PCM** - Generates synthetic audio, encodes chunks every ~4s
+3. **Chunk playback** - Each chunk can be played from RAM via HTML5 audio
+4. **Watchdog/ghost path** - Timer counts down, auto-stops if no audio received
+5. **Reset** - Clears all in-memory chunks, proves no persistence
+
+### Known Limitations (documented in spec)
+- ScriptProcessor is deprecated but compatible with iOS (AudioWorklet migration is Phase 07)
+- Encoding happens on main thread (~200ms per 4s chunk acceptable for MVP)
+- No retry logic for store write failures (Phase 07)
+- No pause/resume (Phase 07)
+
+### Files Committed
+- `src/captureEngine.ts`, `src/encoder.ts`, `src/types.ts`, `src/index.ts`
+- `package.json`, `package-lock.json`, `tsconfig.json`
+- `isolation-demo/index.html`, `isolation-demo/app.js`, `isolation-demo/styles.css`
+- `isolation-demo/package.json`, `isolation-demo/package-lock.json`
+- **NOT committed:** `node_modules/` (correctly excluded)
+
+### How to Run the Demo
+
+From workspace root:
+```bash
+cd packages/lib/capture-engine/isolation-demo
+npm install  # if first time
+npm start    # opens http://localhost:5173 (vite dev server)
+```
+
+The demo opens in desktop browser. Default mode is "Simulated PCM stream" (no mic permission needed). Toggle "Live Microphone" to test real mic capture.
+
+### Integration Path
+
+Production integration (PWA):
+```typescript
+import { startCapture, CaptureHandle } from '@web-whisper/capture-engine';
+
+// PWA creates session first via session-store
+const session = await sessionStore.createSession();
+
+// Start capture (writes chunks to session-store)
+const handle = await startCapture(session.id);
+
+// Subscribe to events
+handle.on('chunkEncoded', (data) => {
+  console.log(`Chunk ${data.seq} encoded, ${data.duration}s`);
+});
+
+// Stop capture
+const summary = await handle.stop();
+console.log(`Captured ${summary.chunksWritten} chunks, ${summary.totalDuration}s`);
+```
+
+The implementation is complete and ready for integration into the PWA.
