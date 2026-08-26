@@ -1,7 +1,28 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { sessionStore, type Session, type Chunk } from '../lib/session-store'
+import * as sessionStore from '@session-store'
 import './DeveloperConsole.css'
+
+interface Session {
+  id: string
+  createdAt: string
+  duration: number
+  chunkCount: number
+  sizeBytes: number
+  hasVolumeProfile: boolean
+  hasSnips: boolean
+  hasTranscript: boolean
+}
+
+interface Chunk {
+  id: string
+  sessionId: string
+  seq: number
+  startTime: number
+  endTime: number
+  duration: number
+  sizeBytes: number
+}
 
 export default function DeveloperConsole() {
   const navigate = useNavigate()

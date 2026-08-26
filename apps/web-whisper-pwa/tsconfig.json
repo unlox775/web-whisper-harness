@@ -16,7 +16,12 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@session-store": ["../../packages/datastore/session-store/src/index.js"],
+      "@capture-engine": ["../../packages/lib/capture-engine/dist/index.d.ts"],
+      "@playback-engine": ["../../packages/lib/playback-engine/dist/index.d.ts"],
+      "@transcription-client": ["../../packages/lib/transcription-client/src/index.js"],
+      "@volume-analyzer": ["../../packages/lib/volume-analyzer/dist/index.d.ts"]
     }
   },
   "include": ["src"],

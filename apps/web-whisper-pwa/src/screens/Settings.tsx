@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { transcriptionClient } from '../lib/transcription-client'
+import { validateKey } from '@transcription-client'
 import './Settings.css'
 
 export default function Settings() {
@@ -34,7 +34,7 @@ export default function Settings() {
     setKeyStatus('checking')
     setKeyMessage('Validating...')
 
-    const result = await transcriptionClient.validateKey(apiKey)
+    const result = await validateKey(apiKey)
     
     if (result.valid) {
       setKeyStatus('valid')

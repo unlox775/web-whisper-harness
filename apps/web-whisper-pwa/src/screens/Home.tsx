@@ -1,7 +1,25 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { sessionStore, type Session, type StorageStats } from '../lib/session-store'
+import * as sessionStore from '@session-store'
 import './Home.css'
+
+interface Session {
+  id: string
+  createdAt: string
+  duration: number
+  chunkCount: number
+  sizeBytes: number
+  hasVolumeProfile: boolean
+  hasSnips: boolean
+  hasTranscript: boolean
+}
+
+interface StorageStats {
+  usedBytes: number
+  capBytes: number
+  sessionCount: number
+  chunkCount: number
+}
 
 export default function Home() {
   const navigate = useNavigate()
@@ -15,6 +33,7 @@ export default function Home() {
   })
 
   useEffect(() => {
+    sessionStore.init()
     loadSessions()
     loadStats()
   }, [])

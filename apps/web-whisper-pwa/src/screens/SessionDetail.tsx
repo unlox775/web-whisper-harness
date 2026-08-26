@@ -1,8 +1,30 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { sessionStore, type Session, type Chunk } from '../lib/session-store'
-import { playbackEngine, type PlaybackHandle } from '../lib/playback-engine'
+import * as sessionStore from '@session-store'
+import { playSession } from '@playback-engine'
+import type { PlaybackHandle } from '@playback-engine'
 import './SessionDetail.css'
+
+interface Session {
+  id: string
+  createdAt: string
+  duration: number
+  chunkCount: number
+  sizeBytes: number
+  hasVolumeProfile: boolean
+  hasSnips: boolean
+  hasTranscript: boolean
+}
+
+interface Chunk {
+  id: string
+  sessionId: string
+  seq: number
+  startTime: number
+  endTime: number
+  duration: number
+  sizeBytes: number
+}
 
 export default function SessionDetail() {
   const navigate = useNavigate()
@@ -50,7 +72,7 @@ export default function SessionDetail() {
       return
     }
 
-    const result = await playbackEngine.playSession(sessionId!)
+    const result = await playSession(sessionId!)
     if ('error' in result) {
       alert('Playback failed: ' + result.error)
       return

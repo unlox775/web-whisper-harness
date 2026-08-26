@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { captureEngine, type CaptureHandle } from '../lib/capture-engine'
+import { startCapture } from '@capture-engine'
+import type { CaptureHandle } from '@capture-engine'
 import './Record.css'
 
 export default function Record() {
@@ -18,7 +19,7 @@ export default function Record() {
       return
     }
 
-    startCapture()
+    startCaptureRecording()
 
     return () => {
       if (handleRef.current) {
@@ -27,9 +28,9 @@ export default function Record() {
     }
   }, [sessionId])
 
-  async function startCapture() {
+  async function startCaptureRecording() {
     try {
-      const handle = await captureEngine.startCapture(sessionId!)
+      const handle = await startCapture(sessionId!)
       handleRef.current = handle
 
       handle.on('chunkEncoded', (_data: any) => {
