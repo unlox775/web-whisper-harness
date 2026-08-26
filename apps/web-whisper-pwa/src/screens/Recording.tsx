@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { theme } from '../theme'
-import { captureEngine } from '../packages/captureEngine'
+import * as captureEngine from '@web-whisper/capture-engine'
+import type { CaptureHandle } from '@web-whisper/capture-engine'
 import { formatDuration } from '../utils/format'
-import type { CaptureHandle } from '../packages/types'
 
 interface RecordingProps {
   sessionId: string

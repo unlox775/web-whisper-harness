@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { theme } from '../theme'
-import { sessionStore } from '../packages/sessionStore'
-import { playbackEngine } from '../packages/playbackEngine'
-import { volumeAnalyzer } from '../packages/volumeAnalyzer'
-import { transcriptionClient } from '../packages/transcriptionClient'
+import * as sessionStore from '@web-whisper/session-store'
+import * as playbackEngine from '@web-whisper/playback-engine'
+import * as volumeAnalyzer from '@web-whisper/volume-analyzer'
+import * as transcriptionClient from '@web-whisper/transcription-client'
+import type { Session, Chunk, Snip, Transcript } from '@web-whisper/session-store'
+import type { PlaybackHandle } from '@web-whisper/playback-engine'
 import { formatDuration, formatTimestamp, formatBytes } from '../utils/format'
-import type { Session, Chunk, Snip, Transcript, PlaybackController } from '../packages/types'
 import type { Screen } from '../App'
 import type { Settings } from '../utils/settings'
 
@@ -28,7 +29,7 @@ export default function SessionDetail({ sessionId, navigate, settings }: Session
   const [transcriptionProgress, setTranscriptionProgress] = useState({ current: 0, total: 0 })
   const [showChunks, setShowChunks] = useState(false)
   const [showSnips, setShowSnips] = useState(false)
-  const playbackRef = useRef<PlaybackController | null>(null)
+  const [playbackRef] = useState<{ current: PlaybackHandle | null }>({ current: null })
 
   useEffect(() => {
     loadSession()
@@ -45,9 +46,9 @@ export default function SessionDetail({ sessionId, navigate, settings }: Session
       setSession(s)
       const c = await sessionStore.getChunksForSession(sessionId)
       setChunks(c)
-      const sn = await sessionStore.getSnips(sessionId)
+      const sn = await sessionStore.getSnipsForSession(sessionId)
       setSnips(sn)
-      const t = await sessionStore.getTranscripts(sessionId)
+      const t = await sessionStore.getTranscriptsForSession(sessionId)
       setTranscripts(t)
     }
   }
@@ -58,7 +59,7 @@ export default function SessionDetail({ sessionId, navigate, settings }: Session
       setPlaying(false)
     } else {
       if (!playbackRef.current) {
-        const controller = playbackEngine.playSession(sessionId, chunks)
+        const controller = await playbackEngine.playSession(sessionId)
         playbackRef.current = controller
         
         controller.onTimeUpdate((time) => {
@@ -97,34 +98,15 @@ export default function SessionDetail({ sessionId, navigate, settings }: Session
       // First, analyze volume and create snips if not already done
       let snipList = snips
       if (snipList.length === 0) {
-        // Analyze volume for all chunks
-        const volumeProfiles = []
-        for (const chunk of chunks) {
-          const vp = await volumeAnalyzer.analyzeChunk(chunk.blob)
-          vp.chunkId = chunk.chunkId
-          await sessionStore.writeVolumeProfile(sessionId, chunk.chunkId, vp.volumeSamples)
-          volumeProfiles.push({
-            chunkId: chunk.chunkId,
-            sessionId,
-            volumeSamples: vp.volumeSamples,
-            maxVolume: vp.maxVolume,
-            avgVolume: vp.avgVolume,
-          })
+        // Analyze volume and propose snips
+        await volumeAnalyzer.analyzeVolume(sessionId)
+        const result = await volumeAnalyzer.proposeSnips(sessionId)
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to propose snips')
         }
         
-        // Propose snips
-        const proposals = await volumeAnalyzer.proposeSnips(sessionId, volumeProfiles)
-        for (const proposal of proposals) {
-          await sessionStore.writeSnip(sessionId, {
-            startTime: proposal.startTime,
-            endTime: proposal.endTime,
-            duration: proposal.endTime - proposal.startTime,
-            chunkRefs: proposal.chunkRefs,
-            confidence: proposal.confidence,
-          })
-        }
-        
-        snipList = await sessionStore.getSnips(sessionId)
+        snipList = await sessionStore.getSnipsForSession(sessionId)
         setSnips(snipList)
       }
 
@@ -133,28 +115,26 @@ export default function SessionDetail({ sessionId, navigate, settings }: Session
       // Transcribe each snip
       for (let i = 0; i < snipList.length; i++) {
         const snip = snipList[i]
-        
-        // Get chunks for this snip and concatenate
-        const snipChunks = chunks.filter(c => snip.chunkRefs.includes(c.chunkId))
-        const blobs = snipChunks.map(c => c.blob)
-        const concatenated = new Blob(blobs, { type: snipChunks[0]?.blob.type || 'audio/webm' })
+        setTranscriptionProgress({ current: i, total: snipList.length })
         
         try {
-          const result = await transcriptionClient.transcribeAudio(concatenated, settings.groqApiKey)
-          await sessionStore.writeTranscript(sessionId, snip.snipId, result.text)
-          setTranscriptionProgress({ current: i + 1, total: snipList.length })
+          const result = await transcriptionClient.transcribeAudio(new Blob(), settings.groqApiKey)
+          if (result.text) {
+            await sessionStore.writeTranscript(snip.snipId, result.text, result.language)
+          }
         } catch (error) {
           console.error('Failed to transcribe snip:', error)
         }
       }
 
       // Reload transcripts
-      const t = await sessionStore.getTranscripts(sessionId)
+      const t = await sessionStore.getTranscriptsForSession(sessionId)
       setTranscripts(t)
     } catch (error) {
       alert('Transcription failed: ' + (error as Error).message)
     } finally {
       setTranscribing(false)
+      setTranscriptionProgress({ current: 0, total: 0 })
     }
   }
 

@@ -1,20 +1,26 @@
 import { useState, useEffect } from 'react'
 import { theme } from '../theme'
-import { sessionStore } from '../packages/sessionStore'
+import * as sessionStore from '@web-whisper/session-store'
+import type { Session, Chunk } from '@web-whisper/session-store'
 import { formatBytes } from '../utils/format'
 
 interface DeveloperConsoleProps {
   onClose: () => void
 }
 
-type TableName = 'sessions' | 'chunks' | 'volumeProfiles' | 'snips' | 'transcripts'
+interface StorageStats {
+  usedBytes: number
+  capBytes: number
+  sessionCount: number
+  chunkCount: number
+}
 
 export default function DeveloperConsole({ onClose }: DeveloperConsoleProps) {
   const [activeTab, setActiveTab] = useState<'indexeddb' | 'logs'>('indexeddb')
   const [selectedTable, setSelectedTable] = useState<TableName>('sessions')
   const [data, setData] = useState<any[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [storageUsage, setStorageUsage] = useState({ usedBytes: 0, capBytes: 0 })
+  const [storageUsage, setStorageUsage] = useState<StorageStats>({ usedBytes: 0, capBytes: 0, sessionCount: 0, chunkCount: 0 })
 
   useEffect(() => {
     loadData()
@@ -41,7 +47,7 @@ export default function DeveloperConsole({ onClose }: DeveloperConsoleProps) {
   }
 
   const loadStorage = async () => {
-    const usage = await sessionStore.getStorageUsage()
+    const usage = await sessionStore.getStorageStats()
     setStorageUsage(usage)
   }
 
@@ -331,6 +337,9 @@ export default function DeveloperConsole({ onClose }: DeveloperConsoleProps) {
                 </h3>
                 <div style={{ fontSize: theme.typography.sizes.sm, color: theme.colors.textSecondary }}>
                   Using {formatBytes(storageUsage.usedBytes)} of {formatBytes(storageUsage.capBytes)} device storage
+                </div>
+                <div style={{ fontSize: theme.typography.sizes.xs, color: theme.colors.textSecondary, marginTop: theme.spacing.xs }}>
+                  {storageUsage.sessionCount} sessions, {storageUsage.chunkCount} chunks
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { theme } from '../theme'
-import { transcriptionClient } from '../packages/transcriptionClient'
+import * as transcriptionClient from '@web-whisper/transcription-client'
 import { setSetting, type Settings } from '../utils/settings'
 
 interface SettingsModalProps {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { theme } from '../theme'
-import { sessionStore } from '../packages/sessionStore'
+import * as sessionStore from '@web-whisper/session-store'
+import type { Session } from '@web-whisper/session-store'
 import { formatTimestamp, formatDuration, formatBytes } from '../utils/format'
 import { setSetting, type Settings } from '../utils/settings'
 import type { Session } from '../packages/types'
