@@ -1,0 +1,201 @@
+.settings {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-card);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md);
+  padding-top: calc(var(--safe-area-top) + var(--spacing-md));
+  background-color: var(--bg-card);
+  border-bottom: 1px solid var(--border-card);
+}
+
+.settings-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.close-button {
+  color: var(--accent-cyan);
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+  min-height: 44px;
+}
+
+.settings-main {
+  flex: 1;
+  padding: var(--spacing-md);
+  padding-bottom: calc(var(--safe-area-bottom) + var(--spacing-md));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-section h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.status-chip {
+  padding: 0.375rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-chip.enabled {
+  background-color: var(--accent-cyan);
+  color: var(--bg-primary);
+}
+
+.status-chip.disabled {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+
+.help-text {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-size: 0.9375rem;
+}
+
+.help-text a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+
+.help-text a:hover {
+  text-decoration: underline;
+}
+
+.setup-steps {
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding-left: var(--spacing-lg);
+  margin: var(--spacing-sm) 0;
+}
+
+.setup-steps a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-field label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.text-input,
+.number-input {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-card);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  font-size: 1rem;
+  color: var(--text-primary);
+  min-height: 48px;
+}
+
+.text-input:focus,
+.number-input:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+}
+
+.field-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.key-status {
+  font-size: 0.875rem;
+  flex: 1;
+}
+
+.key-status.checking {
+  color: var(--text-secondary);
+}
+
+.key-status.valid {
+  color: #10b981;
+}
+
+.key-status.invalid {
+  color: #dc2626;
+}
+
+.key-status.unknown {
+  color: var(--text-secondary);
+}
+
+.secondary-button {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-card);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 12px;
+  min-height: 40px;
+  transition: background-color 0.2s;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.secondary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--accent-cyan);
+}
+
+.field-help {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
