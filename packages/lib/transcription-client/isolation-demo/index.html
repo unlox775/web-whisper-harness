@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transcription Client Isolation Demo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Top Chrome Panel -->
+  <header class="chrome-panel">
+    <div class="chrome-left">
+      <h1>Transcription Client Isolation Demo</h1>
+    </div>
+    <div class="chrome-center">
+      <span id="modeChip" class="mode-chip mode-fixture">FIXTURE MODE (mock transcript)</span>
+    </div>
+    <div class="chrome-right">
+      <label class="toggle-container">
+        <input type="checkbox" id="liveModeToggle">
+        <span>Enable Live Mode</span>
+      </label>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <!-- Control Panel (Left) -->
+    <aside class="control-panel">
+      <div class="control-section">
+        <label for="apiKeyInput">Groq API Key</label>
+        <input 
+          type="text" 
+          id="apiKeyInput" 
+          placeholder="Enter Groq API key (gsk_...)" 
+          disabled
+        >
+      </div>
+
+      <div class="control-section">
+        <button id="validateKeyBtn" class="btn btn-primary" disabled>
+          Validate Key
+        </button>
+      </div>
+
+      <div class="control-section">
+        <button id="transcribeBtn" class="btn btn-primary">
+          Transcribe Audio
+        </button>
+      </div>
+
+      <div class="control-section">
+        <button id="resetBtn" class="btn btn-secondary">
+          Reset
+        </button>
+      </div>
+
+      <div id="errorSimSection" class="control-section error-sim-section">
+        <h3>Error Simulation (Fixture Mode)</h3>
+        <button id="simNetworkBtn" class="btn btn-secondary">
+          Simulate Network Failure
+        </button>
+        <button id="simRateLimitBtn" class="btn btn-secondary">
+          Simulate Rate Limit
+        </button>
+        <button id="simInvalidAudioBtn" class="btn btn-secondary">
+          Simulate Invalid Audio
+        </button>
+      </div>
+    </aside>
+
+    <!-- Right Side (Validation + Transcript) -->
+    <div class="right-side">
+      <!-- Validation Result Panel -->
+      <section class="validation-panel">
+        <h2>API Key Validation</h2>
+        <div id="validationStatus" class="status-badge status-neutral">
+          Not validated
+        </div>
+        <div id="validationReason" class="validation-reason"></div>
+      </section>
+
+      <!-- Transcript Panel -->
+      <section class="transcript-panel">
+        <h2>Transcript Output</h2>
+        <div id="languageBadge" class="language-badge" style="display: none;">
+          Language: <span id="languageCode">en</span>
+        </div>
+        <div id="transcriptOutput" class="transcript-output">
+          Click 'Transcribe Audio' to generate transcript
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="demo.js"></script>
+</body>
+</html>

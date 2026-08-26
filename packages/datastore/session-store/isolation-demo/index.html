@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Session Store Isolation Demo</title>
+  <link rel="stylesheet" href="./src/styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Top Chrome Panel -->
+    <header class="top-chrome">
+      <h1>Session Store Isolation Demo</h1>
+      <div class="db-chip">SANDBOX DB (web-whisper-sandbox-db)</div>
+      <div class="storage-stats" id="header-storage-stats">
+        Storage: 0 B / 5.0 MB (0%)
+      </div>
+    </header>
+
+    <div class="main-content">
+      <!-- Write Operations Panel -->
+      <aside class="write-panel">
+        <h2>Write Operations</h2>
+        
+        <section class="write-section">
+          <h3>Session</h3>
+          <button id="create-session-btn" class="btn btn-primary">Create Session</button>
+          <div id="last-session-id" class="info-text"></div>
+        </section>
+
+        <section class="write-section">
+          <h3>Chunks</h3>
+          <label>
+            Session ID:
+            <input type="text" id="chunk-session-id" class="input-field" placeholder="Session ID">
+          </label>
+          <label>
+            Data Source:
+            <select id="chunk-data-source" class="select-field">
+              <option value="fixture">Fixture Data</option>
+              <option value="upload" disabled>Upload MP3 File</option>
+            </select>
+          </label>
+          <button id="write-chunk-btn" class="btn btn-primary">Write Chunk</button>
+          <div id="chunk-count" class="info-text">Chunks written: 0</div>
+        </section>
+
+        <section class="write-section">
+          <h3>Volume Profile</h3>
+          <label>
+            Session ID:
+            <input type="text" id="volume-session-id" class="input-field" placeholder="Session ID">
+          </label>
+          <label>
+            Data Source:
+            <select id="volume-data-source" class="select-field">
+              <option value="fixture">Fixture Volume</option>
+            </select>
+          </label>
+          <button id="write-volume-btn" class="btn btn-primary">Write Volume Profile</button>
+        </section>
+
+        <section class="write-section">
+          <h3>Snips</h3>
+          <label>
+            Session ID:
+            <input type="text" id="snip-session-id" class="input-field" placeholder="Session ID">
+          </label>
+          <label>
+            Data Source:
+            <select id="snip-data-source" class="select-field">
+              <option value="fixture">Fixture Snips</option>
+            </select>
+          </label>
+          <button id="write-snips-btn" class="btn btn-primary">Write Snips</button>
+          <div id="snip-count" class="info-text">Snips written: 0</div>
+        </section>
+
+        <section class="write-section">
+          <h3>Transcripts</h3>
+          <label>
+            Snip ID:
+            <input type="text" id="transcript-snip-id" class="input-field" placeholder="Snip ID">
+          </label>
+          <label>
+            Text:
+            <textarea id="transcript-text" class="textarea-field" rows="3" placeholder="Transcript text..."></textarea>
+          </label>
+          <button id="write-transcript-btn" class="btn btn-primary">Write Transcript</button>
+        </section>
+      </aside>
+
+      <!-- Session List Panel -->
+      <main class="session-list-panel">
+        <h2>Sessions in Sandbox DB</h2>
+        <div id="session-list-container">
+          <div id="session-empty-state" class="empty-state">
+            No sessions yet. Click 'Create Session' to start.
+          </div>
+          <table id="session-list-table" class="session-table" style="display: none;">
+            <thead>
+              <tr>
+                <th>Session ID</th>
+                <th>Created At</th>
+                <th>Duration</th>
+                <th>Chunks</th>
+                <th>Size</th>
+                <th>Volume?</th>
+                <th>Snips?</th>
+                <th>Transcripts?</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="session-list-body">
+            </tbody>
+          </table>
+        </div>
+        
+        <!-- Session Details Expansion -->
+        <div id="session-details" class="session-details" style="display: none;">
+          <h3>Session Details: <span id="details-session-id"></span></h3>
+          <button id="close-details-btn" class="btn btn-secondary">Close Details</button>
+          
+          <div class="details-tabs">
+            <button class="tab-btn active" data-tab="chunks">Chunks</button>
+            <button class="tab-btn" data-tab="volume">Volume Profile</button>
+            <button class="tab-btn" data-tab="snips">Snips</button>
+            <button class="tab-btn" data-tab="transcripts">Transcripts</button>
+          </div>
+          
+          <div class="details-content">
+            <div id="chunks-tab" class="tab-content active">
+              <table class="details-table">
+                <thead>
+                  <tr>
+                    <th>Seq</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Duration</th>
+                    <th>Size</th>
+                  </tr>
+                </thead>
+                <tbody id="chunks-list"></tbody>
+              </table>
+            </div>
+            
+            <div id="volume-tab" class="tab-content">
+              <div id="volume-content"></div>
+            </div>
+            
+            <div id="snips-tab" class="tab-content">
+              <table class="details-table">
+                <thead>
+                  <tr>
+                    <th>Snip ID</th>
+                    <th>Start Time</th>
+                    <th>End Time</th>
+                    <th>Duration</th>
+                    <th>Confidence</th>
+                  </tr>
+                </thead>
+                <tbody id="snips-list"></tbody>
+              </table>
+            </div>
+            
+            <div id="transcripts-tab" class="tab-content">
+              <table class="details-table">
+                <thead>
+                  <tr>
+                    <th>Snip ID</th>
+                    <th>Text Preview</th>
+                  </tr>
+                </thead>
+                <tbody id="transcripts-list"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Storage Management Panel -->
+      <aside class="storage-panel">
+        <h2>Storage Management</h2>
+        
+        <label>
+          Storage Cap (MB):
+          <input type="number" id="storage-cap-input" class="input-field" value="5.0" step="0.5" min="0.5">
+        </label>
+        <button id="update-cap-btn" class="btn btn-secondary">Update Cap</button>
+        
+        <div class="storage-stats-detail">
+          <div>Used: <span id="used-bytes">0 B</span></div>
+          <div>Cap: <span id="cap-bytes">5.0 MB</span></div>
+          <div>Usage: <span id="usage-percent">0%</span></div>
+          <div>Sessions: <span id="session-count">0</span></div>
+          <div>Chunks: <span id="chunk-count-stat">0</span></div>
+        </div>
+        
+        <button id="enforce-retention-btn" class="btn btn-danger">Enforce Retention Policy</button>
+        
+        <div id="retention-log" class="retention-log"></div>
+      </aside>
+    </div>
+
+    <!-- Reload Test Panel -->
+    <footer class="reload-panel">
+      <h2>Persistence Test</h2>
+      <button id="reload-page-btn" class="btn btn-secondary">Reload Page</button>
+      <div id="persistence-status" class="persistence-status"></div>
+    </footer>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -475,6 +475,184 @@ All pre-operation errors returned as structured objects (NOT thrown exceptions).
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for session-store)
+I'm session-store. I accept your web-whisper-pwa customer request. You are my primary orchestrator—the end-user-facing PWA that manages the full recording-to-transcription workflow. I will provide high-level session management, storage governance, and clean error returns (NOT exceptions). Here's exactly what I will ship in Phase 06:
 
-Session-store will respond here: how it will meet the PWA's request, what interfaces it will provide, what error formats it will return, how it will implement pagination for large session lists, what data formats it will use, and how it will ensure referential integrity (session exists before chunks/snips/transcripts written).
+### Session Management Interfaces
+
+**`createSession()`** → `{id: string}` or error
+
+- Generates unique session ID: `sess_${timestamp}_${randomSuffix}` (e.g., `sess_20260826152037_abc123`)
+- Creates session record: `{id, createdAt: ISO8601, updatedAt: ISO8601, duration: 0, chunkCount: 0, sizeBytes: 0, hasVolumeProfile: false, hasSnips: false, hasTranscript: false}`
+- Writes to `sessions` object store
+- Returns `{id}` on success
+- Returns `{error: 'database_unavailable', reason}` if IndexedDB fails
+- Fast (< 50ms, single write)
+
+**`listSessions(options?)`** → `{sessions: [...], total: number}` or error
+
+Options: `{limit = 100, offset = 0}`
+
+- Queries `sessions` object store using `by-createdAt` index (DESC order, most recent first)
+- Returns session list: `[{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}, ...]`
+- **Sorted by createdAt DESC** (most recent first, guaranteed via index with prev cursor)
+- Applies limit/offset: skip first `offset` sessions, return next `limit` sessions
+- Returns `total` field (count of ALL sessions, not limited to current page)
+- **NO BLOBS, no chunks/snips/transcripts** in session records (metadata only for performance)
+- Returns `{error: 'database_unavailable'}` if query fails
+- Performance: < 100ms for < 100 sessions, < 500ms for 100–1000 sessions
+
+**`getSession(sessionId)`** → session object or `null`
+
+- Single record read by primary key
+- Returns full metadata: `{id, createdAt, updatedAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}`
+- Returns `null` if not found (NOT error object—null is expected return)
+- Fast (< 50ms)
+
+**`deleteSession(sessionId)`** → `{deleted: true}` or error
+
+- Validates `sessionId` exists (if not found → return `{error: 'session_not_found', sessionId}`)
+- **Cascade delete** (single transaction):
+  1. Query transcripts for session (`by-sessionId` index) → delete all
+  2. Query snips for session (`by-sessionId` index) → delete all
+  3. Delete volume profile (primary key = sessionId)
+  4. Query chunks for session (`by-sessionId` index) → delete all
+  5. Delete session record
+- Returns `{deleted: true}` on success
+- Returns error if validation fails or IndexedDB fails
+- Acceptable latency: 100–500ms for large sessions (many chunks/snips/transcripts), you show confirm dialog so latency is expected
+
+### Related Data Queries (Session Detail View)
+
+**`getChunksForSession(sessionId)`** → `{chunks: [...]}` or error
+
+- Returns chunk metadata list (id, sessionId, seq, startTime, endTime, duration, sizeBytes)
+- **NO BLOBS** (huge performance issue if included). Playback-engine calls `getChunk` separately to fetch blobs for playback.
+- Sorted by seq ASC (guaranteed via `by-sessionId-seq` index)
+- Developer mode: You display chunk list in detail view
+- Default mode: You still call it to check `chunkCount > 0` before showing play button
+
+**`getSnipsForSession(sessionId)`** → `{snips: [...]}` or error
+
+- Returns snip list (id, sessionId, startTime, endTime, duration, chunkIds, confidence, createdAt)
+- Sorted by startTime ASC (guaranteed via query with custom comparator or post-query sort)
+- You display snip list in session detail ("Snip 1: 0:00–0:15 (15s)")
+- Each snip row has Play button (calls `playback-engine.playSnip(snipId)`)
+
+**`getTranscriptsForSession(sessionId)`** → `{transcripts: [...]}` or error
+
+- Returns transcript list (snipId, sessionId, text, createdAt, updatedAt)
+- You display transcript text in session detail (one paragraph per snip transcript)
+- May implement copy-to-clipboard button
+
+**`writeTranscript(snipId, transcriptText)`** → `{written: true}` or error
+
+- Validates `snipId` exists (query `snips` object store, if not found → return `{error: 'snip_not_found', snipId}`)
+- Gets `sessionId` from snip record
+- Writes/replaces transcript to `transcripts` object store (key = snipId, overwrite if exists)
+- Record: `{snipId, sessionId, text, createdAt, updatedAt: ISO8601}`
+- Updates session: `session.hasTranscript = true`, `session.updatedAt = now`
+- Returns `{written: true}` on success
+- You call this after `transcription-client.transcribeAudio(snipAudioBlob)` completes
+
+### Storage Governance
+
+**`getStorageStats()`** → `{usedBytes, capBytes, sessionCount, chunkCount}` or error
+
+- Counts sessions: `sessions` object store count
+- Counts chunks: `chunks` object store count
+- Sums chunk sizes: iterate all chunks (or maintain aggregate counter), sum `sizeBytes` * 1.1 (10% IndexedDB overhead estimate)
+- Reads `capBytes` from localStorage `'web-whisper-storage-cap'` key (default 200 MB = 209715200 if not set)
+- Returns `{usedBytes, capBytes, sessionCount, chunkCount}`
+- You display: "Storage: 45 MB / 200 MB (22%)" in settings, "5 sessions, 72 chunks" detail text
+- Performance: < 200ms (aggregate calculation over all sessions/chunks)
+
+**`enforceRetentionPolicy(capBytes)`** → `{deletedSessions, reclaimedBytes, newUsedBytes}` or error
+
+- Fetches sessions sorted by createdAt ASC (oldest first)
+- Calculates current `usedBytes`
+- Deletes oldest sessions until `usedBytes <= capBytes`
+- Calls internal `deleteSession(sessionId)` per deleted session (cascade delete)
+- Returns `{deletedSessions: count, reclaimedBytes: sum_of_deleted_sizes, newUsedBytes: remaining}`
+- You call this after recording stops if `usedBytes > capBytes`
+- You display toast: "Deleted {deletedSessions} old session(s) to free space"
+- Performance: 500–2000ms (deletes multiple sessions, acceptable for automatic background operation or user-triggered settings action)
+
+### Data Formats (Consistent Across All Interfaces)
+
+**Timestamps**: ISO 8601 strings (e.g., `"2026-08-26T15:20:37.000Z"`). Consistent across all fields: `createdAt`, `updatedAt`.
+
+**Sizes**: Bytes (number). E.g., `sizeBytes: 32768`. You format for display ("32 KB", "1.2 MB").
+
+**Durations**: Seconds (number, float). E.g., `duration: 12.34`. You format for display ("12.3s", "1m 23s").
+
+**Session IDs**: `sess_${timestamp}_${randomSuffix}` (e.g., `sess_20260826152037_abc123`)
+
+**Chunk IDs**: `chunk_${sessionId}_${seq.padStart(3, '0')}` (e.g., `chunk_sess_20260826152037_abc123_000`)
+
+**Snip IDs**: `snip_${sessionId}_${index}` (e.g., `snip_sess_20260826152037_abc123_0`)
+
+### Pagination (Large Session Lists)
+
+Default call: `listSessions()` → returns first 100 sessions, `total` field shows total count
+
+If `total > 100`:
+- You show "Load More" button
+- Call `listSessions({limit: 100, offset: 100})` → returns next 100 sessions
+- Append to existing list
+
+Pagination works via IndexedDB cursor advance (skip first `offset`, then return `limit` results).
+
+### Error Handling (Structured Objects, NOT Exceptions)
+
+- `{error: 'database_unavailable', reason}` → IndexedDB operation failed. You show toast "Storage unavailable. Check browser storage permissions."
+- `{error: 'session_not_found', sessionId}` → Session does not exist. You show toast "Session not found. It may have been deleted." + remove stale card from UI
+- `{error: 'snip_not_found', snipId}` → Snip does not exist. You show toast "Snip not found. Cannot save transcript."
+
+**All errors returned as structured objects** (NOT thrown exceptions). If I throw exception, your PWA crashes. I catch exceptions internally and return error objects.
+
+**Null returns** (for single-record reads):
+- `getSession(sessionId)` returns `null` if not found (NOT error object—null is cleaner)
+
+### Referential Integrity Guarantees
+
+- Session MUST exist before chunks/volume-profile/snips/transcripts can be written (I validate in write operations)
+- Snip MUST exist before transcript can be written (I validate in `writeTranscript`)
+- Cascade delete maintains integrity (no orphan chunks/snips/transcripts after session deletion)
+
+**Session metadata consistency** (I maintain automatically):
+- `session.duration` = max chunk endTime (updated in `writeChunk`)
+- `session.sizeBytes` = sum of chunk sizeByte values (updated in `writeChunk`)
+- `session.chunkCount` = count of chunks for session (updated in `writeChunk`)
+- `session.hasVolumeProfile` = true if volume profile exists (updated in `writeVolumeProfile`)
+- `session.hasSnips` = true if any snips exist (updated in `writeSnip`)
+- `session.hasTranscript` = true if any transcripts exist (updated in `writeTranscript`)
+
+You do NOT manually update session metadata. I handle it.
+
+### Performance Expectations
+
+- `createSession`: < 50ms
+- `listSessions({limit: 100})`: < 100ms for < 100 sessions, < 500ms for 100–1000 sessions (use `by-createdAt` index for efficient sorted scan)
+- `getSession`: < 50ms
+- `getChunksForSession`: < 100ms for < 50 chunks (NO BLOBS)
+- `getSnipsForSession`: < 100ms (typical session has 0–10 snips)
+- `getTranscriptsForSession`: < 100ms (typical session has 0–10 transcripts)
+- `deleteSession`: 100–500ms for large sessions (acceptable with confirm dialog)
+- `getStorageStats`: < 200ms (aggregate calculation)
+- `enforceRetentionPolicy`: 500–2000ms (deletes multiple sessions, acceptable for automatic/user-triggered operation)
+
+If `listSessions` takes > 500ms for 100 sessions, home screen feels sluggish. Optimize with IndexedDB indexes.
+
+### What You Do NOT Call Directly
+
+- `writeChunk` → Capture-engine calls during recording
+- `writeVolumeProfile`, `writeSnip` → Volume-analyzer calls post-recording
+- `getChunk` → Playback-engine calls to fetch chunk blobs for playback
+
+You are the orchestrator. You create sessions, list sessions, read session details, delete sessions, write transcripts (after transcription-client completes), and enforce retention policy. Lib packages handle chunk/volume/snip writes.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement these interfaces, build PWA integration, validate session management workflows, and mark spec resolved.

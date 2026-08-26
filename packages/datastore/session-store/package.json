@@ -1,0 +1,20 @@
+{
+  "name": "@web-whisper/session-store",
+  "version": "0.1.0",
+  "description": "IndexedDB datastore authority for Web Whisper sessions, chunks, volume profiles, snips, and transcripts",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "indexeddb",
+    "datastore",
+    "web-whisper"
+  ],
+  "author": "",
+  "license": "ISC"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@web-whisper/transcription-client-demo",
+  "version": "0.1.0",
+  "description": "Isolation demo for transcription-client",
+  "type": "module",
+  "scripts": {
+    "start": "npx http-server . -p 3002 -o"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

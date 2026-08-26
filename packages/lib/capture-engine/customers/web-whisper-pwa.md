@@ -269,6 +269,213 @@ These are NOT shown in default mode. Default Recording screen shows only:
 
 ## Producer Response
 
-(To be filled by Phase 05 producer-response agent for capture-engine)
+I'm capture-engine. I accept your web-whisper-pwa customer request. You are my primary production customer—the iPhone PWA orchestrator. I will handle the entire microphone-to-durable-chunk pipeline so you can offer trustworthy recording. I will write chunks to session-store immediately (every ~4s), emit events for your UI updates, detect mic ghost with watchdog, and provide sample-based duration (NOT wall clock). Here's exactly what I will ship in Phase 06:
 
-Capture-engine will respond here: how it will meet the PWA's request, what interfaces it will provide, what session-store calls it will make, how it will handle errors, and what completion summary format it will return.
+### Core Interface: `startCapture(sessionId, options?)`
+
+**Input**: 
+- `sessionId` (string): Fresh session ID from your `session-store.createSession()` call
+- `options` (optional): `{watchdogTimeout?: number}` (default 10000ms). You may configure in developer mode.
+
+**Output**: Capture handle (synchronous return)
+
+**Failure modes** (thrown exceptions, NOT events):
+- Throws `CaptureError("permission_denied")` if user denies mic permission → You catch and show modal "Microphone permission denied. Please allow access in iOS Settings."
+- Throws `CaptureError("invalid_session")` if sessionId doesn't exist in session-store → You catch, log error, show "Session not found"
+- Throws `CaptureError("already_capturing")` if sessionId already has active capture → You catch, show error, navigate to Home
+
+**Microphone permission flow** (iOS PWA behavior):
+1. I call `navigator.mediaDevices.getUserMedia({audio: true})` when `startCapture` called
+2. iOS shows permission prompt (or silently grants if recently allowed)
+3. If granted → capture begins, return handle
+4. If denied → throw `CaptureError("permission_denied")`
+
+iOS re-prompts after PWA cold start. This is platform fact, not failure. You do NOT cache permission state or pre-check. Each recording attempt requests mic fresh.
+
+### Capture Handle Methods
+
+**`handle.stop()`** → Returns Promise resolving to completion summary
+
+Returns: `{chunksWritten: number, totalDuration: number, hasAudio: boolean, sessionId: string}`
+
+- `chunksWritten`: Count of chunks successfully written to session-store
+- `totalDuration`: Total duration in seconds (from PCM sample count, NOT wall clock)
+- `hasAudio`: `true` if at least one chunk written, `false` if zero chunks (mic ghost scenario)
+- `sessionId`: Same sessionId passed to `startCapture`
+
+How you use it:
+- If `hasAudio === true`: Navigate to session detail, enable Play button and Transcribe button
+- If `hasAudio === false`: Show message "Recording completed without playable audio. The microphone may not have delivered audio." with Delete button. Do NOT show "transcription failed" (no audio to transcribe).
+
+**`handle.on(eventName, callback)` / `handle.off(eventName, callback)`**
+
+Event subscription for UI updates. Standard EventEmitter pattern.
+
+**`handle.getStatus()`** → Returns current state
+
+Returns: `{isActive: boolean, chunksEncoded: number, currentDuration: number, watchdogActive: boolean}`
+
+- `isActive`: `true` if capture running, `false` if stopped
+- `chunksEncoded`: Count of chunks encoded so far (increments with each `chunkEncoded` event)
+- `currentDuration`: Current duration in seconds (PCM sample-based, NOT wall clock)
+- `watchdogActive`: `true` if watchdog timer running (before first chunk), `false` after first chunk or if capture stopped
+
+You poll `getStatus().currentDuration` every 100ms to update duration display on Recording screen.
+
+### Events I Will Emit
+
+**`chunkEncoded` event**
+
+Payload: `{sessionId: string, seq: number, duration: number, byteLength: number}`
+
+When emitted: After each chunk encodes (~4s intervals) and chunk write to session-store succeeds
+
+How you use it:
+- In developer mode: Update chunk count display on Recording screen ("Chunks: 7")
+- In default mode: Log internally but don't display to user
+
+**`captureError` event**
+
+Payload: `{sessionId: string, reason: string, details?: any}`
+
+Reason codes I will emit:
+- `"no_audio_received"` → Watchdog timeout expired (mic ghost). I auto-stop, you receive `captureStopped` with `hasAudio: false`
+- `"store_write_failed"` → session-store.writeChunk failed (quota exceeded, database unavailable). You show error banner "Storage write failed. Recording may be incomplete."
+- `"encoding_failed"` → MP3 encoding failed (lamejs error). You show error toast "Encoding failed: [details]", auto-stop capture
+
+How you handle:
+```javascript
+handle.on('captureError', (data) => {
+  if (data.reason === 'no_audio_received') {
+    // Auto-stopped by watchdog, hasAudio=false
+    showMessage('Recording completed without playable audio');
+  } else if (data.reason === 'store_write_failed') {
+    showErrorBanner('Storage write failed. Recording may be incomplete.');
+    // Let user decide whether to stop or continue
+  } else {
+    showErrorToast(`Capture error: ${data.reason}`);
+    stopRecording(); // Call handle.stop()
+  }
+});
+```
+
+**`captureStopped` event**
+
+Payload: `{sessionId: string, chunksWritten: number, totalDuration: number, hasAudio: boolean}`
+
+When emitted: Capture stopped (by your `handle.stop()` call OR by error auto-stop)
+
+Mostly redundant with `stop()` return value, useful for telemetry/logging.
+
+### Session-Store Integration (Automatic Chunk Writes)
+
+**I call `session-store.writeChunk(sessionId, chunkData)` automatically** every ~4s during capture:
+
+Chunk data I provide to session-store:
+- `seq`: Sequential chunk number (0, 1, 2, 3...)
+- `startTime`: Chunk start time in seconds (from PCM sample count)
+- `endTime`: Chunk end time in seconds (from PCM sample count)
+- `duration`: Chunk duration in seconds (`endTime - startTime`, typically ~4.0–4.2s)
+- `blob`: MP3 encoded audio blob (binary data, MIME type `'audio/mpeg'`)
+- `sizeBytes`: `blob.size` in bytes
+
+**If writeChunk fails**:
+- session-store returns `{error: 'quota_exceeded'}` → I emit `captureError('store_write_failed', {reason: 'quota_exceeded'})` and continue capturing (next chunk tries again)
+- session-store returns `{error: 'session_not_found'}` → I emit `captureError('store_write_failed', {reason: 'session_not_found'})` and auto-stop capture
+- session-store returns `{error: 'database_unavailable'}` → I emit `captureError('store_write_failed', {reason: 'database_unavailable'})` and continue capturing
+
+You subscribe to `captureError` and decide whether to stop or let recording continue.
+
+### Duration Counter (PCM Sample-Based, Load-Bearing)
+
+**`handle.getStatus().currentDuration`** returns PCM sample-based duration:
+
+Calculated as `samplesProcessed / sampleRate` (e.g., 88200 samples @ 44100 Hz = 2.0s)
+
+**NOT wall clock** (`Date.now()` or `performance.now()`). This is load-bearing lesson from existing Web Whisper: encoded containers lie about time if recording pauses or hiccups. I count PCM samples and compute accurate duration.
+
+You poll every 100ms to update duration display:
+```javascript
+setInterval(() => {
+  const status = handle.getStatus();
+  updateDurationDisplay(formatDuration(status.currentDuration)); // "0:00", "0:01", "1:23"
+}, 100);
+```
+
+Duration must be accurate to 0.1s. Wall clock is NOT acceptable.
+
+### Mic Ghost Detection (10s Watchdog)
+
+**Watchdog timer** (default 10s, configurable via `options.watchdogTimeout`):
+
+1. Starts after `getUserMedia` resolves (mic permission granted)
+2. If first chunk encodes within 10s → watchdog cancels (recording proceeds normally)
+3. If 10s expires before first chunk → I emit `captureError('no_audio_received')`, auto-stop capture, return `{hasAudio: false, chunksWritten: 0}`
+
+Expected behavior:
+- User taps "Start Recording" → you call `startCapture`
+- Mic permission granted → capture begins
+- **No audio callbacks arrive for 10 seconds** (iOS mic ghost bug)
+- Watchdog expires → I emit `captureError('no_audio_received')`, auto-stop
+- You receive `captureStopped` event with `hasAudio: false`
+- You navigate to session detail with message "Recording completed without playable audio"
+
+You will NOT treat this as transcription failure. Recording failed to capture audio, not transcription.
+
+### Final Chunk Flush (< 4s Duration)
+
+When you call `handle.stop()`:
+- I flush remaining PCM buffer (< 4s of audio)
+- I encode final chunk with actual duration (e.g., 2.3s if stopped at 10.3s into third chunk)
+- I write final chunk to session-store via `writeChunk`
+- I emit `chunkEncoded` event for final chunk
+- I emit `captureStopped` event with final stats
+- I return completion summary from `stop()` promise
+
+Final chunk may have duration < 4s. Session-store and playback-engine handle this correctly (no special handling needed).
+
+### Error Handling Strategy
+
+**Pre-capture errors** (thrown exceptions):
+- `CaptureError("permission_denied")` → Thrown from `startCapture` if mic permission denied
+- `CaptureError("invalid_session")` → Thrown from `startCapture` if sessionId doesn't exist
+- `CaptureError("already_capturing")` → Thrown from `startCapture` if sessionId already has active capture
+
+**During-capture errors** (emitted as events):
+- `captureError('no_audio_received')` → Watchdog timeout, auto-stop
+- `captureError('store_write_failed')` → session-store write failed, continue capturing (you decide whether to stop)
+- `captureError('encoding_failed')` → MP3 encoding failed, auto-stop
+
+You catch thrown exceptions from `startCapture`. You subscribe to `captureError` events during capture.
+
+### Performance Expectations
+
+- `startCapture`: Returns immediately (< 50ms). Capture starts in background (Web Worker or AudioWorklet for PCM processing).
+- `chunkEncoded` event: Emitted within 100ms after chunk encodes
+- `handle.stop()`: Returns promise resolving within 500ms (flush final chunk, write to store)
+- `handle.getStatus()`: Synchronous, < 10ms (property read)
+
+If `getStatus()` is slow (> 50ms), duration counter stutters when polled every 100ms.
+
+### What I Will NOT Ship in Phase 06
+
+**Pause/resume**: Out of scope for Phase 06. User taps Start → recording begins. User taps Stop → recording ends. Pause is backlog (Phase 07 feedback spec if needed).
+
+**Automatic retry on store write failure**: If `session-store.writeChunk` returns quota_exceeded, I emit error event and continue capturing. I do NOT automatically call `session-store.enforceRetentionPolicy` to free space. That is your orchestration responsibility (you call retention policy, then optionally resume recording with new session).
+
+**Chunk buffering in memory during store failure**: If writeChunk fails, I emit error and continue capturing. Next chunk tries writeChunk again. I do NOT buffer failed chunks in memory (too complex, risk of memory overflow). Some chunks may be lost if store writes fail repeatedly. This is acceptable—you show "Recording may be incomplete" warning.
+
+### Developer Mode Telemetry
+
+In developer mode (enabled in your Settings), you may display:
+- Live chunk count: Subscribe to `chunkEncoded`, increment counter
+- Live duration: Poll `getStatus().currentDuration` every 100ms
+- Event log: Subscribe to all events, display in collapsible panel
+
+These are NOT shown in default mode. Default Recording screen shows only duration counter and Stop button.
+
+### Spec Status
+
+Spec Status: unresolved (Phase 06 implementation not yet built)
+
+Phase 06 will implement `startCapture`, session-store integration, event system, watchdog timer, and validate with PWA integration tests (record audio, stop, verify chunks in session-store, play recording).

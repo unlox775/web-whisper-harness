@@ -1,0 +1,91 @@
+/**
+ * @web-whisper/session-store
+ * 
+ * IndexedDB datastore authority for Web Whisper data.
+ * Owns sessions, chunks, volume profiles, snips, transcripts.
+ * Enforces retention policy (storage cap, deletion).
+ */
+
+import { initDatabase, getDatabase } from './db.js';
+import {
+  createSession,
+  getSession,
+  listSessions,
+  deleteSession
+} from './sessions.js';
+import {
+  writeChunk,
+  getChunk,
+  getChunksForSession
+} from './chunks.js';
+import {
+  writeVolumeProfile,
+  getVolumeProfile
+} from './volume-profiles.js';
+import {
+  writeSnip,
+  getSnipsForSession,
+  getSnip
+} from './snips.js';
+import {
+  writeTranscript,
+  getTranscript,
+  getTranscriptsForSession
+} from './transcripts.js';
+import {
+  getStorageStats,
+  enforceRetentionPolicy
+} from './storage.js';
+
+/**
+ * Initialize session-store with database name
+ * @param {Object} config
+ * @param {string} config.databaseName - Database name ('web-whisper-db' for production, 'web-whisper-sandbox-db' for demo)
+ * @returns {Promise<{initialized: boolean}>}
+ */
+export async function init(config = {}) {
+  const databaseName = config.databaseName || 'web-whisper-db';
+  await initDatabase(databaseName);
+  return { initialized: true };
+}
+
+// Session Operations
+export {
+  createSession,
+  getSession,
+  listSessions,
+  deleteSession
+};
+
+// Chunk Operations
+export {
+  writeChunk,
+  getChunk,
+  getChunksForSession
+};
+
+// Volume Profile Operations
+export {
+  writeVolumeProfile,
+  getVolumeProfile
+};
+
+// Snip Operations
+export {
+  writeSnip,
+  getSnipsForSession,
+  getSnip
+};
+
+// Transcript Operations
+export {
+  writeTranscript,
+  getTranscript,
+  getTranscriptsForSession
+};
+
+// Storage Management
+export {
+  getStorageStats,
+  enforceRetentionPolicy
+};

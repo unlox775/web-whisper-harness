@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capture Engine Isolation Demo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Top Chrome Panel -->
+  <header class="top-chrome">
+    <div class="chrome-left">
+      <h1>Capture Engine Isolation Demo</h1>
+    </div>
+    <div class="chrome-center">
+      <span class="data-mode-chip">IN-MEMORY (not persisted)</span>
+    </div>
+    <div class="chrome-right">
+      <span class="mic-status" id="micStatus">Not requested</span>
+    </div>
+  </header>
+
+  <main class="demo-container">
+    <!-- Control Panel (left third) -->
+    <section class="control-panel">
+      <h2>Controls</h2>
+      
+      <div class="control-group">
+        <label>
+          <input type="radio" name="audioSource" value="simulated" checked>
+          Simulated PCM stream
+        </label>
+        <label>
+          <input type="radio" name="audioSource" value="live">
+          Live Microphone
+        </label>
+      </div>
+
+      <button id="startBtn" class="btn btn-start">Start Capture</button>
+      <button id="stopBtn" class="btn btn-stop" disabled>Stop Capture</button>
+      <button id="resetBtn" class="btn btn-reset">Reset</button>
+
+      <div class="meters">
+        <h3>Live Meters</h3>
+        <div class="meter-item">
+          <span class="meter-label">Duration:</span>
+          <span id="durationMeter" class="meter-value">0.00s</span>
+        </div>
+        <div class="meter-item">
+          <span class="meter-label">PCM buffer:</span>
+          <span id="pcmBufferMeter" class="meter-value">0 / 0 samples</span>
+        </div>
+        <div class="meter-item">
+          <span class="meter-label">Chunks:</span>
+          <span id="chunkCountMeter" class="meter-value">0</span>
+        </div>
+        <div class="meter-item" id="watchdogMeterItem" style="display: none;">
+          <span class="meter-label">Watchdog:</span>
+          <span id="watchdogMeter" class="meter-value">N/A</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Chunk Tape Panel (right two-thirds) -->
+    <section class="chunk-tape-panel">
+      <h2>In-Memory Chunks (RAM only)</h2>
+      <div class="chunk-tape-scroll">
+        <table class="chunk-tape" id="chunkTape">
+          <thead>
+            <tr>
+              <th>Seq</th>
+              <th>Start Time</th>
+              <th>End Time</th>
+              <th>Duration</th>
+              <th>Size</th>
+              <th>Play</th>
+            </tr>
+          </thead>
+          <tbody id="chunkTapeBody">
+            <tr class="empty-state">
+              <td colspan="6">No chunks yet. Click Start Capture.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Event Feed Panel (bottom strip, collapsible) -->
+  <section class="event-feed">
+    <details>
+      <summary>Show Event Feed ▶</summary>
+      <div class="event-feed-scroll" id="eventFeed">
+        <!-- Events will be added dynamically -->
+      </div>
+    </details>
+  </section>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
