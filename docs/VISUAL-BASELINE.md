@@ -32,21 +32,24 @@ Isolation Demos for packages may look different (they are founder/developer oper
 
 ## Visual Identity (Preserve from Original)
 
-Based on the existing Web Whisper PWA:
+Based on the live Web Whisper PWA at https://unlox775.github.io/web-whisper/ (inspected in Chrome DevTools iPhone 430×932):
 
 ### Color Palette
 
-(To be confirmed by inspecting live PWA styles; placeholder descriptions below)
+**Exact colors from live PWA:**
 
-- **Primary brand color**: Likely blue or teal (used for primary buttons, active states, recording indicator)
-- **Background**: Light neutral (white or very light gray for main screens)
-- **Card background**: White or subtle off-white with shadow/border
-- **Text primary**: Dark gray or black (high contrast for readability)
-- **Text secondary**: Medium gray (for metadata, timestamps, durations)
-- **Success/enabled**: Green (for transcription enabled badge, validation success)
-- **Error/disabled**: Red (for transcription disabled badge, validation errors, recording errors)
-- **Recording active**: Red (for recording indicator dot, Stop button accent)
-- **Secondary actions**: Neutral gray or subtle blue
+- **Background**: Dark navy-black `#0a0f18` (or very close to this)
+- **Card background**: Lighter dark `#111a26` (or very close), distinct from main background
+- **Card borders**: 1px bluish borders (subtle, low-contrast against dark cards)
+- **Border radius**: 16–20px on all cards and buttons (generous, modern feel)
+- **Primary accent**: Cyan/teal `#22d3ee` (used for links, ENABLE chip, active states)
+- **Text primary**: White or near-white (high contrast on dark background)
+- **Text secondary**: Light gray (for metadata, help text, status lines)
+- **Gradient CTA**: Cyan-to-blue gradient on "Start recording" button (cyan `#22d3ee` fading to deeper blue, full-width pill)
+- **Success/enabled**: Cyan `#22d3ee` ENABLE chip (rounded, filled)
+- **Disabled**: Gray "DISABLED" chip (neutral, non-interactive)
+- **Recording active**: Cyan (recording indicator, playback controls; NOT red in this design)
+- **Storage chip**: Dark card background with light text "0 B / 200 MB" (DATA label above)
 
 ### Typography
 
@@ -71,25 +74,36 @@ Based on the existing Web Whisper PWA:
 
 ### Home / Session List
 
-**What the user sees**:
+**What the user sees (from live PWA screenshots):**
 
-- Top: Navigation bar with "Web Whisper" title (or app name), Settings icon (top-right)
-- Main: Scrollable list of session cards (newest first), or "No sessions yet" empty state
-- Bottom: "Start Recording" FAB (floating action button, bottom-right, prominent, red or primary brand color)
+**Header (fixed top):**
+- Left: Bold "Web Whisper" title (white text, prominent weight)
+- Center-right: DATA chip/badge showing storage usage "0 B / 200 MB" (dark card background, light text, rounded, compact)
+- Top-right: "Settings" button (text button, clickable)
+- Optional: 🐞 bug icon button (between DATA chip and Settings button, ONLY visible when developer mode is enabled)
 
-**Session card structure**:
+**Main scroll area:**
 
-- Timestamp: "Just now", "2 minutes ago", "Today at 3:45 PM", "Yesterday", "Jan 15" (human-friendly)
-- Duration: "0:42", "1:23", "12:45" (MM:SS or HH:MM:SS)
-- Transcription badge (if applicable): "Transcribed" (green checkmark icon + text), or "Transcribe" button, or "3 / 8 snips" progress indicator
-- Play button: Inline play affordance (tap to play session without navigating), or tap entire card to open session detail
-- Optional: Waveform thumbnail or volume sparkline (if current PWA has this; otherwise skip for Phase 01)
+1. **Onboarding card** (dismissible, shown on first use or until dismissed):
+   - Dark card background (#111a26), rounded corners (16–20px), subtle bluish border
+   - Bold heading: "Transcription setup is insanely easy."
+   - Body text explaining Groq is separate service, free accounts, no credit card, recording works out of the box
+   - Highlighted callout: Cyan-bordered box with "This uses one of the most amazing AI models. It is a crazy amount of value for free."
+   - Numbered steps: "1. Create a free Groq account...", "2. Open Settings...", "3. We auto-check..."
+   - Bottom actions: "Open Settings" and "Get Groq API key" buttons (cyan text links)
+   - Top-right: "Dismiss" button (closes card)
 
-**Empty state**:
+2. **CAPTURE card:**
+   - Dark card background, rounded corners, CAPTURE label/heading
+   - Full-width cyan-to-blue gradient button: "Start recording" (pill shape, bold text, prominent)
+   - Status line below button: "Recorder idle — tap start to begin a durable session." (light gray, small)
 
-- Illustration or icon (microphone icon, friendly graphic)
-- Text: "No recordings yet" (heading), "Tap the button below to start your first recording" (subheading)
-- "Start Recording" FAB remains visible and prominent
+3. **Session list card** (empty state when no sessions):
+   - Dark card background, rounded corners
+   - Empty/blank panel (no "No sessions yet" text in baseline; just an empty rounded container)
+   - When sessions exist: scrollable list of session cards (structure TBD, not shown in baseline screenshots)
+
+**No FAB.** The "Start recording" button is inline in the CAPTURE card, not floating.
 
 ---
 
@@ -143,59 +157,72 @@ Based on the existing Web Whisper PWA:
 
 ### Settings
 
-**What the user sees**:
+**What the user sees (from live PWA screenshots):**
 
-- Top: Navigation bar with back button (← Session List), "Settings" title
-- Sections (grouped, clear hierarchy):
+**Settings sheet/modal** (overlays main screen):
 
-**Transcription** (section heading):
+- Top bar: "Settings" heading (left, bold), "Close" button (right, cyan text)
+- Dark card/modal background (#111a26 or similar), rounded corners at top
 
-- Groq API Key: Input field (masked, e.g., `••••••••••••abcd1234`), "Validate" button, validation status indicator (green "Enabled" checkmark or red "Disabled" / "Invalid" X)
-- Transcription status: "Transcription Enabled" (green) or "Transcription Disabled" (gray), or "API key invalid" (red)
-- Help text: "Add your Groq API key to enable transcription. Whisper via Groq is inexpensive; still, usage is your responsibility." (small, gray)
+**Transcription section:**
 
-**Storage** (section heading):
+- Section heading: "Transcription" (bold, white)
+- Status chips (inline, right-aligned): "DISABLED" (gray, rounded pill) or "ENABLE" (cyan #22d3ee, rounded pill, clickable)
+- Help text: "Groq is a separate service (not this app). Their free account takes about a minute to set up, and this app auto-checks your key after you paste it. **It's easy to set up.**" (link on "It's easy to set up", cyan)
+- Numbered steps: "1. Create a free Groq account...", "2. Paste the key here...", "3. Transcription turns on..."
+- **Groq API key** input field:
+  - Label: "Groq API key"
+  - Text input: placeholder "SK-..." (dark background, light text, rounded)
+  - Below input: "Key status: Missing" (light gray text) and "Recheck key" button (dark button, right-aligned)
+- Help paragraph: "Need a key? **Create one in Groq Console**." (link cyan) "Groq is a separate service... See **Groq pricing**." (link cyan)
 
-- Storage cap: Slider (e.g., 100 MB to 2 GB, default 500 MB), current value displayed ("500 MB")
-- Current usage: "Using 127 MB of 500 MB" (progress bar or text)
-- "Clear Old Sessions" button: Manual retention enforcement (shows confirmation dialog: "Delete oldest sessions to free space?")
+**App section:**
 
-**Developer Mode** (section heading):
+- Section heading: "App" (bold, white)
+- Checkbox: "Enable developer mode" (unchecked by default, white checkbox on dark background)
+- **Storage cap (MB)** input field:
+  - Label: "Storage cap (MB)"
+  - Number input: "200" (editable, dark background, light text, rounded)
+  - No slider in baseline; just a text/number input
 
-- "Developer Mode" toggle (off by default)
-- Help text: "Show advanced debugging panels: chunk lists, snip lists, volume histogram, Doctor, Console." (small, gray)
+**No "Clear Old Sessions" button in baseline screenshots.** May be manual or automatic retention.
 
-**About** (section heading, optional):
-
-- App version: "Web Whisper v2.0.0" (or version number)
-- Link to GitHub repo, documentation, or help
+**No "About" section in baseline screenshots.** Settings are minimal: Transcription + App only.
 
 ---
 
 ### Developer Mode Console (Conditional)
 
-**What the user sees** (only if developer mode enabled):
+**What the user sees** (only if developer mode enabled, based on founder vision; not visible in baseline screenshots because developer mode was off):
 
-- Top: Navigation bar with back button (← Settings), "Console" title
-- Tabs or sections:
+**Access:** 🐞 bug icon button appears in header (between DATA chip and Settings) when developer mode is enabled. Tap to open Console.
 
-**IndexedDB Tables** (tab):
+**Console screen/modal** (structure inferred from founder vision + harness patterns; exact layout TBD in Phase 02):
 
-- Table selector dropdown: "Sessions", "Chunks", "Volume Profiles", "Snips", "Transcripts"
-- Selected table displayed as paginated list (ID, key fields, "View Details" button)
-- Record count: "127 chunks across 12 sessions"
-- Actions: "Export Table as JSON", "Clear All Data" (with confirmation)
+- Tabs: **IndexedDB** and **Logs** (horizontal tabs, cyan underline for active tab)
 
-**Logs** (tab, if logging implemented):
+**IndexedDB tab:**
 
-- Per-session structured logs (select session from dropdown, view log entries)
-- Log entry: timestamp, level (info, warn, error), message, JSON details (expandable)
+- Table selector: "Sessions", "Chunks", "Volume Profiles", "Snips", "Transcripts" (dropdown or tab pills)
+- Selected table displayed as list/table (dark card background, scrollable)
+- Each row: ID, key fields (timestamp, duration, status), "View Details" button (expands JSON)
+- Record count: "127 chunks across 12 sessions" (top of list, light gray text)
+- Actions (bottom or top): "Export Table as JSON", "Clear All Data" (destructive, with confirmation modal)
 
-**Storage Inspector** (tab):
+**Logs tab:**
 
-- Storage quota display: "Using 127 MB of 500 MB device storage"
+- Per-session structured logs (if implemented; may be Phase 02 or later)
+- Session selector: dropdown or list
+- Log entries: timestamp, level (info/warn/error with color coding), message, JSON details (collapsible)
+- Or: "Logging not yet implemented" placeholder
+
+**Storage Inspector** (may be part of IndexedDB tab or separate disclosure):
+
+- Storage quota: "Using 127 MB of 500 MB device storage" (matches DATA chip on home)
 - Breakdown by table: Sessions (45 MB), Chunks (75 MB), Transcripts (7 MB), etc.
-- Orphaned data detector: "3 orphaned chunks (no parent session), 1 orphaned transcript (snip deleted)" (with "Clean Up" button)
+- Orphaned data detector: "3 orphaned chunks, 1 orphaned transcript" with "Clean Up" button
+
+**Visual consistency:** Dark theme (#0a0f18 background, #111a26 cards), cyan accents, 16–20px radius, same as main app. Console is a developer surface but stays visually cohesive.
 
 ---
 
@@ -203,16 +230,18 @@ Based on the existing Web Whisper PWA:
 
 ### Navigation
 
-- **Bottom navigation or tab bar**: NOT used (single-page app with hierarchical navigation)
-- **Hierarchical navigation**: Home (session list) → Session Detail, Home → Settings → Console, Home → Recording (modal or full-screen)
-- **Back button**: Always present in navigation bar (top-left) when not on home screen, returns to previous screen
-- **FAB (Floating Action Button)**: "Start Recording" button always visible on home screen, bottom-right, floats above session list
+- **Bottom navigation or tab bar**: NOT used (single-page app with overlay modals/sheets)
+- **Modal/sheet overlays**: Settings opens as overlay sheet (slides up or fades in), can be closed with "Close" button (top-right)
+- **Home screen is persistent**: "Web Whisper" header always visible, Settings and DATA chip always accessible
+- **No FAB (Floating Action Button)**: "Start recording" button is inline in CAPTURE card, not floating over content
+- **Developer console access**: 🐞 bug icon button in header (only when developer mode enabled) opens Console overlay
 
 ### Recording Flow
 
-1. Home → Tap "Start Recording" FAB → Recording screen (full-screen or modal)
-2. Recording screen → Tap "Stop" → Navigate to session detail (or back to home with new session at top)
+1. Home → Tap "Start recording" button (inline in CAPTURE card, full-width gradient pill) → Recording UI appears (in-place state change or modal)
+2. Recording active → Tap "Stop" button → Recording stops, session saved, new session appears in session list (or navigates to session detail)
 3. No "Cancel" or "Pause" in Phase 01 (recording is start-to-stop, no interruption)
+4. Microphone permission prompt may appear on first start (iOS PWA re-prompts after cold start; expected platform behavior)
 
 ### Playback Flow
 
@@ -222,17 +251,22 @@ Based on the existing Web Whisper PWA:
 
 ### Transcription Flow
 
-1. Session Detail → Tap "Transcribe" → Progress indicator appears ("Analyzing volume...", "Transcribing...")
-2. Wait 5-30 seconds (depending on session length)
-3. Transcript text appears below session metadata, "Copy Transcript" button
-4. Tap "Copy Transcript" → Transcript copied to clipboard, confirmation toast ("Copied!")
+1. **First-time setup**: Home → Tap "Open Settings" or Settings button → Enter Groq API key → Key auto-validates → Transcription status changes to "ENABLE" (cyan chip)
+2. **Per-session transcription** (structure inferred; not shown in baseline screenshots because no sessions exist):
+   - Session Detail → Tap "Transcribe" button → Progress indicator ("Analyzing volume...", "Transcribing...")
+   - Wait 5-30 seconds (depending on session length)
+   - Transcript text appears, "Copy Transcript" button (or transcript is auto-copied; TBD)
+   - Tap "Copy Transcript" → Clipboard confirmation (toast or inline feedback)
+3. **Disabled state**: If no Groq key, transcription controls are hidden or show "Add API key in Settings" (not an error; recording still works)
 
 ### Settings Flow
 
-1. Home → Tap Settings icon (top-right) → Settings screen
-2. Settings → Enter Groq API key → Tap "Validate" → Status updates ("Enabled" or "Invalid")
-3. Settings → Adjust storage cap slider → Value updates immediately
-4. Settings → Toggle "Developer Mode" on → Navigate back to Session Detail → Developer panels now visible
+1. Home → Tap "Settings" button (top-right header) → Settings sheet opens (overlay modal)
+2. Settings → Transcription section → Enter Groq API key in text field → Key auto-validates on blur or after typing → "Key status: Missing" changes to "Key status: Valid" (or similar), "DISABLED" chip changes to "ENABLE" (cyan)
+3. Settings → Transcription section → Tap "ENABLE" chip (if already enabled) to disable transcription (toggles between DISABLED/ENABLE)
+4. Settings → App section → Edit storage cap number input (e.g., change "200" to "500") → Value saves on blur or change
+5. Settings → App section → Check "Enable developer mode" checkbox → Close Settings → 🐞 bug icon now appears in header (can access Console)
+6. Settings → Tap "Close" button (top-right) → Settings sheet closes, returns to home
 
 ---
 
@@ -240,12 +274,14 @@ Based on the existing Web Whisper PWA:
 
 ### Do NOT Change
 
-- Overall color palette (primary brand color, success/error colors, recording indicator red)
-- Typography (system font, weight hierarchy, size relationships)
-- Layout structure (session cards on home, session detail sections, settings grouped sections)
-- Touch target sizes (minimum 44×44pt)
-- Navigation hierarchy (hierarchical, not tabbed)
-- FAB prominence ("Start Recording" button is the primary action, always visible on home)
+- **Dark theme**: Navy-black background (#0a0f18), lighter cards (#111a26), subtle bluish borders
+- **Cyan accent** (#22d3ee): links, ENABLE chip, gradient CTA button (cyan→blue)
+- **Border radius**: 16–20px on all cards, buttons, inputs (generous, modern feel)
+- **Typography**: System font (San Francisco on iOS), bold "Web Whisper" heading, regular body text, light gray help text
+- **Layout structure**: Fixed header (Web Whisper + DATA + Settings), scrollable main area (onboarding card + CAPTURE card + session list), inline "Start recording" button (NOT floating FAB)
+- **Settings as overlay sheet**: Modal/sheet that overlays home, closes with "Close" button
+- **Developer mode gating**: 🐞 bug icon ONLY appears when developer mode is enabled, Console is not on default home chrome
+- **Touch target sizes**: Minimum 44×44pt for all interactive elements (iOS standard)
 
 ### DO Change (Internal Only)
 
@@ -384,23 +420,32 @@ The founder vision says: "Calm, immediate, durable. A tape recorder that happens
 
 ## Summary: Visual Design Philosophy
 
-**Preserve calm, immediate, durable feeling.**
+**Preserve calm, immediate, durable feeling with dark, modern aesthetic.**
 
-- Uncluttered layouts (no chrome overload)
-- Prominent primary actions ("Start Recording", "Play", "Transcribe")
-- Clear information hierarchy (duration, timestamp, status are secondary to actions)
-- Honest feedback (playback is proof; empty sessions say "no playable audio", not spinner forever)
-- Developer tools stay behind a door (Settings → Developer Mode; do not clutter default UI)
+- **Dark theme with cyan accents**: Navy-black background, lighter card panels, cyan (#22d3ee) for interactive elements and CTAs
+- **Uncluttered layouts**: Fixed header, card-based main area, generous spacing, no chrome overload
+- **Prominent primary action**: "Start recording" gradient button (cyan→blue, full-width pill) in CAPTURE card
+- **Clear information hierarchy**: Storage usage and settings are accessible but not dominant; recording is the hero action
+- **Honest feedback**: Onboarding card explains transcription setup honestly ("insanely easy", free, separate service); idle state says "tap start to begin"; no spinner or error when Groq key is missing (just disabled transcription)
+- **Developer tools stay gated**: Checkbox in Settings enables developer mode → 🐞 bug icon appears → Console is accessible but not on default home
 
-**Reference the original Web Whisper PWA** at [https://unlox775.github.io/web-whisper/](https://unlox775.github.io/web-whisper/) for:
+**Exact theme values from live PWA** (inspected Chrome DevTools iPhone 430×932):
 
-- Exact color values (inspect with browser dev tools)
-- Font sizes and weights (inspect with browser dev tools)
-- Spacing and padding (inspect with browser dev tools)
-- Card shadows and borders (inspect with browser dev tools)
-- Icon style (simple, line-based, or solid fills)
+- Background: `#0a0f18` (dark navy-black)
+- Cards: `#111a26` (lighter dark, distinct from background)
+- Borders: 1px bluish, subtle, low-contrast
+- Border radius: 16–20px (generous, modern)
+- Accent: `#22d3ee` (cyan/teal, for links, chips, gradient CTA)
+- Text: White primary, light gray secondary
+- Typography: System font (SF on iOS), bold headers, regular body
+- Spacing: Generous padding in cards, comfortable touch targets (44×44pt minimum)
 
-**Do NOT redesign.** This is an architecture rebuild. The visual design is already proven and trusted. Keep it.
+**Icon style** (inferred from baseline):
+
+- Simple, possibly emoji or simple SVG icons (🐞 for developer mode)
+- Minimal iconography overall; text-heavy UI (buttons use text labels, not icon-only)
+
+**Do NOT redesign.** This is an architecture rebuild. The dark theme, cyan accents, generous radius, and calm layout are already proven and trusted. Keep them exactly.
 
 ---
 
