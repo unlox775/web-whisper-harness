@@ -118,13 +118,176 @@ Proves that capture-engine:
 - This demo exercises the CORE LOGIC (acquire mic, capture PCM, encode chunks, detect failures) without the storage integration
 - Storage integration is proven in session-store's Isolation Demo or the final PWA
 
+## Questions This Demo Answers
+
+1. **Does microphone acquisition work?** — Live Microphone mode requests permission, shows "Granted" status in top chrome, audio callbacks fire
+2. **Does simulated PCM work without permission?** — Simulated mode generates synthetic audio, no permission prompt, duration counter climbs
+3. **Do chunks encode every ~4s?** — Chunk tape list grows every ~4s (Seq 0, 1, 2...), chunk count meter increments
+4. **Is duration sample-based (not wall clock)?** — Duration counter is computed from PCM sample count / sample rate, accurate even if main thread blocks
+5. **Does MP3 encoding work?** — Each chunk's Play button plays audible audio (proves MP3 blob is valid)
+6. **Does watchdog detect mic ghost?** — Live Microphone mode with silence (no speech) for 10s → watchdog expires, capture auto-stops, error event fires, hasAudio=false
+7. **Does final chunk < 4s flush correctly?** — Capture for 10s (2 full + 2s remainder), Stop → 3 chunks in tape, Seq 2 is ~2s long, playback confirms 2s audio
+8. **Is data truly in-memory (not persisted)?** — Reset clears chunk tape, reload page → no chunks (proves no IndexedDB writes)
+
 ## Implementation Notes
 
-(To be filled by Phase 06 implementation agent)
+(Phase 06 implementation agent should follow these notes)
 
-- Audio source: Live microphone via `navigator.mediaDevices.getUserMedia()` or simulated PCM via `OscillatorNode` / `AudioBufferSourceNode`
-- PCM capture: ScriptProcessor or AudioWorklet (TBD based on iOS compatibility)
-- MP3 encoder: lamejs or similar
-- Chunk storage: In-memory JavaScript array of `{seq, startTime, endTime, blob, byteLength}` objects
-- Play button: Creates `<audio>` element with `src = URL.createObjectURL(chunk.blob)`, calls `.play()`
-- Reset: Clears in-memory array, revokes blob URLs, resets UI state
+### Audio Source Implementation
+
+**Live Microphone**:
+- Call `navigator.mediaDevices.getUserMedia({audio: true})` on "Start Capture"
+- On success: connect mic stream to AudioContext input, update chrome panel status to "Granted" (green)
+- On `NotAllowedError`: show "Denied" (red) status, stop capture, show error message
+- On `NotFoundError`: show "No microphone found" error
+
+**Simulated PCM**:
+- Create `OscillatorNode` with frequency 440 Hz (A4 note) or sweep (e.g., 200–800 Hz over time for variety)
+- Connect to AudioContext destination and ScriptProcessorNode
+- No `getUserMedia` call, no permission prompt
+- Simulated audio should be clearly synthetic (sine wave or chirp) so it's visually/audibly distinct from real speech
+
+### PCM Capture
+
+- Use `ScriptProcessorNode` with buffer size 4096 samples (Phase 06 MVP; AudioWorklet is Phase 07)
+- `onaudioprocess` callback receives `AudioProcessingEvent` with `inputBuffer` (AudioBuffer)
+- Extract float32 samples: `inputBuffer.getChannelData(0)` (mono, or mix stereo to mono)
+- Append samples to internal buffer array (Float32Array or concatenate typed arrays)
+- Track sample count: `totalSamples += inputBuffer.length`
+- Compute duration: `currentDuration = totalSamples / sampleRate`
+- When `internalBuffer.length >= targetSampleCount` (e.g., 4s * 44100 = 176400 samples):
+  - Slice first `targetSampleCount` samples
+  - Pass to encoder
+  - Remove sliced samples from internal buffer (shift or create new buffer from remainder)
+
+### MP3 Encoding
+
+- Import lamejs library (or bundle as ES6 module)
+- Initialize encoder: `new lamejs.Mp3Encoder(1, sampleRate, bitrate)` (1 = mono, 44100 or 48000 Hz, 128 kbps)
+- Convert float32 PCM to int16:
+  ```js
+  const int16Samples = new Int16Array(float32Samples.length);
+  for (let i = 0; i < float32Samples.length; i++) {
+    int16Samples[i] = Math.max(-32768, Math.min(32767, float32Samples[i] * 32767));
+  }
+  ```
+- Encode: `mp3Buf = encoder.encodeBuffer(int16Samples)`
+- Flush final chunk: `mp3Buf = encoder.flush()` (on last chunk if samples < target)
+- Create blob: `new Blob([mp3Buf], {type: "audio/mpeg"})`
+
+### Chunk Storage (In-Memory)
+
+- JavaScript array: `chunks = []`
+- Each chunk: `{seq: number, startTime: number, endTime: number, blob: Blob, byteLength: number}`
+- On encode complete:
+  ```js
+  const chunk = {
+    seq: chunks.length,
+    startTime: prevEndTime, // sum of previous chunk durations
+    endTime: prevEndTime + (slicedSampleCount / sampleRate),
+    blob: mp3Blob,
+    byteLength: mp3Blob.size
+  };
+  chunks.push(chunk);
+  // Emit chunkEncoded event for demo UI to add row to tape
+  ```
+- On Reset: `chunks = []`, revoke all blob URLs (`URL.revokeObjectURL(blobUrl)`), clear tape UI
+
+### Play Button Implementation
+
+- Each chunk row in tape has Play button
+- On click:
+  ```js
+  const audio = new Audio();
+  audio.src = URL.createObjectURL(chunk.blob);
+  audio.play();
+  // Optional: revoke blob URL after playback ends
+  audio.onended = () => URL.revokeObjectURL(audio.src);
+  ```
+- No dependency on playback-engine (this is raw HTML5 audio playback from RAM blob)
+
+### Watchdog Timer
+
+- Start timer when `startCapture` called: `watchdogTimer = setTimeout(() => { handleMicGhost(); }, 10000);`
+- On first PCM callback (any samples received): `clearTimeout(watchdogTimer); watchdogActive = false;`
+- If timer expires:
+  ```js
+  function handleMicGhost() {
+    emitEvent('captureError', {reason: 'no_audio_received', details: 'Watchdog timeout: no audio received for 10s'});
+    stopCapture(); // auto-stop
+    // Set hasAudio = false, chunksWritten = 0
+  }
+  ```
+- Watchdog countdown meter in UI: poll every 100ms, compute remaining time `Math.max(0, 10 - elapsedSeconds)`, display "Watchdog: 8.3s" → "Watchdog: 0.0s" → "N/A" (after cancel or expire)
+
+### Live Meters Update
+
+- Duration counter: poll `currentDuration` from capture state every 100ms, update UI (`Duration: ${duration.toFixed(2)}s`)
+- PCM buffer fill: poll `internalBuffer.length` and target sample count, update progress bar (`PCM buffer: ${current} / ${target} samples`)
+- Chunks encoded: increment on `chunkEncoded` event (`Chunks: ${chunkCount}`)
+- Watchdog: poll remaining time if active, show "N/A" if inactive or completed
+
+### Event Feed Implementation
+
+- Collapsible section: initially collapsed (`<details>` element or custom toggle)
+- On `chunkEncoded` event: append log entry `"[12:34:56] chunkEncoded(seq=0, duration=4.12s, bytes=32768)"` (green text)
+- On `captureError` event: append log entry `"[12:34:57] captureError(reason=no_audio_received, ...)"` (red text)
+- On `captureStopped` event: append log entry `"[12:34:58] captureStopped(chunksWritten=7, totalDuration=28.5s, hasAudio=true)"` (blue text)
+- Autoscroll to bottom when new event added
+
+### Reset Implementation
+
+- On "Reset" button click:
+  - Stop capture if active
+  - Clear chunks array: `chunks = []`
+  - Revoke blob URLs: `chunks.forEach(c => URL.revokeObjectURL(c.blobUrl))`
+  - Clear chunk tape UI (remove all rows)
+  - Reset meters: duration = 0, PCM buffer = 0/target, chunk count = 0, watchdog = N/A
+  - Clear event feed
+  - Re-enable "Start Capture" button
+
+### No Session-Store Integration
+
+- This demo does NOT import or call session-store
+- When "Start Capture" clicked, demo calls `startCapture` with a fake session ID (e.g., `"demo-session"`) or passes `mode: "in-memory"` option
+- Capture-engine detects in-memory mode and skips `session-store.writeChunk()` calls
+- Alternatively, capture-engine exports a separate `startCaptureInMemory()` function that returns chunks in RAM
+- Demo subscribes to events via capture handle, stores chunks in JavaScript array (not IndexedDB)
+
+### Package Structure
+
+```
+packages/lib/capture-engine/
+├── isolation-demo/
+│   ├── index.html (5-panel layout, loads app.js)
+│   ├── app.js (main demo logic, UI updates, event subscriptions)
+│   ├── styles.css (panel layout, responsive grid, cyan/red/green colors)
+│   ├── package.json ("start": "vite" or "http-server -p 3001")
+│   └── README.md (this file)
+├── src/
+│   ├── captureEngine.js (main module: startCapture, stopCapture, events)
+│   ├── encoder.js (lamejs wrapper)
+│   └── types.ts (TypeScript types or JSDoc definitions)
+├── docs/
+│   └── specs/
+│       └── 20260826152037-initial-product-spec.md
+├── customers/
+│   ├── 00-isolation-demo.md
+│   └── web-whisper-pwa.md
+├── package.json (capture-engine package metadata)
+└── README.md (package README)
+```
+
+### Launch Command
+
+From workspace root:
+```bash
+cd packages/lib/capture-engine/isolation-demo
+npm install  # if first time
+npm start    # starts dev server (vite or http-server), opens http://localhost:3001
+```
+
+Or if using workspace-level scripts:
+```bash
+npm run demo:capture-engine  # from workspace root, if Makefile/package.json includes this target
+```
