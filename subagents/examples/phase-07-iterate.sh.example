@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export CODEX_ADD_DIRS="${CODEX_ADD_DIRS:-$HOME/Library/Caches/org.swift.swiftpm:$HOME/Library/Caches/com.apple.dt.Xcode:$HOME/Library/Developer/Xcode/DerivedData:/private/tmp}"
+export PHASE_RUN_ID="${PHASE_RUN_ID:-$(date '+%Y%m%d%H%M%S')}"
+source "$ROOT_DIR/docs/ai-product-slice-harness/subagent-runner.sh"
+
+PHASE_DRY_RUN="${PHASE_DRY_RUN:-0}"
+PHASE_RUN_MODE="${PHASE_RUN_MODE:-parallel}"
+PHASE_GENERATE_NOTES="${PHASE_GENERATE_NOTES:-1}"
+if [[ "${PHASE_SERIAL:-0}" == "1" ]]; then
+  PHASE_RUN_MODE="serial"
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run)
+      PHASE_DRY_RUN=1
+      shift
+      ;;
+    --serial|--one-at-a-time)
+      PHASE_RUN_MODE="serial"
+      shift
+      ;;
+    --parallel)
+      PHASE_RUN_MODE="parallel"
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+start_phase "phase-07-iterate"
+set_phase_context "$*"
+
+if [[ "$PHASE_DRY_RUN" != "1" && "${PHASE_ALLOW_CONCURRENT:-0}" != "1" ]]; then
+  shopt -s nullglob
+  active_statuses=("$ROOT_DIR/subagents/status/phase-07-iterate-"*.status)
+  for active_status in "${active_statuses[@]}"; do
+    if [[ "$(sed -n '1p' "$active_status")" == "running" ]]; then
+      echo "Refusing to start Phase 07 because another Phase 07 job is still running:"
+      echo "  $active_status"
+      echo "Watch it with the run id from that status filename, or rerun with PHASE_ALLOW_CONCURRENT=1 if you intentionally want concurrent Phase 07 runs."
+      exit 2
+    fi
+  done
+fi
+
+if [[ "$PHASE_DRY_RUN" != "1" ]]; then
+  echo "$PHASE_RUN_ID" >"$ROOT_DIR/subagents/status/phase-07-iterate.latest-run"
+fi
+
+if [[ "$PHASE_DRY_RUN" == "1" ]]; then
+  echo "Phase 07 dry run skips prerequisite gating and only reports unresolved spec detection."
+  echo
+else
+  require_phase_successes "phase-06-first-implementation" \
+    "journal-data-library" \
+    "hunt-session-engine" \
+    "reference-capture-interface" \
+    "timeline-viewer" \
+    "final-ios-app"
+fi
+
+enqueue_iteration_specs_for_product "packages/journal-data-library"
+enqueue_iteration_specs_for_product "packages/hunt-session-engine"
+enqueue_iteration_specs_for_product "packages/reference-capture-interface"
+enqueue_iteration_specs_for_product "packages/timeline-viewer"
+enqueue_iteration_specs_for_product "packages/journal-browser"
+enqueue_iteration_specs_for_product "packages/new-subject-flow"
+
+assert_unique_iteration_products
+
+if [[ "$PHASE_DRY_RUN" == "1" ]]; then
+  echo "Phase 07 dry run. No agents will be launched."
+  echo "Specs within a product are shown in timestamp order."
+  echo
+  if [[ "$PHASE_RUN_MODE" == "serial" ]]; then
+    dry_run_enqueued_iteration_specs "Independent package group (would run one at a time):"
+  else
+    dry_run_enqueued_iteration_specs "Independent package group (would run in parallel):"
+  fi
+else
+  if _should_run_job "iteration_specs|apps/final-ios-app"; then
+    _write_queued_status "final-ios-app" "apps/final-ios-app" "Waiting for package iteration group to finish."
+  fi
+
+  # Independent package jobs can run in parallel. Specs inside each package run in timestamp order.
+  # To run package jobs one at a time, use --serial, PHASE_SERIAL=1, or PHASE_RUN_MODE=serial.
+  phase_exit=0
+  if [[ "$PHASE_RUN_MODE" == "serial" ]]; then
+    run_enqueued_agents_one_at_a_time || phase_exit="$?"
+  else
+    run_enqueued_agents_in_parallel || phase_exit="$?"
+  fi
+
+  if [[ "$phase_exit" != "0" ]]; then
+    if [[ "$PHASE_GENERATE_NOTES" == "1" ]]; then
+      python3 "$ROOT_DIR/scripts/generate-phase-07-notes.py" "$PHASE_RUN_ID" || true
+    fi
+    print_phase07_spec_status_summary
+    exit "$phase_exit"
+  fi
+fi
+
+HARNESS_JOBS=()
+enqueue_iteration_specs_for_product "apps/final-ios-app"
+assert_unique_iteration_products
+
+if [[ "$PHASE_DRY_RUN" == "1" ]]; then
+  echo
+  dry_run_enqueued_iteration_specs "Final app group (would run after packages):"
+  if [[ "$HARNESS_DRY_RUN_FOUND" == "0" ]]; then
+    echo
+    echo "No unresolved Phase 07 specs detected."
+  fi
+  print_phase07_spec_status_summary
+  exit 0
+fi
+
+# Final app iteration runs last so it can integrate package-level feedback outcomes.
+phase_exit=0
+run_enqueued_agents_one_at_a_time || phase_exit="$?"
+
+if [[ "$PHASE_GENERATE_NOTES" == "1" ]]; then
+  python3 "$ROOT_DIR/scripts/generate-phase-07-notes.py" "$PHASE_RUN_ID" || true
+fi
+
+print_phase07_spec_status_summary
+
+exit "$phase_exit"
