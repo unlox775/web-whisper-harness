@@ -85,23 +85,75 @@ Example input/output for key jobs:
 
 **Isolation Demo**:
 
-- **Runtime**: Web app (local dev server)
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor operating surface)
+- **Device**: Desktop browser viewport (wider factory floor, not phone-shaped)
 - **Launch**: `cd packages/lib/capture-engine/isolation-demo && npm start`
-- **Screens**:
-  - Main: "Start Capture" button, live chunk count, buffer size meter, total duration
-  - Chunk list: shows each encoded chunk ID, duration, size, timestamp
-  - Controls: Start, Stop, Reset (clears in-memory state), microphone permission status
-- **Data mode**: Real write (creates test sessions in real session-store, clearly labeled as demo data)
-- **Safe default**: Real write with demo-session prefix
-- **Inputs**: Live microphone (requests permission), or simulated PCM stream toggle
-- **Internal state**: capture active/idle, PCM buffer size, chunks encoded count, watchdog timer status
-- **Outputs**: MP3 chunk blobs written to session-store, chunk metadata
-- **External events**: `chunkEncoded`, `captureError` events logged to event feed panel
-- **Internal telemetry**: PCM callback timing, encode duration, write timing, watchdog checks
-- **Walkthrough value**: Proves that capture starts, encodes chunks every ~4s, persists them immediately, and stops cleanly or times out if mic is silent
+- **Data mode**: **In-memory only** (no IndexedDB, no session-store writes). Reset discards all. Chunks live in RAM as a demo session object until browser tab closes or Reset is clicked.
+- **Safe default**: In-memory with simulated PCM stream (no mic permission required by default)
 
-**Secondary tools**: Developer panel disclosure showing raw PCM buffer snapshots, encode queue depth, IndexedDB write confirmations
+**Panel-based layout (5 distinct regions):**
+
+1. **Top chrome panel** (fixed header, spans full width):
+   - Left: "Capture Engine Isolation Demo" heading (bold)
+   - Center: Data mode chip "IN-MEMORY (not persisted)" (cyan border, white text)
+   - Right: Microphone permission status ("Granted" green / "Denied" red / "Not requested" gray)
+
+2. **Control panel** (left third of viewport, below chrome):
+   - "Start Capture" button (cyan, full-width in panel, disabled when capture active)
+   - "Stop Capture" button (red, full-width, disabled when capture idle)
+   - "Reset" button (gray, full-width, clears RAM chunks + resets state; always enabled)
+   - Audio source toggle: "Live Microphone" vs "Simulated PCM stream" (radio buttons or toggle switch)
+     - Live Microphone: requests permission, uses real mic input (user must speak)
+     - Simulated PCM: generates synthetic audio waveform (no mic needed, automatic "speech")
+   - When "Start Capture" clicked → button disables, "Stop Capture" enables, live meters start updating, watchdog timer starts (10s countdown), chunks begin encoding every ~4s
+   - When "Stop Capture" clicked → capture stops, final chunk flushes, buttons reset (Start enabled, Stop disabled), meters freeze at final values
+
+3. **Live meters panel** (center third, below chrome):
+   - Duration counter: "Duration: 0.00s" (updates every frame from PCM sample count, NOT wall clock)
+   - PCM buffer fill: Horizontal progress bar "PCM buffer: 1024 / 2048 samples" (fills and drains as encode happens)
+   - Chunks encoded: "Chunks: 0" (increments when each chunk encodes: 0 → 1 → 2 → 3...)
+   - Watchdog countdown: "Watchdog: 10.0s" (counts down from 10s; if reaches 0 before first chunk encodes, capture auto-stops with "no audio received" error)
+   - When capture active: all meters update in real-time (duration climbs, buffer fills/drains, chunk count increments, watchdog resets after first chunk or counts down if mic silent)
+   - When capture stops: meters freeze at final values (duration = total, buffer = 0 or remainder, chunks = final count, watchdog = "N/A")
+
+4. **Chunk tape panel** (right third, below chrome, scrollable list):
+   - Heading: "In-Memory Chunks (RAM only)" (small gray text)
+   - List of encoded chunks (grows as capture runs; each chunk is a row):
+     - Column 1: Seq number (0, 1, 2, 3...)
+     - Column 2: Start time (e.g., "0.00s", "4.12s", "8.24s")
+     - Column 3: End time (e.g., "4.12s", "8.24s", "12.35s")
+     - Column 4: Byte length (e.g., "32,768 bytes", "31,245 bytes")
+     - Column 5: "Play" button (inline, plays THIS chunk's in-memory blob via HTML5 audio; does NOT call playback-engine or session-store)
+   - When "Start Capture" clicked and first chunk encodes (~4s): first row appears (Seq 0, Start 0.00s, End ~4.0s, ~32KB, Play button)
+   - When each subsequent chunk encodes: new row appears below (Seq 1, Seq 2, etc.)
+   - When "Reset" clicked: entire list clears (no rows), in-memory blobs are discarded
+   - Scrolls vertically if > ~10 chunks (keeps growing until Reset or tab close)
+
+5. **Event/failure panel** (bottom strip, spans full width, secondary disclosure):
+   - Collapsible section (collapsed by default): "Show Event Feed ▶" (click to expand → "Hide Event Feed ▼")
+   - When expanded: scrollable log of events (most recent at bottom, autoscrolls):
+     - `chunkEncoded(seq=0, duration=4.12s, bytes=32768)` (green text, timestamp)
+     - `chunkEncoded(seq=1, duration=4.11s, bytes=31245)` (green)
+     - `captureError(reason="no_audio_received", watchdog_timeout=10s)` (red, if mic silent for 10s)
+     - `captureStopped(totalChunks=7, totalDuration=28.5s, hasAudio=true)` (blue)
+   - When collapsed: only heading visible ("Show Event Feed ▶"), no vertical space used
+   - NOT the main product of this demo (chunk tape is the product); event feed is diagnostic/telemetry for debugging
+
+**Before state** (page load, capture idle):
+- Control panel: "Start Capture" enabled (cyan), "Stop Capture" disabled (gray), "Reset" enabled, audio source = "Simulated PCM" by default
+- Live meters: Duration 0.00s, PCM buffer 0 / 2048, Chunks 0, Watchdog N/A (not started)
+- Chunk tape: Empty (no rows), heading visible ("In-Memory Chunks (RAM only)")
+- Event feed: Collapsed, no events yet
+
+**After state** (after Start → speak/simulate for 12s → Stop):
+- Control panel: "Start Capture" enabled (ready for next capture), "Stop Capture" disabled, "Reset" enabled
+- Live meters: Duration 12.35s (frozen), PCM buffer 0 / 2048 (flushed), Chunks 3, Watchdog N/A (stopped)
+- Chunk tape: 3 rows visible (Seq 0, 1, 2 with start/end times, byte lengths, Play buttons)
+- Event feed: (if expanded) shows 3 `chunkEncoded` events + 1 `captureStopped` event
+
+**Walkthrough value**: Proves that capture-engine acquires audio (live mic or simulated), encodes MP3 chunks every ~4s, keeps them in memory temporarily (NOT persisted to store), provides duration from PCM sample count (not wall clock), detects mic ghost (watchdog timeout), and flushes final chunk < 4s on stop. Operator can play each chunk immediately from RAM to verify encoding worked. Reset discards everything (proves in-memory, not durable).
+
+**What this demo does NOT do**: Does not call session-store. Does not write to IndexedDB. Does not create sessions. Capture-engine's public interface is `startCapture(sessionId)` which expects a caller-provided session ID and writes to session-store; this demo exercises the CORE LOGIC (acquire mic, capture PCM, encode chunks, detect failures) without the storage integration. Storage integration is proven in session-store's Isolation Demo or the final PWA.
 
 ---
 
@@ -129,23 +181,105 @@ Example input/output for key jobs:
 
 **Isolation Demo**:
 
-- **Runtime**: Web app (local dev server)
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport (wider factory floor)
 - **Launch**: `cd packages/lib/volume-analyzer/isolation-demo && npm start`
-- **Screens**:
-  - Main: Upload or select chunk from fixture list, "Analyze Chunk" button, volume waveform visualization
-  - Session-level: Select session from session-store, "Propose Snips" button, histogram with snip boundaries overlaid
-  - Controls: Analyze single chunk, analyze all chunks for session, propose snips, adjust snip threshold slider
-- **Data mode**: Fixture by default (pre-recorded test chunks), with "Use Real Sessions" toggle for read-only session-store access
-- **Safe default**: Fixture mode
-- **Inputs**: Fixture MP3 chunks, or sessions from real session-store (read-only in demo)
-- **Internal state**: current chunk analysis progress, snip threshold setting, snip proposal algorithm parameters
-- **Outputs**: Volume profile arrays, snip boundary proposals (visualized, not written in fixture mode)
-- **External events**: `volumeProfileReady`, `snipsProposed` events in event feed
-- **Internal telemetry**: Decode timing, volume computation timing, snip boundary algorithm decisions (why each cut was made)
-- **Walkthrough value**: Proves that volume analysis extracts meaningful profiles, identifies quiet regions accurately, and proposes sensible snip boundaries; allows adjusting threshold to see impact
+- **Data mode**: **Fixture by default** (pre-recorded test chunks with known volume patterns). Optional: "Use Real Sessions" toggle for read-only session-store access (does not write volume profiles or snips in demo). Optional: "Live from Capture" mode (includes capture-engine as demo dependency, produces audio in-memory, analyzes it immediately, does not persist).
+- **Safe default**: Fixture mode (3–5 sample chunks: speech, silence, mixed, music, quiet speech)
 
-**Secondary tools**: Raw volume profile data inspector (JSON view), per-chunk decode verification, algorithm parameter tweaks
+**Panel-based layout (5 regions + optional capture panel):**
+
+1. **Top chrome panel** (fixed header, spans full width):
+   - Left: "Volume Analyzer Isolation Demo" heading
+   - Center: Data mode chip "FIXTURE" / "REAL SESSIONS (read-only)" / "LIVE FROM CAPTURE (in-memory)" (changes based on mode selector)
+   - Right: Mode selector dropdown: "Fixture" (default), "Real Sessions", "Live from Capture"
+
+2. **Input selection panel** (left sidebar, 1/4 width):
+   - **Fixture mode** (default):
+     - Heading: "Fixture Chunks"
+     - List of fixture chunks (radio buttons or clickable rows): "Speech 10s", "Silence 8s", "Mixed 15s", "Music 12s", "Quiet speech 9s"
+     - Selected chunk highlighted (cyan border)
+     - "Analyze Selected Chunk" button (cyan, analyzes single chunk → updates waveform + volume profile below)
+   - **Real Sessions mode** (when toggled):
+     - Heading: "Sessions from Store"
+     - Dropdown: "Select session..." (lists sessions from session-store, read-only)
+     - After selection: "Session XYZ: 45.2s, 11 chunks" (metadata)
+     - "Analyze All Chunks" button (analyzes all chunks in session → updates histogram below)
+     - "Propose Snips" button (after analysis complete, proposes snip boundaries → updates histogram with snip overlays)
+   - **Live from Capture mode** (when toggled):
+     - Includes capture-engine mini control panel: "Start Capture", "Stop Capture", "Audio Source: Simulated PCM"
+     - After stop: "Captured X chunks (in-memory), Y seconds"
+     - "Analyze Captured Audio" button (analyzes in-memory chunks from capture → updates histogram)
+     - "Propose Snips" button (proposes snips from in-memory volume profiles)
+
+3. **Volume waveform panel** (center, 50% width, single-chunk view):
+   - Heading: "Chunk Volume Waveform" (only visible when single chunk is analyzed)
+   - Waveform visualization: X-axis = time (0s → chunk duration), Y-axis = volume (0 → 100%)
+     - Green line: volume samples over time (updated after "Analyze Selected Chunk")
+     - Quiet regions (< threshold): shaded red or gray background
+   - Below waveform: "Max volume: 85%, Avg volume: 42%, Quiet regions: 3" (metadata from analysis)
+   - When no chunk selected: placeholder "Select and analyze a chunk to see waveform"
+   - When chunk analyzed: waveform renders with volume profile array (sampled every ~100ms → points on line)
+
+4. **Session histogram panel** (center, 50% width, session-level view; replaces waveform when session is analyzed):
+   - Heading: "Session Volume Histogram" (only visible when full session analyzed)
+   - Histogram visualization: X-axis = session timeline (0s → session duration), Y-axis = volume
+     - Blue bars: aggregated volume per chunk (one bar per chunk, height = avg volume for that chunk)
+     - Vertical red lines: proposed snip boundaries (appear after "Propose Snips" clicked)
+     - Labels above snip boundaries: "Snip 0", "Snip 1", "Snip 2" (snip IDs)
+   - Below histogram: "Session: 45.2s, 11 chunks, 4 snips proposed" (metadata)
+   - When no session selected: placeholder "Select and analyze a session to see histogram"
+
+5. **Volume profile data panel** (right sidebar, 1/4 width):
+   - Heading: "Volume Profile Data"
+   - When single chunk analyzed:
+     - "Chunk ID: fixture-speech-10s" (or chunk seq from session)
+     - "Duration: 10.23s"
+     - "Sample count: 102" (one sample per ~100ms)
+     - "Max volume: 85%"
+     - "Avg volume: 42%"
+     - Expandable: "Raw volume array (JSON)" → shows `[0.12, 0.45, 0.67, ...]` (Float32Array as JSON)
+   - When session analyzed:
+     - "Session ID: abc123" (or "In-memory from capture")
+     - "Total duration: 45.2s"
+     - "Chunks analyzed: 11"
+     - "Snips proposed: 4"
+     - Expandable: "Snip boundaries (JSON)" → shows `[{startTime: 0.0, endTime: 12.3, confidence: 0.87}, ...]`
+
+6. **Algorithm tuning panel** (bottom strip, secondary disclosure):
+   - Collapsible: "Show Algorithm Parameters ▶" (collapsed by default)
+   - When expanded:
+     - Snip threshold slider: "Quiet threshold: 30%" (0–100%, adjusts what counts as "quiet")
+     - Min snip duration: "5s" (number input, snips shorter than this are merged)
+     - Max snip duration: "60s" (number input, snips longer than this are split)
+     - "Rerun Snip Proposal" button (re-proposes snips with new parameters → histogram updates)
+   - When parameters change and "Rerun" clicked: histogram snip boundaries update (red lines move, snip count may change)
+
+7. **Event feed panel** (bottom strip, collapsed by default):
+   - Collapsible: "Show Event Feed ▶"
+   - When expanded: `volumeProfileReady(chunkId=0)`, `volumeProfileReady(chunkId=1)`, `snipsProposed(sessionId=abc, snipCount=4, avgConfidence=0.82)`, decode timing logs, algorithm decision logs ("Snip boundary at 12.3s: quiet region detected, confidence 87%")
+
+**Before state** (page load, Fixture mode):
+- Input selection: "Speech 10s" selected (first fixture in list)
+- Volume waveform: placeholder "Select and analyze..."
+- Volume profile data: empty
+- Algorithm tuning: collapsed, default parameters (threshold 30%, min 5s, max 60s)
+
+**After state** (Fixture mode, "Speech 10s" analyzed):
+- Input selection: "Speech 10s" highlighted
+- Volume waveform: green line showing volume over 10s, 2 quiet regions shaded red (0–1s, 8–10s)
+- Volume profile data: "Chunk ID: fixture-speech-10s, Duration: 10.23s, Max 85%, Avg 42%", raw array expandable
+- Algorithm tuning: still collapsed (not needed for single-chunk analysis)
+
+**After state** (Real Sessions mode, session analyzed, snips proposed):
+- Input selection: "Session abc123: 45.2s, 11 chunks" selected
+- Session histogram: 11 blue bars (one per chunk), 4 vertical red lines (snip boundaries at 0s, 12.3s, 28.7s, 41.0s, 45.2s), snip labels above
+- Volume profile data: "Session ID: abc123, Duration 45.2s, Chunks 11, Snips 4", snip boundaries JSON expandable
+- Algorithm tuning: expanded, slider adjusted to 25% → "Rerun" clicked → histogram updates (snip boundaries move, now 3 snips instead of 4)
+
+**Walkthrough value**: Proves that volume-analyzer decodes chunks, computes volume profiles (samples over time), visualizes volume waveforms and histograms, identifies quiet regions accurately, proposes snip boundaries based on threshold (algorithmic, not AI), and allows tuning parameters to see impact on snip proposals. Operator can use fixtures (safe, repeatable), real sessions (read-only), or live-captured audio (in-memory from capture-engine) without launching the PWA.
+
+**Optional capture integration** (Live from Capture mode): Volume-analyzer demo MAY include capture-engine as a demo dependency. When "Live from Capture" mode is selected, a mini capture control panel appears in the input selection sidebar. Operator clicks "Start Capture" → speaks or uses simulated PCM → clicks "Stop Capture" → captured chunks live in RAM (not persisted) → clicks "Analyze Captured Audio" → volume profiles computed from in-memory chunks → histogram displays → clicks "Propose Snips" → snip boundaries proposed. This proves the full capture → volume analysis → snip proposal flow without persisting to session-store. Discarded when page reloads or mode changes.
 
 ---
 
@@ -171,23 +305,117 @@ Example input/output for key jobs:
 
 **Isolation Demo**:
 
-- **Runtime**: Web app (local dev server)
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport
 - **Launch**: `cd packages/lib/transcription-client/isolation-demo && npm start`
-- **Screens**:
-  - Main: API key input field, "Validate Key" button, validation status indicator (green enabled / red disabled)
-  - Transcription panel: Upload audio file or select fixture, "Transcribe" button, transcript output text box, timing info
-  - Batch queue: List of pending transcription jobs with status (queued, in-progress, complete, failed)
-- **Data mode**: Fixture audio files by default, with "Use Real Snips" toggle for read-only session-store snip blobs
-- **Safe default**: Fixture mode with example Groq test key
-- **Inputs**: Fixture audio blobs (sample speech clips), or snip blobs from real session-store (read-only), API key from user
-- **Internal state**: API key validation status, active transcription requests (with abort capability), retry count
-- **Outputs**: Transcript text strings, timing/duration metadata
-- **External events**: `transcriptionStarted`, `transcriptionComplete`, `transcriptionFailed` events in event feed
-- **Internal telemetry**: API request timing, retry attempts, rate limit encounters, Groq response metadata
-- **Walkthrough value**: Proves that key validation works correctly (accepts valid keys, rejects invalid), transcription returns accurate text for sample audio, and errors are reported clearly (network failure, invalid key, API error)
+- **Data mode**: **Fixture by default** (5–10 sample speech audio clips with known correct transcripts for comparison). Optional: "Use Real Snips" (read-only session-store snip blobs). Optional: "Live from Capture" (capture-engine produces audio in-memory, transcribes immediately, no persist).
+- **Safe default**: Fixture mode with example Groq test key (clearly labeled "Demo key, may be rate-limited")
 
-**Secondary tools**: Raw API response inspector (JSON view), network timing waterfall, simulated failure toggle (test error handling)
+**Panel-based layout (6 regions):**
+
+1. **Top chrome panel** (fixed header, spans full width):
+   - Left: "Transcription Client Isolation Demo" heading
+   - Center: Data mode chip "FIXTURE" / "REAL SNIPS (read-only)" / "LIVE FROM CAPTURE" (mode selector)
+   - Right: API key validation status: "Key valid ✓" (green) / "Key invalid ✗" (red) / "Key missing" (gray)
+
+2. **API key panel** (top left, 1/3 width):
+   - Heading: "Groq API Key"
+   - Text input field: "sk-..." (masked by default, "Show" toggle to reveal)
+   - "Validate Key" button (cyan, click → calls `validateKey(apiKey)` → updates status in chrome)
+   - Validation result below input:
+     - If valid: "Key valid ✓ Transcription enabled" (green text)
+     - If invalid: "Key invalid ✗ Error: [Groq error message]" (red text)
+     - If missing: "No key entered. Add key to enable transcription." (gray text)
+   - Help text: "Need a key? Create one in Groq Console (link). Demo key provided for testing." (small gray)
+   - When "Validate Key" clicked: button disables briefly (~500ms), spinner appears, then result displays
+
+3. **Audio input selection panel** (top center, 1/3 width):
+   - **Fixture mode** (default):
+     - Heading: "Fixture Audio Clips"
+     - List of fixture audio clips (radio buttons): "Speech sample 1 (8s)", "Speech sample 2 (5s)", "Quiet speech (12s)", "Accented speech (10s)", "Music (not speech, 6s)"
+     - Each row: clip name, duration, "Play" button (plays fixture audio locally, no transcription yet)
+     - Selected clip highlighted (cyan border)
+   - **Real Snips mode**:
+     - Heading: "Snips from Store"
+     - Dropdown: "Select session..." → lists sessions → "Select snip..." → lists snips from that session
+     - Selected snip: "Snip 3 of Session abc: 12.3s–18.7s (6.4s)"
+     - "Play Snip" button (plays snip audio from session-store, read-only)
+   - **Live from Capture mode**:
+     - Heading: "Capture Audio Now"
+     - Mini capture controls: "Start Capture", "Stop Capture", "Audio Source: Simulated PCM"
+     - After stop: "Captured 2 chunks (8.5s total, in-memory)"
+     - "Use Captured Audio" button (selects in-memory audio for transcription)
+
+4. **Transcription control panel** (top right, 1/3 width):
+   - Heading: "Transcribe Selected Audio"
+   - "Transcribe" button (cyan, full-width, click → sends selected audio to Groq → transcript appears in output panel below)
+     - Disabled if: no audio selected OR API key invalid OR transcription already in progress
+     - Enabled when: audio selected AND key valid AND idle
+   - Status indicator below button:
+     - Idle: "Ready to transcribe" (gray)
+     - In progress: "Transcribing... [spinner] Elapsed: 2.3s" (yellow, updates every 100ms)
+     - Complete: "Transcription complete in 3.8s" (green)
+     - Failed: "Transcription failed: [error]" (red)
+   - "Abort" button (red, only visible during in-progress; click → cancels API request, returns to idle)
+
+5. **Transcript output panel** (center, 50% width, below input panels):
+   - Heading: "Transcript Output"
+   - When idle (no transcription run yet): placeholder "Select audio and click Transcribe to see output"
+   - When in progress: "Transcribing... (waiting for Groq API response)" (spinner)
+   - When complete:
+     - Transcript text (large, readable font): "This is the transcribed text from the audio clip. It should match the original speech closely."
+     - Below text: "Language: en, Duration: 8.2s, Confidence: 0.94" (metadata from Groq response)
+     - "Copy to Clipboard" button (click → copies transcript text, shows "Copied!" toast)
+   - When failed:
+     - Error message (red): "Transcription failed: Invalid API key" / "Network error: timeout after 30s" / "Rate limit exceeded"
+     - "Retry" button (click → retries same audio with same key)
+
+6. **Batch queue panel** (right sidebar, 25% width):
+   - Heading: "Transcription Queue" (for testing batch behavior, optional advanced feature)
+   - List of queued jobs (rows):
+     - Job 1: "Speech sample 1 (8s) - Complete ✓" (green)
+     - Job 2: "Speech sample 2 (5s) - In progress... 2.1s" (yellow, spinner)
+     - Job 3: "Quiet speech (12s) - Queued" (gray, waiting)
+     - Job 4: "Accented speech (10s) - Failed ✗" (red, with "Retry" button)
+   - "Add Selected to Queue" button (adds currently selected audio to queue without transcribing immediately)
+   - "Process Queue" button (transcribes all queued items sequentially, updates status for each)
+   - When batch processing: jobs move from "Queued" → "In progress" → "Complete" or "Failed" one at a time
+
+7. **Network telemetry panel** (bottom strip, secondary disclosure):
+   - Collapsible: "Show Network Telemetry ▶" (collapsed by default)
+   - When expanded:
+     - API request timing: "Request sent at 14:23:45.123, Response received at 14:23:48.987, Elapsed: 3.864s"
+     - Retry count: "Retries: 0" (increments if network failure and retry occurs)
+     - Rate limit status: "Rate limit: OK" / "Rate limit: WARNING (90% of quota)" / "Rate limit: EXCEEDED (429 response)"
+     - Raw Groq API response (JSON): Expandable, shows `{"text": "...", "language": "en", "duration": 8.2, ...}`
+     - Simulated failure toggle: "Simulate network failure" (checkbox, forces next transcription to fail for testing error handling)
+
+8. **Event feed panel** (bottom strip, collapsed by default):
+   - Collapsible: "Show Event Feed ▶"
+   - When expanded: `transcriptionStarted(audioId=fixture-1)`, `transcriptionComplete(audioId=fixture-1, text="...", duration=3.8s)`, `transcriptionFailed(audioId=fixture-2, reason="Network timeout")`, `keyValidated(valid=true)`
+
+**Before state** (page load, Fixture mode):
+- API key panel: Demo key pre-filled, status "Key valid ✓" (auto-validated on load)
+- Audio input: "Speech sample 1 (8s)" selected (first fixture)
+- Transcription control: "Transcribe" button enabled (cyan), status "Ready to transcribe"
+- Transcript output: placeholder "Select audio and click Transcribe..."
+- Batch queue: empty (no jobs)
+
+**After state** (Fixture mode, "Speech sample 1" transcribed successfully):
+- API key panel: unchanged (still valid)
+- Audio input: "Speech sample 1" still selected
+- Transcription control: status "Transcription complete in 3.8s" (green)
+- Transcript output: "This is the transcribed text..." (actual transcript from Groq), "Language: en, Duration: 8.2s, Confidence: 0.94", "Copy to Clipboard" button
+- Batch queue: if used, Job 1 shows "Complete ✓" with transcript text preview
+
+**After state** (batch queue with 3 jobs, 1 complete, 1 in progress, 1 failed):
+- Batch queue: Job 1 "Complete ✓" (green), Job 2 "In progress... 2.1s" (yellow), Job 3 "Failed ✗ Rate limit exceeded" (red, "Retry" button)
+- Transcript output: shows Job 1's transcript (most recent complete)
+- Network telemetry: (if expanded) shows rate limit warning "90% of quota"
+
+**Walkthrough value**: Proves that transcription-client validates Groq API keys correctly (accepts valid, rejects invalid with specific error), sends audio to Groq Whisper API, receives transcript text with metadata (language, duration, confidence), handles errors clearly (network timeout, invalid key, rate limit), supports retry, and can process multiple audio clips sequentially (batch queue). Operator can use fixtures (safe, known correct transcripts for comparison), real snips (read-only from session-store), or live-captured audio (in-memory from capture-engine) without launching the PWA.
+
+**Optional capture integration** (Live from Capture mode): Transcription-client demo MAY include capture-engine as a demo dependency. When "Live from Capture" mode is selected, a mini capture panel appears in the audio input selection area. Operator captures live speech → stops → selects captured audio → transcribes → sees transcript. Captured audio stays in-memory (not persisted). Proves the full capture → transcribe flow without session-store.
 
 ---
 
@@ -219,23 +447,119 @@ Example input/output for key jobs:
 
 **Isolation Demo**:
 
-- **Runtime**: Web app (local dev server)
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport
 - **Launch**: `cd packages/lib/playback-engine/isolation-demo && npm start`
-- **Screens**:
-  - Main: Select item type (session, chunk, snip), select item from list, standard playback controls (play, pause, seek bar, current time, duration)
-  - Queue panel: List of playback history, currently playing indicator
-  - Waveform: Optional waveform visualization during playback
-- **Data mode**: Fixture audio blobs by default, with "Use Real Sessions" toggle for read-only session-store access
-- **Safe default**: Fixture mode with pre-recorded sample sessions
-- **Inputs**: Fixture session/chunk/snip blobs, or real session-store items (read-only)
-- **Internal state**: playback state (idle, playing, paused), current position, loaded audio buffer, error state
-- **Outputs**: Audio playback to device speakers/headphones
-- **External events**: `playbackStarted`, `playbackEnded`, `playbackError` events in event feed
-- **Internal telemetry**: Chunk reassembly timing, audio buffer loading, seek operations, playback errors
-- **Walkthrough value**: Proves that playback works for sessions (reassembles chunks correctly), individual chunks, and snips; seek and pause work; playback accurately reflects duration from chunk metadata
+- **Data mode**: **Fixture by default** (3–5 pre-recorded fixture sessions with known durations, chunk counts). Optional: "Use Real Sessions" (read-only session-store access). Optional: "Live from Capture" (capture-engine produces audio in-memory, playback immediately, no persist).
+- **Safe default**: Fixture mode (Fixture session 1: 12.5s speech, 3 chunks; Fixture session 2: 8.3s silence, 2 chunks; Fixture session 3: 45s mixed, 11 chunks)
 
-**Secondary tools**: Audio buffer inspector (shows loaded chunks, byte ranges, gaps if any), playback quality metrics
+**Panel-based layout (5 regions):**
+
+1. **Top chrome panel** (fixed header, spans full width):
+   - Left: "Playback Engine Isolation Demo" heading
+   - Center: Data mode chip "FIXTURE" / "REAL SESSIONS (read-only)" / "LIVE FROM CAPTURE (in-memory)"
+   - Right: Mode selector dropdown: "Fixture" (default), "Real Sessions", "Live from Capture"
+
+2. **Item selection panel** (left sidebar, 1/4 width):
+   - **Fixture mode** (default):
+     - Heading: "Fixture Items"
+     - Tab pills: "Sessions" (active), "Chunks", "Snips"
+     - Sessions tab: List of fixture sessions (radio buttons): "Session 1: Speech 12.5s (3 chunks)", "Session 2: Silence 8.3s (2 chunks)", "Session 3: Mixed 45s (11 chunks)"
+     - Chunks tab: List of fixture chunks: "Chunk 0 (0–4.2s)", "Chunk 1 (4.2–8.5s)", "Chunk 2 (8.5–12.5s)"
+     - Snips tab: List of fixture snips: "Snip 0 (0–5.1s)", "Snip 1 (5.1–12.5s)"
+     - Selected item highlighted (cyan border)
+   - **Real Sessions mode**:
+     - Heading: "Sessions from Store"
+     - Dropdown: "Select session..." → lists sessions from session-store (read-only)
+     - After selection: "Session abc: 45.2s, 11 chunks" (metadata)
+     - Radio buttons: "Play whole session" (default), "Play chunks individually", "Play snips individually"
+     - If "chunks" or "snips" selected: secondary list appears with chunk/snip IDs to select
+   - **Live from Capture mode**:
+     - Heading: "Capture Audio Now"
+     - Mini capture controls: "Start Capture", "Stop Capture", "Audio Source: Simulated PCM"
+     - After stop: "Captured 3 chunks (12.5s total, in-memory)"
+     - Radio buttons: "Play whole capture" (default), "Play chunks individually"
+
+3. **Playback control panel** (center top, 50% width):
+   - Heading: "Playback Controls"
+   - Currently playing: "Session 1: Speech 12.5s" (item name, updates when selection changes)
+   - Standard playback buttons (horizontal row, large, touch-friendly):
+     - "Play" button (▶, cyan, click → starts playback, changes to "Pause")
+     - "Pause" button (⏸, replaces Play when playing, click → pauses, changes back to Play)
+     - "Stop" button (⏹, red, click → stops playback, resets position to 0:00)
+   - Seek bar (horizontal slider, below buttons):
+     - Scrubber: blue progress bar (fills left-to-right as playback progresses)
+     - Thumb: draggable handle (click and drag → seeks to new position, updates current time immediately)
+     - Time labels: "Current: 3.2s / Total: 12.5s" (updates every 100ms during playback)
+   - Volume slider (below seek bar, optional): "Volume: 80%" (0–100%, adjusts playback volume)
+   - When "Play" clicked: button changes to "Pause", seek bar scrubber begins filling, current time increments, audio plays from speakers
+   - When "Pause" clicked: button changes back to "Play", scrubber freezes, current time stops incrementing, audio stops
+   - When scrubber dragged to 7.5s: playback jumps to 7.5s immediately, current time updates, audio continues from new position
+   - When playback reaches end (current time = total duration): "Play" button re-enables, scrubber resets to 0:00, audio stops
+
+4. **Waveform visualization panel** (center bottom, 50% width):
+   - Heading: "Audio Waveform" (optional, shows amplitude over time)
+   - Waveform graph: X-axis = time (0 → total duration), Y-axis = amplitude (-100% to +100%)
+     - Blue waveform: audio amplitude samples (rendered from loaded audio buffer)
+     - Red vertical line: current playback position (moves left-to-right as playback progresses, synced with seek bar)
+   - When idle (no item loaded): placeholder "Select and play an item to see waveform"
+   - When playing: red line moves smoothly across waveform, synced with current time
+   - When scrubber dragged: red line jumps to new position immediately
+
+5. **Playback queue/history panel** (right sidebar, 1/4 width):
+   - Heading: "Playback History"
+   - List of recently played items (most recent at top, max 10 rows):
+     - Row 1: "Session 1: Speech 12.5s - Played 2 min ago ✓" (green checkmark)
+     - Row 2: "Chunk 0 (0–4.2s) - Played 5 min ago ✓"
+     - Row 3: "Session 3: Mixed 45s - Playback failed ✗ (Error: decode error)" (red X)
+   - Currently playing indicator: Row for active item has pulsing cyan border + "▶ Playing now..." (updates in real-time)
+   - Click on history row: re-loads that item into playback controls (stops current playback, loads selected item, does not auto-play)
+
+6. **Audio buffer inspector panel** (bottom strip, secondary disclosure):
+   - Collapsible: "Show Audio Buffer Inspector ▶" (collapsed by default)
+   - When expanded:
+     - Buffer status: "Loaded: 3 chunks, Total bytes: 98,304, Duration: 12.5s"
+     - Chunk details table (if playing session reassembled from chunks):
+       - Column 1: Chunk seq (0, 1, 2)
+       - Column 2: Byte range (0–32768, 32768–65536, 65536–98304)
+       - Column 3: Time range (0–4.2s, 4.2–8.5s, 8.5–12.5s)
+       - Column 4: Decode status ("OK ✓" green / "Failed ✗" red)
+     - Gap detection: "Gaps detected: None" (green) / "Gaps: chunk 3 missing (12.5–16.7s)" (red, if chunk missing in session)
+     - Reassembly timing: "Chunk reassembly took 45ms" (performance metric)
+   - When playing single chunk or snip: simpler view "Loaded: 1 chunk, 32,768 bytes, 4.2s, Decode: OK ✓"
+
+7. **Event feed panel** (bottom strip, collapsed by default):
+   - Collapsible: "Show Event Feed ▶"
+   - When expanded: `playbackStarted(itemType="session", itemId="fixture-1")`, `playbackEnded(itemType="session", itemId="fixture-1")`, `playbackError(itemType="chunk", itemId="chunk-3", reason="Decode error: invalid MP3 header")`, seek operation logs, buffer loading logs
+
+**Before state** (page load, Fixture mode):
+- Item selection: "Session 1: Speech 12.5s (3 chunks)" selected (first fixture)
+- Playback control: "Play" button enabled (cyan), seek bar at 0:00 / 12.5s, paused state
+- Waveform: placeholder "Select and play..."
+- Playback queue: empty (no history yet)
+
+**After state** (Fixture mode, Session 1 played to completion):
+- Item selection: "Session 1" still selected
+- Playback control: "Play" button enabled (ready to replay), seek bar at 0:00 / 12.5s (reset), paused state
+- Waveform: blue waveform visible (loaded from buffer), red line at 0:00
+- Playback queue: "Session 1: Speech 12.5s - Played just now ✓" (green, in history)
+
+**After state** (Fixture mode, Session 1 playing, at 7.5s, then paused):
+- Item selection: "Session 1" selected
+- Playback control: "Pause" button visible (was Play, now paused), seek bar at 7.5s / 12.5s (scrubber halfway), current time "7.5s"
+- Waveform: red line at 7.5s position (frozen, not moving)
+- Playback queue: "Session 1: Speech 12.5s - ▶ Playing now... (paused)" (cyan border, pulsing)
+
+**After state** (Real Sessions mode, session abc with 11 chunks, chunk 5 missing → playback error):
+- Item selection: "Session abc: 45.2s, 11 chunks" selected
+- Playback control: "Play" attempted, but error occurred → "Stop" button visible, seek bar at 0:00 (never progressed)
+- Waveform: partial waveform (chunks 0–4 loaded, then gap, then chunks 6–10), red line at 0:00
+- Audio buffer inspector: (if expanded) "Gaps: chunk 5 missing (20.8–24.9s)" (red)
+- Playback queue: "Session abc: 45.2s - Playback failed ✗ (Gap detected: missing chunk 5)" (red X)
+
+**Walkthrough value**: Proves that playback-engine loads audio (session reassembles chunks, single chunk, snip concatenates chunks), plays audio from speakers/headphones, provides standard playback controls (play, pause, stop, seek), accurately reflects duration from chunk metadata, handles chunk reassembly correctly (no gaps or time skips), detects gaps/missing chunks and reports errors, and syncs waveform visualization with current playback position. Operator can use fixtures (safe, known durations), real sessions (read-only from session-store), or live-captured audio (in-memory from capture-engine) without launching the PWA.
+
+**Optional capture integration** (Live from Capture mode): Playback-engine demo MAY include capture-engine as a demo dependency. When "Live from Capture" mode is selected, mini capture controls appear. Operator captures live speech → stops → captured chunks stay in-memory → clicks "Play whole capture" → playback-engine reassembles in-memory chunks and plays them back. Proves capture → playback flow without session-store. Audio discarded when page reloads.
 
 ---
 
@@ -303,26 +627,178 @@ Example input/output for key jobs:
 
 **Isolation Demo** (Store Inspector):
 
-- **Runtime**: Web app (local dev server)
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport (store inspector needs table space)
 - **Launch**: `cd packages/datastore/session-store/isolation-demo && npm start`
-- **Screens**:
-  - Sessions tab: Paginated list of all sessions with metadata (timestamp, duration, chunk count, snip count, transcript status), "View Details" button
-  - Session detail: Chunks list (ID, startTime, duration, byteSize, has volume profile?), Snips list (ID, startTime, endTime, has transcript?), raw JSON inspector
-  - Chunks tab: All chunks across sessions, filterable by session, playback link (uses playback-engine fixture or read-only mode)
-  - Snips tab: All snips, filterable by session, transcript preview, playback link
-  - Storage tab: Total storage used, session count, chunk count, storage cap setting, "Enforce Retention Policy" button (shows what would be deleted), "Clear All Demo Data" button
-  - Query panel: Ad-hoc queries (get session, list chunks for session, etc.) with JSON response
-- **Data mode**: Real read-only by default (shows actual IndexedDB data without mutations), with "Enable Writes (Sandbox)" toggle that allows write operations but clearly labels them as sandbox/test
-- **Safe default**: Real read-only
-- **Inputs**: None for read-only; in write mode: manually create test sessions/chunks, or import fixture data
-- **Internal state**: Current IndexedDB state (session/chunk/snip/volume profile/transcript counts), query history
-- **Outputs**: Store data displayed as tables and JSON, retention policy simulation results
-- **External events**: (Store does not emit external events directly; other packages do when calling store interfaces) Event feed shows write operations (session created, chunk written, etc.) in sandbox write mode
-- **Internal telemetry**: IndexedDB transaction timing, storage quota warnings, retention policy enforcement logs
-- **Walkthrough value**: Proves that all store interfaces work (create session, write chunk, write volume profile, write snip, write transcript), data relationships are correct (chunks belong to sessions, snips reference chunks, transcripts attach to snips), retention policy enforcement deletes old data correctly, storage cap is respected
+- **Data mode**: **Real read-only by default** (shows actual IndexedDB data from this browser, no mutations). Optional: "Enable Writes (Sandbox)" toggle (allows write operations, clearly labeled as sandbox/test, writes to real IndexedDB but with "DEMO-" prefix on session IDs). Optional: "Live from Capture" (includes capture-engine, produces audio and writes to real IndexedDB with sandbox labels).
+- **Safe default**: Real read-only (inspect existing sessions from prior PWA usage or other demos, no writes)
 
-**Secondary tools**: IndexedDB schema inspector (tables, indexes, record counts), export/import fixture data (JSON), clear all data button (with confirmation), storage quota display
+**Panel-based layout (6 tabs + chrome):**
+
+1. **Top chrome panel** (fixed header, spans full width):
+   - Left: "Session Store Isolation Demo" heading
+   - Center: Data mode chip "READ-ONLY" / "SANDBOX WRITE ENABLED" / "LIVE FROM CAPTURE (writing)" (red chip when writes enabled, yellow when capture active)
+   - Right: Storage quota display "Using 127 MB / 500 MB device storage" (reads from IndexedDB API, live quota)
+   - Write mode toggle (right, below quota): "Enable Writes (Sandbox)" checkbox (off by default, red when on)
+
+2. **Tab navigation** (below chrome, horizontal tabs):
+   - "Sessions" (active by default)
+   - "Chunks"
+   - "Snips"
+   - "Volume Profiles"
+   - "Transcripts"
+   - "Storage"
+   - "Query Console"
+   - Active tab: cyan underline, bold text
+
+3. **Sessions tab** (default active):
+   - Heading: "All Sessions"
+   - Filters (top of panel): "Sort by: Timestamp desc" (dropdown), "Limit: 50" (input), "Show only: All / Demo sessions / Real sessions" (radio buttons)
+   - Sessions table (scrollable, paginated):
+     - Column 1: Session ID (e.g., "abc123", "DEMO-xyz789")
+     - Column 2: Timestamp (e.g., "2026-08-26 14:23:45")
+     - Column 3: Duration (e.g., "45.2s")
+     - Column 4: Chunk count (e.g., "11")
+     - Column 5: Snip count (e.g., "4" or "–" if not yet proposed)
+     - Column 6: Transcript status ("Transcribed ✓" green / "Partial 3/4" yellow / "None" gray)
+     - Column 7: "View Details" button (click → expands row inline or opens detail overlay)
+   - When "View Details" clicked: detail overlay or inline expansion shows:
+     - Session JSON (raw): `{"id": "abc123", "timestamp": 1724687025, "duration": 45.2, ...}`
+     - Chunks list: "11 chunks" (link to Chunks tab filtered by this session)
+     - Snips list: "4 snips" (link to Snips tab filtered by this session)
+     - Transcripts: "4 transcripts" (link to Transcripts tab filtered by this session)
+     - "Delete Session" button (red, only visible in sandbox write mode, deletes session + cascades to chunks/snips/volume profiles/transcripts)
+   - Pagination: "Showing 1–50 of 127 sessions" (prev/next buttons if > 50)
+   - If no sessions: "No sessions found. (Create one with capture or import fixture data.)"
+
+4. **Chunks tab**:
+   - Heading: "All Chunks"
+   - Filters: "Filter by session: All / [dropdown: abc123, xyz789, ...]", "Sort by: startTime asc"
+   - Chunks table:
+     - Column 1: Chunk ID (e.g., "chunk-0", "chunk-1")
+     - Column 2: Session ID (e.g., "abc123", link to Sessions tab)
+     - Column 3: Start time (e.g., "0.0s", "4.2s", "8.5s")
+     - Column 4: Duration (e.g., "4.2s")
+     - Column 5: Byte size (e.g., "32,768 bytes")
+     - Column 6: Has volume profile? ("Yes ✓" green / "No" gray)
+     - Column 7: "Play" button (plays chunk via inline HTML5 audio element, reads blob from IndexedDB)
+   - When "Play" clicked: audio element appears below row, plays chunk audio, "Stop" button replaces "Play"
+   - If filtered by session: "Showing 11 chunks from session abc123" (table only shows chunks for that session, sorted by startTime)
+
+5. **Snips tab**:
+   - Heading: "All Snips"
+   - Filters: "Filter by session: All / [dropdown]", "Show only: With transcripts / Without transcripts / All"
+   - Snips table:
+     - Column 1: Snip ID (e.g., "snip-0", "snip-1")
+     - Column 2: Session ID (link)
+     - Column 3: Start time → End time (e.g., "0.0s → 12.3s")
+     - Column 4: Duration (e.g., "12.3s")
+     - Column 5: Chunk refs (e.g., "chunks 0–2")
+     - Column 6: Has transcript? ("Yes ✓" green / "No" gray)
+     - Column 7: Transcript preview (first 50 chars, e.g., "This is the transcribed text from the...")
+     - Column 8: "Play" button (plays snip via playback-engine fixture or inline audio, reads chunk blobs from IndexedDB and concatenates)
+   - When snip row clicked: detail overlay shows full transcript text (if exists), snip JSON, chunk refs with byte ranges
+
+6. **Volume Profiles tab**:
+   - Heading: "All Volume Profiles"
+   - Filters: "Filter by session: All / [dropdown]"
+   - Volume profiles table:
+     - Column 1: Chunk ID (link to Chunks tab)
+     - Column 2: Session ID (link)
+     - Column 3: Max volume (e.g., "85%")
+     - Column 4: Avg volume (e.g., "42%")
+     - Column 5: Sample count (e.g., "102 samples")
+     - Column 6: "View Waveform" button (opens overlay with line graph: X = time, Y = volume, data from volumeSamples Float32Array)
+   - When "View Waveform" clicked: modal/overlay appears with volume waveform graph (same as volume-analyzer demo waveform panel)
+
+7. **Transcripts tab**:
+   - Heading: "All Transcripts"
+   - Filters: "Filter by session: All / [dropdown]"
+   - Transcripts table:
+     - Column 1: Transcript ID (e.g., "transcript-0")
+     - Column 2: Snip ID (link to Snips tab)
+     - Column 3: Session ID (link)
+     - Column 4: Text preview (first 100 chars)
+     - Column 5: Language (e.g., "en")
+     - Column 6: "View Full" button (opens overlay with full transcript text, copyable)
+   - When "View Full" clicked: modal with full transcript text (large readable font), "Copy to Clipboard" button
+
+8. **Storage tab**:
+   - Heading: "Storage Management"
+   - Storage quota panel (top):
+     - "Total storage used: 127 MB / 500 MB device storage" (progress bar, green if < 80%, yellow if 80–95%, red if > 95%)
+     - Breakdown by table:
+       - Sessions: "45 MB (127 sessions)"
+       - Chunks: "75 MB (1,245 chunks)"
+       - Volume Profiles: "3 MB (1,245 profiles)"
+       - Snips: "2 MB (348 snips)"
+       - Transcripts: "2 MB (348 transcripts)"
+   - Retention policy panel (middle):
+     - Heading: "Retention Policy"
+     - "Storage cap setting: 500 MB" (input, editable in sandbox write mode)
+     - "Oldest session: 2026-07-15 14:23:45" (link to session)
+     - "Enforce Retention Policy" button (cyan, click → simulates retention: shows which sessions would be deleted to get under cap, does NOT actually delete in read-only mode; in sandbox write mode, deletes with confirmation)
+     - After "Enforce" clicked (simulation in read-only): "Simulation: 12 sessions would be deleted (oldest first), freeing 45 MB. No changes made (read-only mode)."
+     - After "Enforce" clicked (sandbox write mode, confirmed): "Deleted 12 sessions, freed 45 MB. Storage now: 82 MB / 500 MB."
+   - Cleanup panel (bottom):
+     - "Orphaned data detector" (runs scan, finds chunks/snips/volume profiles/transcripts without parent sessions)
+     - "Scan for orphaned data" button (click → scans IndexedDB, reports: "3 orphaned chunks, 1 orphaned transcript")
+     - "Clean Up Orphaned Data" button (red, only enabled if orphans found and sandbox write mode on, deletes orphans with confirmation)
+     - "Clear All Demo Data" button (red, only visible in sandbox write mode, deletes all sessions/chunks/snips/profiles/transcripts with "DEMO-" prefix, shows confirmation modal "Delete 23 demo sessions and all related data?")
+     - "Export All Data" button (cyan, exports entire IndexedDB as JSON, downloads file)
+     - "Import Fixture Data" button (cyan, uploads JSON, writes to IndexedDB in sandbox write mode, loads 5–10 fixture sessions with chunks/snips/transcripts)
+
+9. **Query Console tab**:
+   - Heading: "Ad-Hoc Queries"
+   - Query input panel (top):
+     - "Method" dropdown: "getSession", "listSessions", "getChunksForSession", "writeChunk", "writeSnip", etc. (all session-store interface methods)
+     - Parameter inputs (dynamic, change based on selected method):
+       - Example: "getSession" → "Session ID: [input: abc123]"
+       - Example: "listSessions" → "Limit: [input: 50]", "Offset: [input: 0]", "Sort by: [dropdown: timestamp desc]"
+     - "Execute Query" button (cyan, click → calls selected method with parameters, displays result below)
+   - Query result panel (bottom):
+     - Result type: "Success ✓" green / "Error ✗" red
+     - Result data (JSON, formatted, syntax-highlighted): `{"id": "abc123", "timestamp": 1724687025, ...}`
+     - Timing: "Query executed in 12ms"
+     - "Copy Result" button (copies JSON to clipboard)
+   - Query history (sidebar, last 10 queries):
+     - "getSession(abc123) - Success ✓ 2 min ago"
+     - "listSessions(limit=50) - Success ✓ 5 min ago"
+     - Click on history item: re-loads that query into input panel (does not auto-execute)
+
+10. **Capture integration panel** (overlay, only visible when "Live from Capture" mode enabled):
+    - When "Enable Writes (Sandbox)" is checked AND "Live from Capture" toggle is checked (appears below write toggle):
+      - Overlay panel slides in from right (or bottom): "Capture Audio → Store"
+      - Mini capture controls: "Start Capture", "Stop Capture", "Audio Source: Simulated PCM"
+      - When "Start Capture" clicked: capture begins, chunks encode every ~4s, session-store.createSession() called (writes real session to IndexedDB with "DEMO-capture-" prefix), session-store.writeChunk() called for each chunk (writes real chunks to IndexedDB)
+      - Live feedback: "Session DEMO-capture-1234 created, writing chunks... (Chunk 0 written, Chunk 1 written, ...)"
+      - When "Stop Capture" clicked: capture stops, final chunk flushes, session complete
+      - "View Created Session" button (link to Sessions tab, filtered to show DEMO-capture-1234)
+    - Proves the full capture → session-store write flow: capture-engine calls session-store interfaces, data lands in IndexedDB, store inspector shows it immediately in Sessions/Chunks tabs
+
+**Before state** (page load, Real read-only mode, Sessions tab):
+- Top chrome: "READ-ONLY" chip (gray), storage quota "127 MB / 500 MB"
+- Sessions tab active: table shows 127 sessions (from prior PWA usage or other demos), sorted by timestamp desc, paginated
+- Write toggle: unchecked (off)
+
+**After state** (Real read-only, Sessions tab, session abc123 details viewed):
+- Sessions tab: row for abc123 expanded, detail overlay shows session JSON, "11 chunks" link, "4 snips" link, "4 transcripts" link
+- "Delete Session" button NOT visible (read-only mode)
+
+**After state** (Sandbox write mode enabled, Storage tab, retention policy enforced):
+- Top chrome: "SANDBOX WRITE ENABLED" chip (red), storage quota "82 MB / 500 MB" (reduced after enforcement)
+- Storage tab active: "Deleted 12 sessions, freed 45 MB" confirmation message (green)
+- Sessions tab (if switched back): 12 oldest sessions no longer in table (deleted)
+
+**After state** (Sandbox write + Live from Capture mode, captured 12.5s audio):
+- Top chrome: "LIVE FROM CAPTURE (writing)" chip (yellow during capture, red after stop)
+- Capture overlay: "Session DEMO-capture-1234 created, Chunks: 3, Duration: 12.5s, ✓ Complete"
+- "View Created Session" clicked → Sessions tab, filtered to DEMO-capture-1234, row shows session with 3 chunks
+- Chunks tab, filtered by DEMO-capture-1234: 3 rows (chunk 0, 1, 2 with start/end times, byte sizes, all have "Play" buttons)
+
+**Walkthrough value**: Proves that session-store is the durable IndexedDB authority, all store interfaces work correctly (read sessions, chunks, snips, volume profiles, transcripts; write sessions/chunks/profiles/snips/transcripts in sandbox mode), data relationships are correct (chunks belong to sessions, snips reference chunks, transcripts attach to snips), retention policy enforcement deletes oldest sessions when cap exceeded, orphaned data detector finds and cleans up orphans, storage quota is respected, and the full capture → store → inspect flow works (when live capture is integrated). Operator can inspect real sessions (read-only, from prior PWA usage), create sandbox demo sessions (sandbox write mode), or capture live audio and watch it land in IndexedDB immediately (live from capture mode).
+
+**Optional capture integration** (Live from Capture mode): Session-store demo MAY include capture-engine as a demo dependency. When "Enable Writes (Sandbox)" is checked and "Live from Capture" toggle is enabled, a capture overlay panel appears. Operator clicks "Start Capture" → capture-engine acquires mic (or uses simulated PCM) → encodes chunks → calls session-store.createSession() and session-store.writeChunk() for each chunk → chunks land in real IndexedDB with "DEMO-capture-" prefix → operator clicks "Stop Capture" → session complete → clicks "View Created Session" → Sessions tab shows new session with all chunks. Proves session-store interfaces work end-to-end when called by capture-engine. Sandbox sessions can be deleted with "Clear All Demo Data" button.
 
 ---
 
@@ -582,23 +1058,76 @@ Do NOT choose Alternative A if:
 
 **Isolation Demo**:
 
-- **Runtime**: Web app (local dev server)
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport (wider factory floor, not phone-shaped)
 - **Launch**: `cd packages/lib/recording-pipeline/isolation-demo && npm start`
-- **Screens**:
-  - Main: "Start Recording" button, live duration counter, chunk count, total chunks encoded, "Stop Recording" button (disabled until recording active)
-  - Chunk log: Real-time list of encoded chunks (ID, duration, byteSize, timestamp)
-  - Status panel: Microphone permission status, recording state (idle, active, stopped, error), watchdog timer countdown
-- **Data mode**: Real write (creates test sessions in real audio-store, clearly labeled as demo data)
-- **Safe default**: Real write with demo-session prefix
-- **Inputs**: Live microphone (requests permission), or simulated PCM stream toggle for testing without speaking
-- **Internal state**: Recording active/idle, PCM buffer size, chunks encoded count, watchdog timer status, current session ID
-- **Outputs**: MP3 chunk blobs written to audio-store, session record in audio-store
-- **External events**: `recordingStarted`, `chunkEncoded`, `recordingStopped`, `recordingError` in event feed
-- **Internal telemetry**: PCM callback timing, encode duration, audio-store write timing, watchdog checks, buffer overruns (if any)
-- **Walkthrough value**: Proves that recording starts immediately, encodes chunks every ~4s, persists them to audio-store without waiting for stop, stops cleanly, and handles mic ghost timeout (watchdog stops recording if no audio received within 10s, reports `hasAudio: false`)
+- **Data mode**: **In-memory only** (no IndexedDB, no audio-store writes). Reset discards all. Chunks live in RAM as a demo session object until browser tab closes or Reset is clicked. This demo exercises the CORE LOGIC (acquire mic, capture PCM, encode chunks, detect failures) without the audio-store integration. Store integration is proven in audio-store's Isolation Demo or the final PWA.
+- **Safe default**: In-memory with simulated PCM stream (no mic permission required by default)
 
-**Secondary tools**: Developer panel showing raw PCM buffer snapshots, encode queue depth, audio-store write confirmations, simulated mic failure toggle
+**Panel-based layout** (same 5-region structure as Alternative A capture-engine, relabeled for recording-pipeline):
+
+1. **Top chrome panel** (fixed header, spans full width):
+   - Left: "Recording Pipeline Isolation Demo" heading (bold)
+   - Center: Data mode chip "IN-MEMORY (not persisted)" (cyan border, white text)
+   - Right: Microphone permission status ("Granted" green / "Denied" red / "Not requested" gray)
+
+2. **Control panel** (left third of viewport, below chrome):
+   - "Start Recording" button (cyan, full-width in panel, disabled when recording active)
+   - "Stop Recording" button (red, full-width, disabled when recording idle)
+   - "Reset" button (gray, full-width, clears RAM chunks + resets state; always enabled)
+   - Audio source toggle: "Live Microphone" vs "Simulated PCM stream" (radio buttons or toggle switch)
+     - Live Microphone: requests permission, uses real mic input (user must speak)
+     - Simulated PCM: generates synthetic audio waveform (no mic needed, automatic "speech")
+   - When "Start Recording" clicked → button disables, "Stop Recording" enables, live meters start updating, watchdog timer starts (10s countdown), chunks begin encoding every ~4s
+   - When "Stop Recording" clicked → recording stops, final chunk flushes, buttons reset (Start enabled, Stop disabled), meters freeze at final values
+
+3. **Live meters panel** (center third, below chrome):
+   - Duration counter: "Duration: 0.00s" (updates every frame from PCM sample count, NOT wall clock)
+   - PCM buffer fill: Horizontal progress bar "PCM buffer: 1024 / 2048 samples" (fills and drains as encode happens)
+   - Chunks encoded: "Chunks: 0" (increments when each chunk encodes: 0 → 1 → 2 → 3...)
+   - Watchdog countdown: "Watchdog: 10.0s" (counts down from 10s; if reaches 0 before first chunk encodes, recording auto-stops with "no audio received" error)
+   - When recording active: all meters update in real-time (duration climbs, buffer fills/drains, chunk count increments, watchdog resets after first chunk or counts down if mic silent)
+   - When recording stops: meters freeze at final values (duration = total, buffer = 0 or remainder, chunks = final count, watchdog = "N/A")
+
+4. **Chunk tape panel** (right third, below chrome, scrollable list):
+   - Heading: "In-Memory Chunks (RAM only)" (small gray text)
+   - List of encoded chunks (grows as recording runs; each chunk is a row):
+     - Column 1: Seq number (0, 1, 2, 3...)
+     - Column 2: Start time (e.g., "0.00s", "4.12s", "8.24s")
+     - Column 3: End time (e.g., "4.12s", "8.24s", "12.35s")
+     - Column 4: Byte length (e.g., "32,768 bytes", "31,245 bytes")
+     - Column 5: "Play" button (inline, plays THIS chunk's in-memory blob via HTML5 audio; does NOT call playback-engine or audio-store)
+   - When "Start Recording" clicked and first chunk encodes (~4s): first row appears (Seq 0, Start 0.00s, End ~4.0s, ~32KB, Play button)
+   - When each subsequent chunk encodes: new row appears below (Seq 1, Seq 2, etc.)
+   - When "Reset" clicked: entire list clears (no rows), in-memory blobs are discarded
+   - Scrolls vertically if > ~10 chunks (keeps growing until Reset or tab close)
+
+5. **Event/failure panel** (bottom strip, spans full width, secondary disclosure):
+   - Collapsible section (collapsed by default): "Show Event Feed ▶" (click to expand → "Hide Event Feed ▼")
+   - When expanded: scrollable log of events (most recent at bottom, autoscrolls):
+     - `recordingStarted(sessionId=demo-12345)` (blue, timestamp)
+     - `chunkEncoded(seq=0, duration=4.12s, bytes=32768)` (green text, timestamp)
+     - `chunkEncoded(seq=1, duration=4.11s, bytes=31245)` (green)
+     - `recordingError(reason="no_audio_received", watchdog_timeout=10s)` (red, if mic silent for 10s)
+     - `recordingStopped(sessionId=demo-12345, totalChunks=7, totalDuration=28.5s, hasAudio=true)` (blue)
+   - When collapsed: only heading visible ("Show Event Feed ▶"), no vertical space used
+   - NOT the main product of this demo (chunk tape is the product); event feed is diagnostic/telemetry for debugging
+
+**Before state** (page load, recording idle):
+- Control panel: "Start Recording" enabled (cyan), "Stop Recording" disabled (gray), "Reset" enabled, audio source = "Simulated PCM" by default
+- Live meters: Duration 0.00s, PCM buffer 0 / 2048, Chunks 0, Watchdog N/A (not started)
+- Chunk tape: Empty (no rows), heading visible ("In-Memory Chunks (RAM only)")
+- Event feed: Collapsed, no events yet
+
+**After state** (after Start → speak/simulate for 12s → Stop):
+- Control panel: "Start Recording" enabled (ready for next recording), "Stop Recording" disabled, "Reset" enabled
+- Live meters: Duration 12.35s (frozen), PCM buffer 0 / 2048 (flushed), Chunks 3, Watchdog N/A (stopped)
+- Chunk tape: 3 rows visible (Seq 0, 1, 2 with start/end times, byte lengths, Play buttons)
+- Event feed: (if expanded) shows `recordingStarted`, 3 `chunkEncoded` events, `recordingStopped` event
+
+**Walkthrough value**: Proves that recording-pipeline acquires audio (live mic or simulated), encodes MP3 chunks every ~4s, keeps them in memory temporarily (NOT persisted to store), provides duration from PCM sample count (not wall clock), detects mic ghost (watchdog timeout), and flushes final chunk < 4s on stop. Operator can play each chunk immediately from RAM to verify encoding worked. Reset discards everything (proves in-memory, not durable).
+
+**What this demo does NOT do**: Does not call audio-store. Does not write to IndexedDB. Does not create sessions. Recording-pipeline's public interface is `startRecording()` which internally creates a session via audio-store and writes chunks; this demo exercises the CORE LOGIC (acquire mic, capture PCM, encode chunks, detect failures) without the storage integration. Storage integration is proven in audio-store's Isolation Demo (which includes recording-pipeline as a demo dependency, writing to real IndexedDB in sandbox mode) or the final PWA.
 
 ---
 
@@ -613,15 +1142,23 @@ Do NOT choose Alternative A if:
 - `playSnip(snipId)` → playback controller
 - Events emitted: `playbackStarted`, `playbackEnded`, `playbackError`
 
-**Isolation Demo**: (Same structure as Alternative A, but uses audio-store for data)
+**Isolation Demo**: Same panel-based layout as Alternative A playback-engine (see Alternative A for full 5-region detail), but reads from **audio-store** instead of session-store.
 
-- **Runtime**: Web app
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport
 - **Launch**: `cd packages/lib/playback-engine/isolation-demo && npm start`
-- **Screens**: Select item type (session, chunk, snip), select item from list, playback controls
-- **Data mode**: Fixture audio blobs by default, "Use Real Sessions" toggle for real audio-store access (read-only)
+- **Data mode**: Fixture by default (3–5 pre-recorded fixture sessions), "Use Real Sessions" (read-only audio-store access), "Live from Capture" (recording-pipeline produces audio in-memory, playback immediately, no persist)
 - **Safe default**: Fixture mode
-- **Walkthrough value**: Proves playback works for sessions (reassembles chunks correctly), individual chunks, and snips; seek and pause work; duration is accurate
+- **Panel structure** (see Alternative A playback-engine for full component/behavior detail):
+  1. Top chrome: Data mode chip, mode selector
+  2. Item selection: Fixture items (Sessions/Chunks/Snips tabs), Real Sessions dropdown, or Live from Capture mini recording controls
+  3. Playback control: Play/Pause/Stop buttons, seek bar with scrubber, current/total time, volume slider
+  4. Waveform visualization: Blue waveform with red vertical line (current playback position)
+  5. Playback queue/history: Recently played items, currently playing indicator
+  6. Audio buffer inspector: Loaded chunks, byte ranges, decode status, gap detection, reassembly timing
+  7. Event feed: playbackStarted, playbackEnded, playbackError, seek logs
+
+**Walkthrough value**: Proves that playback-engine loads audio from audio-store (session reassembles chunks, single chunk, snip concatenates chunks), plays audio from speakers, provides standard playback controls (play, pause, stop, seek), accurately reflects duration from chunk metadata, handles chunk reassembly correctly (no gaps or time skips), detects gaps/missing chunks and reports errors, and syncs waveform visualization with current playback position. Operator can use fixtures, real sessions (read-only from audio-store), or live-captured audio (in-memory from recording-pipeline) without launching the PWA.
 
 ---
 
@@ -647,25 +1184,25 @@ Do NOT choose Alternative A if:
 
 - Events emitted: `volumeAnalysisComplete(sessionId)`, `snipsProposed(sessionId, snipCount)`, `segmentationError(sessionId, reason)`
 
-**Isolation Demo**:
+**Isolation Demo**: Same panel-based layout as Alternative A volume-analyzer (see Alternative A for full 6-region detail with optional capture integration), but reads from **audio-store** instead of session-store and is named "Speech Segmentation" instead of "Volume Analyzer".
 
-- **Runtime**: Web app
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport
 - **Launch**: `cd packages/lib/speech-segmentation/isolation-demo && npm start`
-- **Screens**:
-  - Main: Select session from audio-store (fixture or real read-only), "Analyze Volume" button, volume waveform visualization (all chunks combined), "Propose Snips" button, snip boundary threshold slider
-  - Snip list panel: Shows proposed snips (startTime, endTime, duration, confidence, reason: "quiet boundary at 12.3s"), play button for each snip (calls playback-engine fixture)
-  - Algorithm tuning: Adjust threshold, min/max snip duration, rerun proposal, compare results
-- **Data mode**: Fixture sessions by default, "Use Real Sessions" toggle for real audio-store (read-only, does not write snips in real mode unless explicitly enabled)
-- **Safe default**: Fixture mode
-- **Inputs**: Fixture sessions with pre-computed chunks, or real sessions from audio-store
-- **Internal state**: Current session analysis progress, volume profile cache, snip proposal algorithm parameters
-- **Outputs**: Volume profile arrays, snip boundary proposals (visualized, written to audio-store in fixture or sandbox mode)
-- **External events**: `volumeAnalysisComplete`, `snipsProposed` in event feed
-- **Internal telemetry**: Chunk decode timing, volume computation timing, snip boundary algorithm decisions (why each cut was made, confidence score)
-- **Walkthrough value**: Proves that volume analysis extracts meaningful profiles from real recorded chunks, identifies quiet regions accurately, proposes sensible snip boundaries, and allows tuning threshold to see impact on snip count and boundaries
+- **Data mode**: Fixture by default (pre-recorded test chunks with known volume patterns), "Use Real Sessions" (read-only audio-store access), "Live from Capture" (recording-pipeline produces audio in-memory, analyzes immediately, no persist)
+- **Safe default**: Fixture mode (3–5 sample chunks: speech, silence, mixed, music, quiet speech)
+- **Panel structure** (see Alternative A volume-analyzer for full component/behavior detail):
+  1. Top chrome: "Speech Segmentation Isolation Demo" heading, data mode chip, mode selector
+  2. Input selection: Fixture chunks (radio list), Real Sessions (dropdown → session → chunks), or Live from Capture (mini recording controls)
+  3. Volume waveform (single-chunk view): X-axis = time, Y-axis = volume, green line with quiet regions shaded, max/avg volume metadata
+  4. Session histogram (session-level view): Blue bars (one per chunk), vertical red lines (snip boundaries), snip labels
+  5. Volume profile data: Chunk/session metadata, duration, sample count, max/avg volume, expandable JSON (volume array, snip boundaries)
+  6. Algorithm tuning (secondary): Snip threshold slider (0–100%), min/max snip duration inputs, "Rerun Snip Proposal" button
+  7. Event feed: volumeAnalysisComplete, snipsProposed, decode timing, algorithm decision logs
 
-**Secondary tools**: Raw volume profile JSON inspector, per-chunk decode verification, algorithm parameter tweaks, simulated "all quiet" or "no quiet" sessions to test edge cases
+**Walkthrough value**: Proves that speech-segmentation decodes chunks from audio-store, computes volume profiles (samples over time), visualizes volume waveforms and histograms, identifies quiet regions accurately, proposes snip boundaries based on threshold (algorithmic, not AI), and allows tuning parameters to see impact on snip proposals. Operator can use fixtures (safe, repeatable), real sessions (read-only from audio-store), or live-captured audio (in-memory from recording-pipeline) without launching the PWA.
+
+**Optional recording integration** (Live from Capture mode): Speech-segmentation demo MAY include recording-pipeline as a demo dependency. When "Live from Capture" mode is selected, mini recording controls appear. Operator starts recording → speaks or uses simulated PCM → stops recording → captured chunks live in RAM → clicks "Analyze Captured Audio" → volume profiles computed → histogram displays → clicks "Propose Snips" → snip boundaries proposed. Proves the full recording → volume analysis → snip proposal flow without persisting to audio-store. Discarded when page reloads or mode changes.
 
 ---
 
@@ -697,26 +1234,37 @@ Do NOT choose Alternative A if:
 
 - Events emitted: `transcriptionStarted(sessionId, snipCount)`, `snipTranscribed(sessionId, snipId, text)`, `transcriptionComplete(sessionId, successCount, failureCount)`, `transcriptionError(sessionId, snipId, reason)`
 
-**Isolation Demo**:
+**Isolation Demo**: Similar panel-based layout to Alternative A transcription-client (see Alternative A for 8-region detail), but with enhanced batch queue features (session-level transcription with progress tracking, retry logic, partial failure recovery) and reads from **audio-store** + writes to **transcript-store** instead of session-store.
 
-- **Runtime**: Web app
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport
 - **Launch**: `cd packages/lib/transcription-service/isolation-demo && npm start`
-- **Screens**:
-  - Key validation panel: API key input, "Validate Key" button, validation status (green enabled / red disabled / yellow validating)
-  - Single-snip transcription: Upload audio file or select fixture snip, "Transcribe" button, transcript output, timing info
-  - Session transcription: Select session from audio-store (fixture or real read-only), "Transcribe Session" button, batch progress bar (e.g., "3 / 8 snips transcribed"), snip-by-snip status list (queued, in-progress, complete, failed), transcript preview for each snip
-  - Queue manager: List of active transcription jobs (session-level), abort button, retry failed snips button
-- **Data mode**: Fixture audio files and sessions by default, "Use Real Sessions" toggle for real audio-store (read-only for audio, real-write for transcript-store in sandbox mode)
-- **Safe default**: Fixture mode with example Groq test key
-- **Inputs**: Fixture audio blobs and sessions, or real sessions from audio-store (read-only), API key from user
-- **Internal state**: API key validation status, active transcription jobs (with progress), retry count per snip, rate limit status
-- **Outputs**: Transcript text strings written to transcript-store (or shown in demo UI without persisting in fixture mode)
-- **External events**: `transcriptionStarted`, `snipTranscribed`, `transcriptionComplete`, `transcriptionError` in event feed
-- **Internal telemetry**: API request timing, retry attempts, rate limit encounters, Groq response metadata, batch queue depth, partial failure recovery
-- **Walkthrough value**: Proves that key validation works (accepts valid, rejects invalid), single-snip transcription returns accurate text for sample audio, session-level transcription handles batch queue (processes snips sequentially or in parallel, TBD), retries failed snips, reports partial failures clearly (e.g., "7 of 8 snips transcribed, 1 failed"), and allows aborting long transcription jobs
+- **Data mode**: Fixture by default (5–10 sample speech audio clips with known correct transcripts), "Use Real Snips" (read-only audio-store for snip blobs, real-write transcript-store in sandbox mode), "Live from Capture" (recording-pipeline produces audio in-memory, transcribes immediately, no persist to audio-store but MAY write to transcript-store in sandbox mode)
+- **Safe default**: Fixture mode with example Groq test key (clearly labeled "Demo key, may be rate-limited")
+- **Panel structure** (see Alternative A transcription-client for similar layout; transcription-service adds batch queue sophistication):
+  1. Top chrome: "Transcription Service Isolation Demo" heading, data mode chip, API key validation status
+  2. API key panel: Groq API key input (masked, "Show" toggle), "Validate Key" button, validation result (valid ✓ green / invalid ✗ red / missing gray), help text with demo key notice
+  3. Audio input selection: Fixture audio clips (radio list with Play buttons), Real Snips (session dropdown → snip dropdown, Play button), or Live from Capture (mini recording controls → captured audio → "Use Captured Audio")
+  4. Transcription control: "Transcribe" button (cyan, disabled if no audio OR invalid key OR in progress), status indicator (Idle / In progress with elapsed time / Complete / Failed), "Abort" button (red, only visible during in progress)
+  5. Transcript output: Placeholder (idle) / "Transcribing..." spinner (in progress) / Transcript text with metadata (language, duration, confidence) + "Copy to Clipboard" button (complete) / Error message + "Retry" button (failed)
+  6. **Batch queue panel** (right sidebar, enhanced for transcription-service):
+     - Heading: "Session Transcription Queue" (for batch session-level transcription)
+     - When session selected (Real Snips mode): "Session abc: 45.2s, 4 snips" metadata, "Transcribe All Snips" button (adds all 4 snips to queue)
+     - Queue list (rows, one per snip in batch):
+       - Snip 1: "Snip 0 (0–12.3s) - Complete ✓" (green, transcript preview)
+       - Snip 2: "Snip 1 (12.3–28.7s) - In progress... 2.3s" (yellow, spinner, progress bar)
+       - Snip 3: "Snip 2 (28.7–41.0s) - Queued" (gray, waiting)
+       - Snip 4: "Snip 3 (41.0–45.2s) - Failed ✗ Rate limit exceeded" (red, "Retry" button)
+     - Batch progress: "3 / 4 snips transcribed (75%), 1 failed" (summary at bottom of queue)
+     - "Abort All" button (red, stops batch, cancels queued snips, aborts in-progress snip)
+     - "Retry Failed" button (cyan, retries only failed snips in queue)
+     - When batch completes: "Session transcription complete: 3 success, 1 failed" (green/yellow)
+  7. Network telemetry (secondary): API request timing, retry count (increments on network failure), rate limit status (OK / WARNING / EXCEEDED), raw Groq API response JSON (expandable), simulated failure toggle
+  8. Event feed (secondary): transcriptionStarted, snipTranscribed, transcriptionComplete, transcriptionError, batch queue depth logs
 
-**Secondary tools**: Raw API response inspector (JSON), network timing waterfall, simulated failure toggle (test retry logic), rate limit simulator
+**Walkthrough value**: Proves that transcription-service validates Groq API keys correctly (accepts valid, rejects invalid with specific error), sends audio to Groq Whisper API, receives transcript text with metadata, handles errors clearly (network timeout, invalid key, rate limit), supports retry, **handles session-level batch transcription** (queues all snips for a session, transcribes sequentially or in parallel, tracks progress per snip, reports partial failures, allows retry of only failed snips, allows aborting entire batch), and writes transcripts to transcript-store (in sandbox write mode). Operator can use fixtures (safe, known correct transcripts for comparison), real snips (read-only from audio-store, writes to transcript-store in sandbox mode), or live-captured audio (in-memory from recording-pipeline) without launching the PWA.
+
+**Optional recording integration** (Live from Capture mode): Transcription-service demo MAY include recording-pipeline as a demo dependency. When "Live from Capture" mode is selected, mini recording controls appear. Operator captures live speech → stops → captured audio (in-memory chunks) → must first use speech-segmentation to propose snips from in-memory chunks → then selects snips → transcribes → sees transcripts. Proves the full recording → segmentation → transcription flow without persisting audio to audio-store (transcripts MAY be written to transcript-store in sandbox mode if enabled, but linked to in-memory snip IDs that won't persist).
 
 ---
 
@@ -738,28 +1286,27 @@ Do NOT choose Alternative A if:
 
 - Events emitted: `sessionCreated`, `chunkWritten`, `volumeProfileWritten`, `snipCreated`, `retentionPolicyEnforced`
 
-**Isolation Demo** (Store Inspector):
+**Isolation Demo** (Store Inspector): Same multi-tab panel-based layout as Alternative A session-store (see Alternative A for full 10-region detail with tabs and optional capture integration), but named "Audio Store" and only stores **audio-related data** (sessions, chunks, volume profiles, snips). Does NOT store transcripts (transcript-store owns those).
 
-- **Runtime**: Web app
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport (store inspector needs table space)
 - **Launch**: `cd packages/datastore/audio-store/isolation-demo && npm start`
-- **Screens**:
-  - Sessions tab: Paginated list of all sessions (timestamp, duration, chunk count, snip count), "View Details" button
-  - Session detail: Chunks list (ID, startTime, duration, byteSize, has volume profile?), Snips list (ID, startTime, endTime, chunkRefs), raw JSON inspector
-  - Chunks tab: All chunks across sessions, filterable by session
-  - Snips tab: All snips across sessions, filterable by session
-  - Volume profiles tab: Shows which chunks have volume profiles, visualize profile for selected chunk
-  - Storage tab: Total storage used, session count, chunk count, storage cap setting, "Enforce Retention Policy" button (shows simulation: what would be deleted), "Clear All Demo Data" button
-- **Data mode**: Real read-only by default, "Enable Writes (Sandbox)" toggle for write operations (clearly labeled as sandbox/test)
+- **Data mode**: Real read-only by default (shows actual IndexedDB audio data from this browser, no mutations), "Enable Writes (Sandbox)" toggle (writes to real IndexedDB with "DEMO-" prefix), "Live from Capture" (includes recording-pipeline, produces audio and writes to real IndexedDB with sandbox labels)
 - **Safe default**: Real read-only
-- **Inputs**: None for read-only; in write mode: manually create test sessions/chunks, import fixture data
-- **Internal state**: Current IndexedDB state (session/chunk/volume profile/snip counts), storage quota
-- **Outputs**: Store data displayed as tables and JSON, retention policy simulation results
-- **External events**: (Store does not emit events directly; other packages do when calling store interfaces) In sandbox write mode, event feed shows write operations
-- **Internal telemetry**: IndexedDB transaction timing, storage quota warnings, retention policy enforcement logs
-- **Walkthrough value**: Proves all audio-store interfaces work (create session, write chunk, write volume profile, write snip), data relationships are correct (chunks belong to sessions, snips reference chunks), retention policy deletes old sessions correctly, storage cap is respected, no orphaned chunks or snips after retention enforcement
+- **Panel structure** (see Alternative A session-store for full component/behavior detail; audio-store has same 6 tabs but NO Transcripts tab):
+  1. Top chrome: "Audio Store Isolation Demo" heading, data mode chip (READ-ONLY / SANDBOX WRITE / LIVE FROM CAPTURE), storage quota display, write mode toggle
+  2. **Tab navigation**: Sessions, Chunks, Snips, Volume Profiles, Storage, Query Console (NO Transcripts tab; transcripts live in transcript-store)
+  3. **Sessions tab**: Paginated table (sessionId, timestamp, duration, chunk count, snip count), filters, "View Details" button → detail overlay (session JSON, chunks/snips links, "Delete Session" in sandbox write mode)
+  4. **Chunks tab**: Table (chunkId, sessionId, startTime, duration, byteSize, has volume profile?, "Play" button), filterable by session
+  5. **Snips tab**: Table (snipId, sessionId, startTime→endTime, duration, chunkRefs, "Play" button), filterable by session (NO transcript preview column; transcripts are in transcript-store)
+  6. **Volume Profiles tab**: Table (chunkId, sessionId, maxVolume, avgVolume, sampleCount, "View Waveform" button → waveform overlay)
+  7. **Storage tab**: Storage quota display, breakdown by audio tables (sessions, chunks, volume profiles, snips), retention policy panel ("Enforce Retention Policy" button → simulates or deletes in sandbox write), cleanup panel (orphaned data detector, "Clear All Demo Data", export/import)
+  8. **Query Console tab**: Method dropdown (getSession, listSessions, getChunksForSession, writeChunk, writeSnip, etc.), parameter inputs, "Execute Query" button, result panel (JSON, timing, success/error), query history
+  9. **Capture integration panel** (overlay, when "Enable Writes (Sandbox)" + "Live from Capture" toggled): Mini recording controls → "Start Recording" → recording-pipeline begins → session-store.createSession() + writeChunk() called → chunks land in real IndexedDB with "DEMO-capture-" prefix → "Stop Recording" → "View Created Session" → Sessions tab shows new session with all chunks
 
-**Secondary tools**: IndexedDB schema inspector (tables, indexes, record counts), export/import fixture data (JSON), clear all data button (with confirmation), storage quota display, orphaned data detector (finds chunks/snips without parent sessions)
+**Walkthrough value**: Proves that audio-store is the durable IndexedDB authority for audio data, all audio-store interfaces work correctly (read sessions/chunks/snips/volume profiles; write sessions/chunks/profiles/snips in sandbox mode), data relationships are correct (chunks belong to sessions, snips reference chunks, volume profiles attach to chunks), retention policy deletes oldest sessions when cap exceeded, orphaned data detector finds and cleans orphans, storage quota is respected, and the full recording → audio-store → inspect flow works (when live recording is integrated). Operator can inspect real sessions (read-only, from prior PWA usage), create sandbox demo sessions (sandbox write mode), or capture live audio and watch it land in IndexedDB immediately (live from capture mode).
+
+**Optional recording integration** (Live from Capture mode): Audio-store demo MAY include recording-pipeline as a demo dependency. When "Enable Writes (Sandbox)" is checked and "Live from Capture" toggle is enabled, a recording overlay panel appears. Operator clicks "Start Recording" → recording-pipeline acquires mic (or uses simulated PCM) → encodes chunks → calls audio-store.createSession() and audio-store.writeChunk() for each chunk → chunks land in real IndexedDB with "DEMO-capture-" prefix → operator clicks "Stop Recording" → session complete → clicks "View Created Session" → Sessions tab shows new session with all chunks. Proves audio-store interfaces work end-to-end when called by recording-pipeline. Sandbox sessions can be deleted with "Clear All Demo Data" button.
 
 ---
 
@@ -800,24 +1347,118 @@ Do NOT choose Alternative A if:
 
 **Isolation Demo** (Store Inspector):
 
-- **Runtime**: Web app
-- **Device**: iPhone simulator / responsive mobile viewport
+- **Runtime**: Web app (local dev server, factory floor)
+- **Device**: Desktop browser viewport (store inspector needs table space)
 - **Launch**: `cd packages/datastore/transcript-store/isolation-demo && npm start`
-- **Screens**:
-  - Transcripts tab: List of all transcripts (snipId, sessionId, text preview, language, createdAt), "View Full Text" button
-  - Session transcription status tab: List of sessions with transcription status (session ID, totalSnips, transcribedSnips, pendingSnips, failedSnips, lastTranscribedAt), "View Session Transcripts" button
-  - Failed transcriptions tab: List of snips with failed transcription (snipId, sessionId, failureReason, attemptedAt), "Retry" button (calls transcription-service in sandbox mode)
-  - Query panel: Ad-hoc queries (get transcript, get transcripts for session, get transcription status) with JSON response
-- **Data mode**: Real read-only by default, "Enable Writes (Sandbox)" toggle for write operations (clearly labeled)
+- **Data mode**: Real read-only by default (shows actual IndexedDB transcript data from this browser, no mutations), "Enable Writes (Sandbox)" toggle (writes to real IndexedDB, clearly labeled as sandbox/test), "Live from Transcription-Service" (includes transcription-service as demo dependency, transcribes fixture or captured audio, writes transcripts to real IndexedDB with sandbox labels)
 - **Safe default**: Real read-only
-- **Inputs**: None for read-only; in write mode: manually create test transcripts, import fixture data
-- **Internal state**: Current IndexedDB state (transcript count, failed transcript count), per-session transcription status cache
-- **Outputs**: Transcript data displayed as tables and JSON, transcription status summaries
-- **External events**: In sandbox write mode, event feed shows write operations (`transcriptWritten`, `transcriptionStatusChanged`)
-- **Internal telemetry**: IndexedDB transaction timing, orphaned transcript detector (transcripts for snips that no longer exist in audio-store)
-- **Walkthrough value**: Proves all transcript-store interfaces work (write transcript, get transcript, get transcripts for session, get transcription status, mark failed), transcription status is accurate (counts match actual transcript records), failed transcriptions are tracked with reasons, no orphaned transcripts after audio-store retention enforcement
 
-**Secondary tools**: IndexedDB schema inspector, export/import fixture data, clear all transcripts button (with confirmation), orphaned transcript cleanup (deletes transcripts for snips that no longer exist in audio-store)
+**Panel-based layout (4 tabs + chrome):**
+
+1. **Top chrome panel** (fixed header, spans full width):
+   - Left: "Transcript Store Isolation Demo" heading
+   - Center: Data mode chip "READ-ONLY" / "SANDBOX WRITE ENABLED" / "LIVE FROM TRANSCRIPTION-SERVICE (writing)" (red chip when writes enabled)
+   - Right: Transcript count "348 transcripts across 127 sessions" (reads from IndexedDB)
+   - Write mode toggle (right, below count): "Enable Writes (Sandbox)" checkbox (off by default, red when on)
+
+2. **Tab navigation** (below chrome, horizontal tabs):
+   - "Transcripts" (active by default)
+   - "Transcription Status"
+   - "Failed Transcriptions"
+   - "Query Console"
+   - Active tab: cyan underline, bold text
+
+3. **Transcripts tab** (default active):
+   - Heading: "All Transcripts"
+   - Filters: "Filter by session: All / [dropdown]", "Sort by: Created desc", "Limit: 50"
+   - Transcripts table (scrollable, paginated):
+     - Column 1: Transcript ID (e.g., "transcript-0", "transcript-1")
+     - Column 2: Snip ID (e.g., "snip-0", link to audio-store snips in new tab if available)
+     - Column 3: Session ID (e.g., "abc123", link to audio-store sessions)
+     - Column 4: Text preview (first 100 chars, e.g., "This is the transcribed text from the audio clip...")
+     - Column 5: Language (e.g., "en", "es", "fr")
+     - Column 6: Created at (timestamp, e.g., "2026-08-26 14:23:45")
+     - Column 7: "View Full" button (click → opens overlay with full transcript text, "Copy to Clipboard" button)
+   - When "View Full" clicked: modal overlay appears with full transcript text (large readable font, ~16px), metadata (snipId, sessionId, language, confidence if available, createdAt), "Copy to Clipboard" button (copies text → shows "Copied!" toast)
+   - Pagination: "Showing 1–50 of 348 transcripts" (prev/next buttons if > 50)
+   - If no transcripts: "No transcripts found. (Create one with transcription-service or import fixture data.)"
+
+4. **Transcription Status tab**:
+   - Heading: "Transcription Status by Session"
+   - Filters: "Filter by status: All / Fully transcribed / Partially transcribed / Not started / Failed"
+   - Transcription status table:
+     - Column 1: Session ID (link to audio-store sessions)
+     - Column 2: Total snips (e.g., "8")
+     - Column 3: Transcribed snips (e.g., "7" green / "8" green / "0" gray)
+     - Column 4: Pending snips (e.g., "0" gray / "1" yellow)
+     - Column 5: Failed snips (e.g., "1" red / "0" gray)
+     - Column 6: Last transcribed at (timestamp or "—" if none)
+     - Column 7: Status badge ("Fully transcribed ✓" green / "Partial 7/8" yellow / "Not started" gray / "Failed ✗" red)
+     - Column 8: "View Session Transcripts" button (link to Transcripts tab filtered by this session)
+   - When row clicked: detail overlay shows full status breakdown per snip (Snip 0: transcribed ✓, Snip 1: transcribed ✓, Snip 2: failed ✗ "Rate limit exceeded", etc.)
+
+5. **Failed Transcriptions tab**:
+   - Heading: "Failed Transcriptions"
+   - Filters: "Filter by session: All / [dropdown]", "Sort by: Attempted desc"
+   - Failed transcriptions table:
+     - Column 1: Snip ID (link to audio-store snips)
+     - Column 2: Session ID (link to audio-store sessions)
+     - Column 3: Failure reason (e.g., "Rate limit exceeded", "Network timeout", "Invalid API key", "Audio decode error")
+     - Column 4: Attempted at (timestamp, e.g., "2026-08-26 14:23:45")
+     - Column 5: Retry count (e.g., "3 retries" or "No retries yet")
+     - Column 6: "Retry" button (red, only enabled in sandbox write mode, calls transcription-service to retry this snip)
+   - When "Retry" clicked (sandbox write mode): transcription-service attempts to transcribe snip again → on success, row disappears from Failed tab and new transcript appears in Transcripts tab → on failure, failure reason updates and retry count increments
+   - If no failed transcriptions: "No failed transcriptions. All snips transcribed successfully!"
+
+6. **Query Console tab**:
+   - Heading: "Ad-Hoc Queries"
+   - Query input panel:
+     - "Method" dropdown: "getTranscript", "getTranscriptsForSession", "getTranscriptionStatus", "writeTranscript", "markTranscriptionFailed" (all transcript-store interface methods)
+     - Parameter inputs (dynamic, change based on selected method):
+       - Example: "getTranscript" → "Snip ID: [input: snip-0]"
+       - Example: "getTranscriptsForSession" → "Session ID: [input: abc123]"
+       - Example: "writeTranscript" (sandbox write mode only) → "Snip ID: [input]", "Text: [textarea]", "Language: [input: en]"
+     - "Execute Query" button (cyan, click → calls selected method, displays result below)
+   - Query result panel:
+     - Result type: "Success ✓" green / "Error ✗" red
+     - Result data (JSON, formatted): `[{"snipId": "snip-0", "text": "...", "language": "en", ...}]`
+     - Timing: "Query executed in 8ms"
+     - "Copy Result" button (copies JSON)
+   - Query history (sidebar, last 10): "getTranscriptsForSession(abc123) - Success ✓ 2 min ago", click to reload
+
+7. **Transcription-service integration panel** (overlay, only visible when "Live from Transcription-Service" mode enabled):
+   - When "Enable Writes (Sandbox)" is checked AND "Live from Transcription-Service" toggle is checked (appears below write toggle):
+     - Overlay panel slides in: "Transcribe Audio → Store"
+     - Mini transcription-service controls: API key input (pre-filled with demo key), audio source selector (Fixture audio / Upload file / Live from Capture), "Transcribe" button
+     - When "Transcribe" clicked: transcription-service validates key → sends audio to Groq → receives transcript → calls transcript-store.writeTranscript() → transcript lands in real IndexedDB with DEMO label
+     - Live feedback: "Transcribed snip DEMO-snip-1234, wrote transcript to store" (green)
+     - "View Created Transcript" button (link to Transcripts tab, filtered to show DEMO-snip-1234 transcript)
+   - Proves the full transcription-service → transcript-store write flow: transcription-service calls transcript-store interfaces, transcripts land in IndexedDB, store inspector shows them immediately in Transcripts tab
+
+**Before state** (page load, Real read-only mode, Transcripts tab):
+- Top chrome: "READ-ONLY" chip (gray), transcript count "348 transcripts"
+- Transcripts tab active: table shows 348 transcripts (from prior PWA usage or other demos), sorted by created desc, paginated
+- Write toggle: unchecked (off)
+
+**After state** (Real read-only, Transcription Status tab, session abc123 viewed):
+- Transcription Status tab: row for abc123 shows "Session abc123: 8 snips, 7 transcribed, 0 pending, 1 failed, Status: Partial 7/8" (yellow)
+- "View Session Transcripts" clicked → Transcripts tab, filtered by abc123, shows 7 transcript rows
+
+**After state** (Sandbox write mode, Failed Transcriptions tab, snip-7 retried successfully):
+- Top chrome: "SANDBOX WRITE ENABLED" chip (red)
+- Failed Transcriptions tab: row for snip-7 disappears (no longer failed)
+- Transcripts tab (if switched): new row for snip-7 transcript appears (green, just created)
+- Transcription Status tab (if switched): session abc123 now shows "8 transcribed, 0 failed, Status: Fully transcribed ✓" (green)
+
+**After state** (Sandbox write + Live from Transcription-Service mode, transcribed fixture audio):
+- Top chrome: "LIVE FROM TRANSCRIPTION-SERVICE (writing)" chip (yellow during transcription, red after write)
+- Transcription-service overlay: "Transcribed snip DEMO-snip-1234, wrote transcript to store ✓" (green confirmation)
+- "View Created Transcript" clicked → Transcripts tab, filtered to DEMO-snip-1234, row shows transcript with text preview
+- "View Full" clicked → modal shows full transcript text from Groq
+
+**Walkthrough value**: Proves that transcript-store is the durable IndexedDB authority for transcripts, all transcript-store interfaces work correctly (read transcripts, transcription status, failed transcription records; write transcripts/failed records in sandbox mode), transcription status is accurate (counts match actual transcript records, fully/partially/not started/failed badges are correct), failed transcriptions are tracked with reasons and retry counts, orphaned transcript detector finds transcripts for snips that no longer exist in audio-store, and the full transcription-service → transcript-store → inspect flow works (when live transcription-service is integrated). Operator can inspect real transcripts (read-only, from prior PWA usage), create sandbox demo transcripts (sandbox write mode via manual writeTranscript calls or transcription-service integration), or transcribe live audio and watch transcripts land in IndexedDB immediately (live from transcription-service mode).
+
+**Optional transcription-service integration** (Live from Transcription-Service mode): Transcript-store demo MAY include transcription-service as a demo dependency. When "Enable Writes (Sandbox)" is checked and "Live from Transcription-Service" toggle is enabled, a transcription overlay panel appears. Operator selects audio source (fixture, upload, or live from recording-pipeline if further integrated) → enters Groq API key (or uses demo key) → clicks "Transcribe" → transcription-service sends audio to Groq → receives transcript → calls transcript-store.writeTranscript() → transcript lands in real IndexedDB with DEMO label → operator clicks "View Created Transcript" → Transcripts tab shows new transcript. Proves transcript-store interfaces work end-to-end when called by transcription-service. Sandbox transcripts can be deleted with "Clear All Transcripts" button (if added to transcript-store in Phase 02).
 
 ---
 
