@@ -1,11 +1,146 @@
+import { useState } from 'react';
+import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { useApp } from '../context';
+import { transcribeSession, type TranscribeProgress } from '../orchestration';
+import type { SessionRecord, SnipRecord, TranscriptRecord } from '../types';
 
 const GROQ_CONSOLE = 'https://console.groq.com/keys';
+
+type SessionBadge = 'ready' | 'part-tx' | null;
+
+function computeSessionBadge(
+  session: SessionRecord,
+  snipCount: number,
+  transcriptCount: number
+): SessionBadge {
+  if (!session.hasSnips || snipCount === 0) return null;
+  if (transcriptCount === 0) return null;
+  if (transcriptCount < snipCount) return 'part-tx';
+  return 'ready';
+}
+
+function SessionCard({
+  session,
+  onRetry,
+  retrying,
+}: {
+  session: SessionRecord;
+  onRetry: (sessionId: string) => void;
+  retrying: boolean;
+}) {
+  const app = useApp();
+  const [snipCount, setSnipCount] = useState(0);
+  const [transcriptCount, setTranscriptCount] = useState(0);
+  const [snippet, setSnippet] = useState('');
+
+  useState(() => {
+    (async () => {
+      const snipsResult = await sessionStore.getSnipsForSession(session.id);
+      const snips = (snipsResult.snips || []) as SnipRecord[];
+      setSnipCount(snips.length);
+
+      const transcriptsResult = await sessionStore.getTranscriptsForSession(session.id);
+      const transcripts = (transcriptsResult.transcripts || []) as TranscriptRecord[];
+      setTranscriptCount(transcripts.length);
+
+      if (transcripts.length > 0) {
+        const text = transcripts.map((t) => t.text).join(' ');
+        setSnippet(text.length > 100 ? text.slice(0, 100) + '...' : text);
+      }
+    })();
+  });
+
+  const badge = computeSessionBadge(session, snipCount, transcriptCount);
+  const showRetry = badge === 'part-tx' && app.settings.keyValid;
+
+  return (
+    <article
+      key={session.id}
+      className="card session-card"
+      onClick={() => app.openSession(session.id)}
+    >
+      <div className="session-header">
+        {badge ? (
+          <span className={`session-badge ${badge}`}>
+            {badge === 'ready' ? 'READY' : 'PART TX'}
+          </span>
+        ) : null}
+        <div className="session-title">{formatTimestamp(session.createdAt)}</div>
+      </div>
+      <div className="session-meta">
+        {formatDuration(session.duration)}
+        {' · '}
+        {formatBytes(session.sizeBytes)}
+        {session.chunkCount === 0 ? ' · no playable audio' : ''}
+      </div>
+      {snippet ? <div className="session-snippet">{snippet}</div> : null}
+      <div className="session-actions" onClick={(event) => event.stopPropagation()}>
+        <button className="linkish" onClick={() => app.openSession(session.id, true)}>
+          Play
+        </button>
+        <button
+          className="linkish danger-text"
+          onClick={() =>
+            app.askConfirm({
+              title: 'Delete this session?',
+              body: 'This cannot be undone.',
+              confirmLabel: 'Delete',
+              onConfirm: () => void app.deleteSessionById(session.id),
+            })
+          }
+        >
+          Delete
+        </button>
+        {showRetry ? (
+          <button
+            className="linkish retry-btn"
+            disabled={retrying}
+            onClick={() => onRetry(session.id)}
+          >
+            {retrying ? 'RETRYING...' : 'RETRY TX'}
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
 
 export function HomeScreen() {
   const app = useApp();
   const capLabel = `${formatBytes(app.usedBytes)} / ${formatBytes(app.capBytes)}`;
+  const [retryingSession, setRetryingSession] = useState<string | null>(null);
+
+  async function handleRetry(sessionId: string) {
+    if (!app.settings.groqApiKey || !app.settings.keyValid) return;
+    setRetryingSession(sessionId);
+    try {
+      const outcome = await transcribeSession(
+        sessionId,
+        app.settings.groqApiKey,
+        () => {},
+        { retryFailedOnly: true }
+      );
+      if (outcome.stopReason) {
+        app.showToast(`Transcription failed: ${outcome.stopReason}`, 'error');
+      } else if (outcome.failed > 0) {
+        app.showToast(
+          `Transcription failed: ${outcome.failed} snip${outcome.failed === 1 ? '' : 's'} failed`,
+          'warning'
+        );
+      } else {
+        app.showToast('Transcription completed!', 'success');
+      }
+      await app.refresh();
+    } catch (error) {
+      app.showToast(
+        `Transcription failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+        'error'
+      );
+    } finally {
+      setRetryingSession(null);
+    }
+  }
 
   return (
     <>
@@ -81,36 +216,12 @@ export function HomeScreen() {
           <section className="card empty-sessions" aria-label="Recording sessions" />
         ) : (
           app.sessions.map((session) => (
-            <article
+            <SessionCard
               key={session.id}
-              className="card session-card"
-              onClick={() => app.openSession(session.id)}
-            >
-              <div className="session-title">{formatTimestamp(session.createdAt)}</div>
-              <div className="session-meta">
-                {formatDuration(session.duration)}
-                {session.hasTranscript ? ' · transcribed' : ''}
-                {session.chunkCount === 0 ? ' · no playable audio' : ''}
-              </div>
-              <div className="session-actions" onClick={(event) => event.stopPropagation()}>
-                <button className="linkish" onClick={() => app.openSession(session.id, true)}>
-                  Play
-                </button>
-                <button
-                  className="linkish danger-text"
-                  onClick={() =>
-                    app.askConfirm({
-                      title: 'Delete this session?',
-                      body: 'This cannot be undone.',
-                      confirmLabel: 'Delete',
-                      onConfirm: () => void app.deleteSessionById(session.id),
-                    })
-                  }
-                >
-                  Delete
-                </button>
-              </div>
-            </article>
+              session={session}
+              onRetry={handleRetry}
+              retrying={retryingSession === session.id}
+            />
           ))
         )}
       </main>
