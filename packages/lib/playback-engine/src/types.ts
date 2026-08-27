@@ -8,6 +8,7 @@ export interface PlaybackHandle {
   resume(): void;
   seek(time: number): void;
   stop(): void;
+  setVolume(level: number): void;
   on(event: string, callback: (...args: any[]) => void): void;
   off(event: string, callback: (...args: any[]) => void): void;
 }
