@@ -52,7 +52,7 @@ function SessionCard({
   });
 
   const badge = computeSessionBadge(session, snipCount, transcriptCount);
-  const showRetry = badge === 'part-tx' && app.settings.keyValid;
+  const showRetry = badge === 'part-tx';
 
   return (
     <article
