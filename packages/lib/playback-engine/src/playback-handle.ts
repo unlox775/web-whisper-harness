@@ -120,6 +120,14 @@ export class PlaybackHandleImpl extends EventEmitter implements PlaybackHandle {
     this.audio.currentTime = clampedTime;
   }
 
+  setVolume(level: number): void {
+    if (this.released) return;
+    
+    // Clamp level to [0.0, 1.0]
+    const clampedLevel = Math.max(0, Math.min(1, level));
+    this.audio.volume = clampedLevel;
+  }
+
   stop(): void {
     if (this.released) return;
     

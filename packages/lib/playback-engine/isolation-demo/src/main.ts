@@ -17,6 +17,7 @@ const btnPause = document.getElementById('btn-pause') as HTMLButtonElement;
 const btnResume = document.getElementById('btn-resume') as HTMLButtonElement;
 const btnStop = document.getElementById('btn-stop') as HTMLButtonElement;
 const seekSlider = document.getElementById('seek-slider') as HTMLInputElement;
+const volumeSlider = document.getElementById('volume-slider') as HTMLInputElement;
 const stateDisplay = document.getElementById('state-display') as HTMLDivElement;
 const timeDisplay = document.getElementById('time-display') as HTMLDivElement;
 const eventFeed = document.getElementById('event-feed') as HTMLDivElement;
@@ -38,6 +39,7 @@ function setupEventListeners() {
   btnResume.addEventListener('click', handleResume);
   btnStop.addEventListener('click', handleStop);
   seekSlider.addEventListener('input', handleSeek);
+  volumeSlider.addEventListener('input', handleVolumeChange);
 
   radioButtons.forEach(radio => {
     radio.addEventListener('change', updateTargetOptions);
@@ -137,6 +139,13 @@ function handleSeek(event: Event) {
   if (currentHandle) {
     const time = parseFloat((event.target as HTMLInputElement).value);
     currentHandle.seek(time);
+  }
+}
+
+function handleVolumeChange(event: Event) {
+  if (currentHandle) {
+    const volume = parseFloat((event.target as HTMLInputElement).value);
+    currentHandle.setVolume(volume);
   }
 }
 
