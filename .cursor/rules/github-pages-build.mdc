@@ -1,0 +1,12 @@
+---
+description: After completing work, run make build to deploy the PWA to the GitHub Pages docroot at docs/.
+alwaysApply: true
+---
+
+# GitHub Pages build on completion
+
+When you finish implementation, fixes, or other work in this repo, you MUST run `make build` from the repository root as the last step.
+
+`make build` builds the Web Whisper PWA and deploys it to `docs/` (the GitHub Pages docroot). Leave existing harness/docs files in `docs/` in place. Only refresh PWA publish artifacts (`index.html`, `pwa-assets/`, manifest, icons, `.nojekyll`).
+
+Do not skip this even if you already ran a local `npm start` or a package-level build.

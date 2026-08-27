@@ -192,7 +192,21 @@ function computeRegionConfidence(
 /**
  * Merge snips shorter than minimum duration
  */
-function mergeShortSnips(snips: Snip[], minDuration: number): Snip[] {
+function chunkRefsForRange(
+  chunks: ChunkMetadata[],
+  startTime: number,
+  endTime: number
+): string[] {
+  return chunks
+    .filter((chunk) => chunk.startTime < endTime && chunk.endTime > startTime)
+    .map((chunk) => chunk.id);
+}
+
+function mergeShortSnips(
+  snips: Snip[],
+  minDuration: number,
+  chunks: ChunkMetadata[]
+): Snip[] {
   if (snips.length === 0) {
     return [];
   }
@@ -202,13 +216,13 @@ function mergeShortSnips(snips: Snip[], minDuration: number): Snip[] {
 
   for (let i = 1; i < snips.length; i++) {
     if (current.duration < minDuration) {
-      // Merge with next snip
+      const endTime = snips[i].endTime;
       current = {
         ...current,
-        endTime: snips[i].endTime,
-        duration: snips[i].endTime - current.startTime,
+        endTime,
+        duration: endTime - current.startTime,
         endChunkIndex: snips[i].endChunkIndex,
-        chunkRefs: [...current.chunkRefs, ...snips[i].chunkRefs],
+        chunkRefs: chunkRefsForRange(chunks, current.startTime, endTime),
         confidence: (current.confidence + snips[i].confidence) / 2,
       };
     } else {
@@ -330,7 +344,7 @@ export function proposeSnipsFromProfile(
   let snips = groupLoudRegions(volumeProfile, silenceGaps, chunks);
 
   // Merge short snips
-  snips = mergeShortSnips(snips, minSnipDuration);
+  snips = mergeShortSnips(snips, minSnipDuration, chunks);
 
   // Split long snips
   snips = splitLongSnips(snips, maxSnipDuration, volumeProfile, silenceGaps);

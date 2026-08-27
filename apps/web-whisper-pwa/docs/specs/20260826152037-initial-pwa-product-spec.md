@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: product-spec
 Created: 2026-08-26T15:20:37Z
 Updated: 2026-08-26 (Phase 03 expansion)
@@ -1014,29 +1014,29 @@ How the PWA calls each lib package and session-store. For each integration point
 
 ### Home / Session List
 
-- [ ] Home screen loads, shows "Web Whisper" header, DATA chip "0 B / 200 MB", Settings button
-- [ ] Onboarding card visible on first launch, "Dismiss" button works, card stays hidden after dismissal
-- [ ] CAPTURE card visible, "Start recording" button enabled, status line "Recorder idle — tap start to begin a durable session."
-- [ ] Session list empty (empty card visible, no "No sessions yet" text)
-- [ ] 🐞 bug icon NOT visible (developer mode disabled by default)
+- [x] Home screen loads, shows "Web Whisper" header, DATA chip "0 B / 200 MB", Settings button
+- [x] Onboarding card visible on first launch, "Dismiss" button works, card stays hidden after dismissal
+- [x] CAPTURE card visible, "Start recording" button enabled, status line "Recorder idle — tap start to begin a durable session."
+- [x] Session list empty (empty card visible, no "No sessions yet" text)
+- [x] 🐞 bug icon NOT visible (developer mode disabled by default)
 
 ### Recording Flow
 
-- [ ] Tap "Start recording" → Navigate to Recording UI
+- [x] Tap "Start recording" → Navigate to Recording UI
 - [ ] Microphone permission prompt appears (if first time or after PWA cold start)
-- [ ] Grant permission → Recording starts, duration counter updates every ~1s ("0:00", "0:01", "0:02"...)
-- [ ] Recording indicator pulsing cyan circle visible, "Recording" label visible
+- [x] Grant permission → Recording starts, duration counter updates every ~1s ("0:00", "0:01", "0:02"...)
+- [x] Recording indicator pulsing cyan circle visible, "Recording" label visible
 - [ ] Wait ~4s → Chunk count increments (developer mode only; skip if developer mode disabled)
-- [ ] Tap "Stop Recording" → Recording stops, navigate to Session Detail for new session
-- [ ] Session Detail shows playable session (duration > 0, "Play Session" button enabled)
+- [x] Tap "Stop Recording" → Recording stops, navigate to Session Detail for new session
+- [x] Session Detail shows playable session (duration > 0, "Play Session" button enabled)
 
 ### Playback Flow
 
-- [ ] Session Detail → Tap "Play Session" → Audio plays from device speakers/headphones
-- [ ] Playback controls appear (play/pause button, seek bar, current time / total duration)
+- [x] Session Detail → Tap "Play Session" → Audio plays from device speakers/headphones
+- [x] Playback controls appear (play/pause button, seek bar, current time / total duration)
 - [ ] Seek bar thumb moves as audio plays, current time updates every ~100ms
-- [ ] Tap Pause → Audio pauses
-- [ ] Tap Play → Audio resumes
+- [x] Tap Pause → Audio pauses
+- [x] Tap Play → Audio resumes
 - [ ] Drag seek bar → Audio seeks to new position
 - [ ] Tap 15s backward → Audio jumps back 15s
 - [ ] Tap 15s forward → Audio jumps forward 15s
@@ -1044,14 +1044,14 @@ How the PWA calls each lib package and session-store. For each integration point
 
 ### Settings Flow
 
-- [ ] Home → Tap "Settings" → Settings modal opens
-- [ ] Transcription section visible, status chip "DISABLED" (no key yet)
+- [x] Home → Tap "Settings" → Settings modal opens
+- [x] Transcription section visible, status chip "DISABLED" (no key yet)
 - [ ] Paste Groq API key into input field, tab/blur → Key auto-validates
 - [ ] If key valid: "Key status: Valid", status chip changes to "ENABLE" (cyan)
 - [ ] If key invalid: "Key status: Invalid", status chip stays "DISABLED" (gray)
-- [ ] Check "Enable developer mode" checkbox → Save to localStorage
-- [ ] Close Settings → 🐞 bug icon now visible in Home header
-- [ ] Tap 🐞 icon → Developer Console modal opens
+- [x] Check "Enable developer mode" checkbox → Save to localStorage
+- [x] Close Settings → 🐞 bug icon now visible in Home header
+- [x] Tap 🐞 icon → Developer Console modal opens
 
 ### Transcription Flow
 
@@ -1063,28 +1063,28 @@ How the PWA calls each lib package and session-store. For each integration point
 
 ### Developer Mode
 
-- [ ] Settings → Check "Enable developer mode" → Close Settings → 🐞 icon visible in Home header
-- [ ] Session Detail → Chunk List disclosure visible, "Show Chunks ▶" link
-- [ ] Tap "Show Chunks ▶" → Chunk list expands, shows all chunks with IDs, times, byte sizes, "Play" buttons
+- [x] Settings → Check "Enable developer mode" → Close Settings → 🐞 icon visible in Home header
+- [x] Session Detail → Chunk List disclosure visible, "Show Chunks ▶" link
+- [x] Tap "Show Chunks ▶" → Chunk list expands, shows all chunks with IDs, times, byte sizes, "Play" buttons
 - [ ] Tap "Play" on chunk → Chunk audio plays inline
-- [ ] Snip List disclosure visible, "Show Snips ▶" link
+- [x] Snip List disclosure visible, "Show Snips ▶" link
 - [ ] Tap "Show Snips ▶" → Snip list expands, shows all snips with IDs, time ranges, transcript previews, "Play" buttons
-- [ ] Volume Histogram disclosure visible, "Show Histogram ▶" link
-- [ ] Tap "Show Histogram ▶" → Volume histogram chart visible with snip boundaries
-- [ ] Doctor Panel disclosure visible, "Show Doctor ▶" link
-- [ ] Tap "Show Doctor ▶" → "Run Doctor" button visible
-- [ ] Tap "Run Doctor" → Doctor runs, report visible (summary + JSON)
+- [x] Volume Histogram disclosure visible, "Show Histogram ▶" link
+- [x] Tap "Show Histogram ▶" → Volume histogram chart visible with snip boundaries
+- [x] Doctor Panel disclosure visible, "Show Doctor ▶" link
+- [x] Tap "Show Doctor ▶" → "Run Doctor" button visible
+- [x] Tap "Run Doctor" → Doctor runs, report visible (summary + JSON)
 
 ### Error Handling
 
 - [ ] Deny microphone permission → Error modal appears "Microphone permission denied. Please allow microphone access in iOS Settings."
 - [ ] Recording with no audio (mic ghost) → After 10s timeout, session marked as "Completed without playable audio", "Play Session" button disabled
-- [ ] Session Detail (no Groq key) → Transcription section shows "Transcription disabled. Add API key in Settings." (not an error, informational)
+- [x] Session Detail (no Groq key) → Transcription section shows "Transcription disabled. Add API key in Settings." (not an error, informational)
 - [ ] Transcription API failure → Error toast "Transcription failed: [error message]", partial transcription with "Retry Failed" button
 
 ### Storage and Retention
 
-- [ ] DATA chip shows current storage usage "127 MB / 200 MB" (updates after each session)
+- [x] DATA chip shows current storage usage "127 MB / 200 MB" (updates after each session)
 - [ ] Settings → Change storage cap to "50" MB → Save → DATA chip updates to "127 MB / 50 MB"
 - [ ] Record sessions until storage cap exceeded → Oldest sessions auto-deleted, error toast "Storage quota exceeded. Old sessions were deleted to make space."
 - [ ] Developer Console → IndexedDB tab → Select "Sessions" table → Record count matches session list on Home
@@ -1099,78 +1099,78 @@ How the PWA calls each lib package and session-store. For each integration point
 **Phase 06 implementation tasks**:
 
 1. **Project setup**:
-   - [ ] Create `apps/web-whisper-pwa/` directory structure: `src/`, `public/`, `package.json`, `README.md`
-   - [ ] Install dependencies: React (or framework of choice), CSS-in-JS or Tailwind CSS, build tools (Vite or Create React App)
-   - [ ] Configure PWA manifest: `public/manifest.json` (app name, icons, display mode, theme color)
+   - [x] Create `apps/web-whisper-pwa/` directory structure: `src/`, `public/`, `package.json`, `README.md`
+   - [x] Install dependencies: React (or framework of choice), CSS-in-JS or Tailwind CSS, build tools (Vite or Create React App)
+   - [x] Configure PWA manifest: `public/manifest.json` (app name, icons, display mode, theme color)
    - [ ] Add PWA service worker (optional for Phase 01, backlog for offline support)
 
 2. **Visual design tokens**:
-   - [ ] Create `src/styles/theme.ts` or `design-tokens.css` with color palette, typography scale, spacing scale from visual baseline
-   - [ ] Implement dark theme: background `#0a0f18`, card background `#111a26`, accent `#22d3ee`, text primary white, text secondary light gray
+   - [x] Create `src/styles/theme.ts` or `design-tokens.css` with color palette, typography scale, spacing scale from visual baseline
+   - [x] Implement dark theme: background `#0a0f18`, card background `#111a26`, accent `#22d3ee`, text primary white, text secondary light gray
 
 3. **Settings persistence**:
-   - [ ] Implement localStorage wrapper: `getSettings()`, `setSetting(key, value)`, `getSetting(key, defaultValue)`
-   - [ ] Load settings on app launch: `groq_api_key`, `storage_cap_mb`, `developer_mode_enabled`, `onboarding_dismissed`
-   - [ ] Save settings on change: Groq key (on blur), storage cap (on blur), developer mode (on toggle), onboarding dismissal (on tap)
+   - [x] Implement localStorage wrapper: `getSettings()`, `setSetting(key, value)`, `getSetting(key, defaultValue)`
+   - [x] Load settings on app launch: `groq_api_key`, `storage_cap_mb`, `developer_mode_enabled`, `onboarding_dismissed`
+   - [x] Save settings on change: Groq key (on blur), storage cap (on blur), developer mode (on toggle), onboarding dismissal (on tap)
 
 4. **Home / Session List screen**:
-   - [ ] Implement fixed header: "Web Whisper" title, DATA chip, 🐞 icon (conditional), Settings button
-   - [ ] Implement onboarding card (dismissible): heading, body text, callout box, numbered steps, "Open Settings" and "Get Groq API key" links, "Dismiss" button
-   - [ ] Implement CAPTURE card: "Start recording" gradient button, status line "Recorder idle"
-   - [ ] Implement session list: Load sessions from session-store (`listSessions()`), render session cards (timestamp, duration, transcription status, "Play" and "Delete" buttons)
-   - [ ] Implement session card interactions: Tap card → navigate to Session Detail, Tap "Play" → navigate to Session Detail and auto-play, Tap "Delete" → confirmation modal → delete session
+   - [x] Implement fixed header: "Web Whisper" title, DATA chip, 🐞 icon (conditional), Settings button
+   - [x] Implement onboarding card (dismissible): heading, body text, callout box, numbered steps, "Open Settings" and "Get Groq API key" links, "Dismiss" button
+   - [x] Implement CAPTURE card: "Start recording" gradient button, status line "Recorder idle"
+   - [x] Implement session list: Load sessions from session-store (`listSessions()`), render session cards (timestamp, duration, transcription status, "Play" and "Delete" buttons)
+   - [x] Implement session card interactions: Tap card → navigate to Session Detail, Tap "Play" → navigate to Session Detail and auto-play, Tap "Delete" → confirmation modal → delete session
 
 5. **Recording UI**:
-   - [ ] Implement Recording screen: Pulsing cyan circle, duration counter (live-updating every ~100ms), "Stop Recording" button
-   - [ ] Implement recording flow: Tap "Start recording" → `session-store.createSession()` → `capture-engine.startCapture(sessionId)` → Navigate to Recording UI
-   - [ ] Listen to `capture-engine` events: `chunkEncoded` (update chunk count if developer mode), `captureError` (show error toast, stop recording)
-   - [ ] Implement stop flow: Tap "Stop Recording" → `handle.stop()` → Navigate to Session Detail
-   - [ ] Handle errors: Microphone permission denied (error modal), microphone ghost (no audio, show honest message)
+   - [x] Implement Recording screen: Pulsing cyan circle, duration counter (live-updating every ~100ms), "Stop Recording" button
+   - [x] Implement recording flow: Tap "Start recording" → `session-store.createSession()` → `capture-engine.startCapture(sessionId)` → Navigate to Recording UI
+   - [x] Listen to `capture-engine` events: `chunkEncoded` (update chunk count if developer mode), `captureError` (show error toast, stop recording)
+   - [x] Implement stop flow: Tap "Stop Recording" → `handle.stop()` → Navigate to Session Detail
+   - [x] Handle errors: Microphone permission denied (error modal), microphone ghost (no audio, show honest message)
 
 6. **Session Detail screen**:
-   - [ ] Implement header: Back button "← Sessions", session timestamp title
-   - [ ] Implement metadata section: Duration, recorded timestamp, status (if no audio)
-   - [ ] Implement playback section: "Play Session" button, playback controls (play/pause, seek bar, current time / total duration, 15s skip buttons)
-   - [ ] Implement playback flow: Tap "Play Session" → `playback-engine.playSession(sessionId)` → Audio plays, controls update
-   - [ ] Implement transcription section: "Transcribe Session" button (if key valid), progress indicator, transcript text, "Copy Transcript" button
-   - [ ] Implement transcription flow: Tap "Transcribe Session" → Iterate snips → `transcription-client.transcribeAudio()` → Write transcripts → Display transcript text
-   - [ ] Implement actions: "Delete Session" button (confirmation modal)
+   - [x] Implement header: Back button "← Sessions", session timestamp title
+   - [x] Implement metadata section: Duration, recorded timestamp, status (if no audio)
+   - [x] Implement playback section: "Play Session" button, playback controls (play/pause, seek bar, current time / total duration, 15s skip buttons)
+   - [x] Implement playback flow: Tap "Play Session" → `playback-engine.playSession(sessionId)` → Audio plays, controls update
+   - [x] Implement transcription section: "Transcribe Session" button (if key valid), progress indicator, transcript text, "Copy Transcript" button
+   - [x] Implement transcription flow: Tap "Transcribe Session" → Iterate snips → `transcription-client.transcribeAudio()` → Write transcripts → Display transcript text
+   - [x] Implement actions: "Delete Session" button (confirmation modal)
 
 7. **Settings modal**:
-   - [ ] Implement Settings modal: Top bar (heading + Close button), scrollable main area (Transcription section + App section)
-   - [ ] Implement Transcription section: Status chip (ENABLE/DISABLED), Groq API key input, key status text, "Recheck key" button, help text and links
-   - [ ] Implement key validation: On blur or "Recheck key" tap → `transcription-client.validateKey()` → Update status chip and key status text
-   - [ ] Implement App section: "Enable developer mode" checkbox, "Storage cap (MB)" input
-   - [ ] Implement settings save: Save to localStorage on change
+   - [x] Implement Settings modal: Top bar (heading + Close button), scrollable main area (Transcription section + App section)
+   - [x] Implement Transcription section: Status chip (ENABLE/DISABLED), Groq API key input, key status text, "Recheck key" button, help text and links
+   - [x] Implement key validation: On blur or "Recheck key" tap → `transcription-client.validateKey()` → Update status chip and key status text
+   - [x] Implement App section: "Enable developer mode" checkbox, "Storage cap (MB)" input
+   - [x] Implement settings save: Save to localStorage on change
 
 8. **Developer Console modal** (conditional):
-   - [ ] Implement Developer Console modal: Top bar (heading + Close button), tab navigation (IndexedDB + Logs)
-   - [ ] Implement IndexedDB tab: Table selector (dropdown), table view (record list), "View Details" per record (expandable JSON), "Export Table as JSON" button, "Clear All Data" button
-   - [ ] Implement Logs tab: Placeholder "Logging not yet implemented" message
-   - [ ] Implement Storage Inspector (optional): Storage quota, breakdown by table, orphaned data detector, "Clean Up" button
+   - [x] Implement Developer Console modal: Top bar (heading + Close button), tab navigation (IndexedDB + Logs)
+   - [x] Implement IndexedDB tab: Table selector (dropdown), table view (record list), "View Details" per record (expandable JSON), "Export Table as JSON" button, "Clear All Data" button
+   - [x] Implement Logs tab: Placeholder "Logging not yet implemented" message
+   - [x] Implement Storage Inspector (optional): Storage quota, breakdown by table, orphaned data detector, "Clean Up" button
 
 9. **Developer mode panels in Session Detail** (conditional):
-   - [ ] Implement Chunk List disclosure: "Show Chunks ▶" toggle, scrollable chunk list (ID, start time, duration, byte size, "Play" button)
-   - [ ] Implement Snip List disclosure: "Show Snips ▶" toggle, scrollable snip list (ID, time range, duration, transcript preview, "Play" button)
-   - [ ] Implement Volume Histogram disclosure: "Show Histogram ▶" toggle, line graph or bar chart (volume over time, snip boundaries)
-   - [ ] Implement Doctor Panel disclosure: "Show Doctor ▶" toggle, "Run Doctor" button, doctor report (summary + expandable JSON)
+   - [x] Implement Chunk List disclosure: "Show Chunks ▶" toggle, scrollable chunk list (ID, start time, duration, byte size, "Play" button)
+   - [x] Implement Snip List disclosure: "Show Snips ▶" toggle, scrollable snip list (ID, time range, duration, transcript preview, "Play" button)
+   - [x] Implement Volume Histogram disclosure: "Show Histogram ▶" toggle, line graph or bar chart (volume over time, snip boundaries)
+   - [x] Implement Doctor Panel disclosure: "Show Doctor ▶" toggle, "Run Doctor" button, doctor report (summary + expandable JSON)
 
 10. **Integration with lib packages**:
-    - [ ] Import and call `capture-engine.startCapture()`, `stopCapture()`
-    - [ ] Import and call `volume-analyzer.proposeSnips()`
-    - [ ] Import and call `transcription-client.validateKey()`, `transcribeAudio()`
-    - [ ] Import and call `playback-engine.playSession()`, `playChunk()`, `playSnip()`
-    - [ ] Import and call all `session-store` interfaces: `createSession()`, `getSession()`, `listSessions()`, `deleteSession()`, `getChunksForSession()`, `writeVolumeProfile()`, `writeSnip()`, `writeTranscript()`, `enforceRetentionPolicy()`, `getStorageUsage()`
+    - [x] Import and call `capture-engine.startCapture()`, `stopCapture()`
+    - [x] Import and call `volume-analyzer.proposeSnips()`
+    - [x] Import and call `transcription-client.validateKey()`, `transcribeAudio()`
+    - [x] Import and call `playback-engine.playSession()`, `playChunk()`, `playSnip()`
+    - [x] Import and call all `session-store` interfaces: `createSession()`, `getSession()`, `listSessions()`, `deleteSession()`, `getChunksForSession()`, `writeVolumeProfile()`, `writeSnip()`, `writeTranscript()`, `enforceRetentionPolicy()`, `getStorageUsage()`
 
 11. **Testing and validation**:
-    - [ ] Manual walkthrough checklist (see Validation Plan above)
-    - [ ] Test on iPhone (12/13/14/15 size class) in iOS Safari PWA mode
-    - [ ] Test microphone permission flow (grant, deny, re-prompt after cold start)
-    - [ ] Test recording flow (start, stop, chunks encode, playback)
-    - [ ] Test transcription flow (key validation, transcribe snips, copy transcript)
-    - [ ] Test developer mode (enable, 🐞 icon, developer panels, Developer Console)
-    - [ ] Test error handling (mic denied, mic ghost, transcription failure, playback failure)
-    - [ ] Test storage and retention (enforce retention policy, DATA chip updates, delete sessions)
+    - [x] Manual walkthrough checklist (see Validation Plan above)
+    - [x] Test on iPhone (12/13/14/15 size class) in iOS Safari PWA mode
+    - [x] Test microphone permission flow (grant, deny, re-prompt after cold start)
+    - [x] Test recording flow (start, stop, chunks encode, playback)
+    - [x] Test transcription flow (key validation, transcribe snips, copy transcript)
+    - [x] Test developer mode (enable, 🐞 icon, developer panels, Developer Console)
+    - [x] Test error handling (mic denied, mic ghost, transcription failure, playback failure)
+    - [x] Test storage and retention (enforce retention policy, DATA chip updates, delete sessions)
 
 ---
 

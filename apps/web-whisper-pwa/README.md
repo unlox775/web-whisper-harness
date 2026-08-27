@@ -1,31 +1,33 @@
 # Web Whisper PWA
 
-User-facing Progressive Web App for iPhone. Owns navigation, UI screens (home, session list, session detail, settings, developer mode), platform permissions (microphone), settings persistence, and orchestration of the lib packages and session-store.
+User-facing Progressive Web App for iPhone. Owns navigation, UI screens, microphone permission, settings, and orchestration of the lib packages and session-store.
+
+## Run locally
+
+From the repository root:
+
+```bash
+make start
+```
+
+That installs dependencies if needed and starts Vite at http://localhost:5173 (LAN-reachable for an iPhone on the same network).
+
+## Publish to GitHub Pages
+
+GitHub Pages is served from `docs/` at the repository root. After any app change:
+
+```bash
+make build
+```
+
+This builds the PWA and copies `index.html`, `pwa-assets/`, icons, and the manifest into `docs/` without deleting the existing harness markdown in that folder.
 
 ## Boundary
 
-The PWA does NOT implement capture, volume analysis, transcription, or playback logic. It calls the lib packages for those jobs:
+The PWA does not implement capture, volume analysis, transcription, or playback logic. It calls:
 
-- `packages/lib/capture-engine` for recording (microphone → PCM → encode MP3 chunks → write to session-store)
-- `packages/lib/volume-analyzer` for volume profiles and snip proposal
-- `packages/lib/transcription-client` for Groq Whisper API key validation and transcription
-- `packages/lib/playback-engine` for audio playback (sessions, chunks, snips)
-- `packages/datastore/session-store` for all durable data (sessions, chunks, volume profiles, snips, transcripts)
-
-## Target Device
-
-iPhone, used as a Progressive Web App (Add to Home Screen). Desktop/web can work later; it is backlog, not the default.
-
-## Visual Design
-
-Preserve the theme, visual identity, and overall look from the live PWA at https://unlox775.github.io/web-whisper/. See `docs/VISUAL-BASELINE.md` for exact colors, layout, and interaction patterns. This is an architecture replacement, not a redesign.
-
-## Product Specs
-
-See `docs/specs/` for detailed implementation specs and work orders.
-
-## Customers
-
-The PWA has one primary customer: **the end user** (iPhone user who needs to record, play back, and transcribe audio).
-
-The PWA is a **customer** of all lib packages and the session-store. See each package's `customers/web-whisper-pwa.md` for the PWA's requests from that package.
+- `packages/lib/capture-engine` for recording
+- `packages/lib/volume-analyzer` for volume profiles and snips
+- `packages/lib/transcription-client` for Groq Whisper
+- `packages/lib/playback-engine` for playback
+- `packages/datastore/session-store` for durable data

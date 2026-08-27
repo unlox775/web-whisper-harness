@@ -1,10 +1,10 @@
 import { MP3Encoder } from './encoder';
-import {
+import { CaptureError } from './types';
+import type {
   CaptureOptions,
   CaptureHandle,
   CaptureStatus,
   CaptureSummary,
-  CaptureError,
   ChunkEncodedEvent,
   CaptureErrorEvent,
   CaptureStoppedEvent,
@@ -24,6 +24,7 @@ class CaptureSession {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private scriptProcessor: ScriptProcessorNode | null = null;
+  private silentGain: GainNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | OscillatorNode | null = null;
   private encoder: MP3Encoder | null = null;
   
@@ -31,9 +32,10 @@ class CaptureSession {
   private totalSamples: number = 0;
   private chunkCount: number = 0;
   private sampleRate: number = 44100;
+  private pendingWrites: Promise<void>[] = [];
   
   private isActive: boolean = false;
-  private watchdogTimer: NodeJS.Timeout | null = null;
+  private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private watchdogStartTime: number = 0;
   private watchdogCancelled: boolean = false;
   
@@ -102,13 +104,16 @@ class CaptureSession {
   private connectProcessor(source: AudioNode): void {
     const bufferSize = 4096;
     this.scriptProcessor = this.audioContext!.createScriptProcessor(bufferSize, 1, 1);
+    this.silentGain = this.audioContext!.createGain();
+    this.silentGain.gain.value = 0;
     
     this.scriptProcessor.onaudioprocess = (event: AudioProcessingEvent) => {
       this.handleAudioProcess(event);
     };
 
     source.connect(this.scriptProcessor);
-    this.scriptProcessor.connect(this.audioContext!.destination);
+    this.scriptProcessor.connect(this.silentGain);
+    this.silentGain.connect(this.audioContext!.destination);
   }
 
   private handleAudioProcess(event: AudioProcessingEvent): void {
@@ -133,7 +138,7 @@ class CaptureSession {
     }
   }
 
-  private encodeChunk(targetSampleCount: number): void {
+  private encodeChunk(targetSampleCount: number, flush = false): void {
     const chunkSamples = new Float32Array(targetSampleCount);
     let offset = 0;
     let remaining = targetSampleCount;
@@ -153,7 +158,16 @@ class CaptureSession {
     }
 
     try {
-      const mp3Data = this.encoder!.encode(chunkSamples);
+      let mp3Data = this.encoder!.encode(chunkSamples);
+      if (flush) {
+        const flushed = this.encoder!.flush();
+        if (flushed.length > 0) {
+          const combined = new Uint8Array(mp3Data.length + flushed.length);
+          combined.set(mp3Data, 0);
+          combined.set(flushed, mp3Data.length);
+          mp3Data = combined;
+        }
+      }
       const blob = this.encoder!.createBlob(mp3Data);
       
       const duration = targetSampleCount / this.sampleRate;
@@ -177,7 +191,7 @@ class CaptureSession {
           byteLength: blob.size,
         });
       } else {
-        this.writeChunkToStore(blob, metadata);
+        this.pendingWrites.push(this.writeChunkToStore(blob, metadata));
       }
 
       this.emit('chunkEncoded', {
@@ -202,10 +216,21 @@ class CaptureSession {
 
   private async writeChunkToStore(blob: Blob, metadata: ChunkMetadata): Promise<void> {
     try {
-      // Dynamically import session-store if available
-      const sessionStore = await import('../../../datastore/session-store/src/index').catch(() => null);
-      if (sessionStore && sessionStore.writeChunk) {
-        await sessionStore.writeChunk(this.sessionId, blob, metadata);
+      const sessionStore = await import('../../../datastore/session-store/src/index.js');
+      const result = await sessionStore.writeChunk(this.sessionId, {
+        seq: metadata.seq,
+        startTime: metadata.startTime,
+        endTime: metadata.endTime,
+        duration: metadata.endTime - metadata.startTime,
+        blob,
+        sizeBytes: blob.size || metadata.byteLength,
+      });
+      if (result && result.error) {
+        this.emit('captureError', {
+          sessionId: this.sessionId,
+          reason: 'store_write_failed',
+          details: result.error,
+        } as CaptureErrorEvent);
       }
     } catch (error: any) {
       console.error('Failed to write chunk to session-store:', error);
@@ -261,33 +286,46 @@ class CaptureSession {
 
     const remainingSamples = this.getRemainingBufferSamples();
     if (remainingSamples > 0) {
-      this.encodeChunk(remainingSamples);
-    }
-
-    if (this.encoder) {
+      this.encodeChunk(remainingSamples, true);
+    } else if (this.encoder) {
       try {
         const flushData = this.encoder.flush();
         if (flushData.length > 0) {
           const blob = this.encoder.createBlob(flushData);
-          if (blob.size > 0 && remainingSamples === 0) {
-            const duration = remainingSamples / this.sampleRate;
+          if (blob.size > 0) {
             const startTime = this.totalSamples / this.sampleRate;
-            
+            const metadata: ChunkMetadata = {
+              seq: this.chunkCount,
+              startTime,
+              endTime: startTime,
+              byteLength: blob.size,
+              sampleRate: this.sampleRate,
+            };
             if (this.options.inMemory) {
               this.inMemoryChunks.push({
                 seq: this.chunkCount,
                 startTime,
-                endTime: startTime + duration,
+                endTime: startTime,
                 blob,
                 byteLength: blob.size,
               });
+            } else {
+              this.pendingWrites.push(this.writeChunkToStore(blob, metadata));
             }
+            this.chunkCount++;
           }
         }
       } catch (error) {
         console.error('Failed to flush encoder:', error);
       }
     }
+
+    if (this.pendingWrites.length > 0) {
+      await Promise.all(this.pendingWrites);
+      this.pendingWrites = [];
+    }
+
+    activeSessions.delete(this.sessionId);
 
     this.cleanup();
 
@@ -307,6 +345,11 @@ class CaptureSession {
     if (this.scriptProcessor) {
       this.scriptProcessor.disconnect();
       this.scriptProcessor = null;
+    }
+
+    if (this.silentGain) {
+      this.silentGain.disconnect();
+      this.silentGain = null;
     }
 
     if (this.sourceNode) {
@@ -343,6 +386,7 @@ class CaptureSession {
       currentDuration,
       watchdogActive: this.watchdogTimer !== null && !this.watchdogCancelled,
       watchdogRemaining,
+      bufferSamples: this.getRemainingBufferSamples(),
     };
   }
 
@@ -416,4 +460,4 @@ export async function startCapture(
   }
 }
 
-export { CaptureError, CaptureOptions, CaptureHandle, CaptureStatus, CaptureSummary };
+export { CaptureError };

@@ -2,16 +2,59 @@ import { PlaybackHandle, PlaybackError } from './types.js';
 import { PlaybackHandleImpl } from './playback-handle.js';
 import { fixtureStore } from './fixture-store.js';
 
+type SessionStoreModule = typeof import('../../../datastore/session-store/src/index.js');
+
+async function loadSessionStore(): Promise<SessionStoreModule | null> {
+  try {
+    return await import('../../../datastore/session-store/src/index.js');
+  } catch {
+    return null;
+  }
+}
+
+async function startHandle(blob: Blob): Promise<PlaybackHandle> {
+  const handle = new PlaybackHandleImpl(blob);
+  await handle.start();
+  return handle;
+}
+
 export async function playSession(
   sessionId: string
 ): Promise<PlaybackHandle | PlaybackError> {
-  // Read session metadata
+  const store = await loadSessionStore();
+  if (store) {
+    const session = await store.getSession(sessionId);
+    if (session) {
+      const listed = await store.getChunksForSession(sessionId);
+      if (listed.error) {
+        return { error: 'chunks_missing', sessionId, missingChunkIds: [] };
+      }
+      const metas = listed.chunks || [];
+      if (metas.length === 0) {
+        return { error: 'chunks_missing', sessionId, missingChunkIds: [] };
+      }
+      const blobs: Blob[] = [];
+      const missingChunkIds: string[] = [];
+      for (const meta of metas) {
+        const chunk = await store.getChunk(meta.id);
+        if (!chunk?.blob) {
+          missingChunkIds.push(meta.id);
+        } else {
+          blobs.push(chunk.blob);
+        }
+      }
+      if (blobs.length === 0) {
+        return { error: 'chunks_missing', sessionId, missingChunkIds };
+      }
+      return startHandle(new Blob(blobs, { type: 'audio/mpeg' }));
+    }
+  }
+
   const session = await fixtureStore.getSession(sessionId);
   if (!session) {
     return { error: 'session_not_found', sessionId };
   }
 
-  // Read all chunks for the session
   const chunks = await fixtureStore.listChunks(sessionId);
   if (chunks.length === 0) {
     return {
@@ -21,7 +64,6 @@ export async function playSession(
     };
   }
 
-  // Verify all chunks exist
   const missingChunkIds: string[] = [];
   for (const chunkId of session.chunkIds) {
     const chunk = await fixtureStore.getChunk(chunkId);
@@ -34,21 +76,24 @@ export async function playSession(
     return { error: 'chunks_missing', sessionId, missingChunkIds };
   }
 
-  // Concatenate chunk blobs
   const chunkBlobs = chunks.map(chunk => chunk.blob);
-  const sessionBlob = new Blob(chunkBlobs, { type: 'audio/mpeg' });
-
-  // Create playback handle
-  const handle = new PlaybackHandleImpl(sessionBlob);
-  await handle.start();
-  
-  return handle;
+  return startHandle(new Blob(chunkBlobs, { type: 'audio/mpeg' }));
 }
 
 export async function playChunk(
   chunkId: string
 ): Promise<PlaybackHandle | PlaybackError> {
-  // Read chunk
+  const store = await loadSessionStore();
+  if (store) {
+    const chunk = await store.getChunk(chunkId);
+    if (chunk?.blob) {
+      return startHandle(chunk.blob);
+    }
+    if (chunk && !chunk.blob) {
+      return { error: 'chunk_read_failed', chunkId };
+    }
+  }
+
   const chunk = await fixtureStore.getChunk(chunkId);
   if (!chunk) {
     return { error: 'chunk_not_found', chunkId };
@@ -58,26 +103,42 @@ export async function playChunk(
     return { error: 'chunk_read_failed', chunkId };
   }
 
-  // Create playback handle
-  const handle = new PlaybackHandleImpl(chunk.blob);
-  await handle.start();
-  
-  return handle;
+  return startHandle(chunk.blob);
 }
 
 export async function playSnip(
   snipId: string
 ): Promise<PlaybackHandle | PlaybackError> {
-  // Read snip metadata
+  const store = await loadSessionStore();
+  if (store) {
+    const snip = await store.getSnip(snipId);
+    if (snip) {
+      const chunkIds: string[] = snip.chunkIds || snip.chunkRefs || [];
+      const missingChunkIds: string[] = [];
+      const blobs: Blob[] = [];
+      for (const chunkId of chunkIds) {
+        const chunk = await store.getChunk(chunkId);
+        if (!chunk?.blob) {
+          missingChunkIds.push(chunkId);
+        } else {
+          blobs.push(chunk.blob);
+        }
+      }
+      if (blobs.length === 0) {
+        return { error: 'snip_chunks_missing', snipId, missingChunkIds };
+      }
+      return startHandle(new Blob(blobs, { type: 'audio/mpeg' }));
+    }
+  }
+
   const snip = await fixtureStore.getSnip(snipId);
   if (!snip) {
     return { error: 'snip_not_found', snipId };
   }
 
-  // Read chunks for snip
   const missingChunkIds: string[] = [];
   const chunks = [];
-  
+
   for (const chunkId of snip.chunkRefs) {
     const chunk = await fixtureStore.getChunk(chunkId);
     if (!chunk) {
@@ -95,13 +156,6 @@ export async function playSnip(
     };
   }
 
-  // Concatenate chunk blobs for snip
   const chunkBlobs = chunks.map(chunk => chunk.blob);
-  const snipBlob = new Blob(chunkBlobs, { type: 'audio/mpeg' });
-
-  // Create playback handle
-  const handle = new PlaybackHandleImpl(snipBlob);
-  await handle.start();
-  
-  return handle;
+  return startHandle(new Blob(chunkBlobs, { type: 'audio/mpeg' }));
 }

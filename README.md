@@ -25,32 +25,26 @@ The original Web Whisper proves that browser-based long-form recording can be tr
 
 ## Project status
 
-**Phase 01 complete**: Harness installed, founder vision captured, slice-up alternatives proposed.
-
-**Next**: Human chooses a slice-up philosophy, then Phase 02 scaffolds packages and customer relationships.
+**Phase 06 complete**: The Web Whisper PWA is assembled from the lib packages and session-store, and `make build` publishes it to `docs/` for GitHub Pages.
 
 ## Repository structure
 
 ```
-docs/
+docs/                        GitHub Pages docroot (PWA + harness markdown)
+  index.html                 Published PWA
+  pwa-assets/                Built JS/CSS
   FOUNDER-vision.md          Detailed founder perspective and product goals
   SLICE-UP-plan.md           Alternative product-boundary philosophies
   VISUAL-BASELINE.md         Visual design and UI architecture baseline
   AI-PRODUCT-SLICE-HARNESS.md The multi-phase build process
   ai-product-slice-harness/  Harness helpers, runners, and config
 
-subagents/                   Phase scripts and re-architecture helpers
-Makefile                     Harness phase targets (see `make harness-help`)
-```
-
-After Phase 02, this structure will grow to include:
-
-```
-apps/                        Runnable applications (final PWA)
+apps/web-whisper-pwa         Source for the iPhone PWA
 packages/
-  ui/                        Substantial, independently valuable UI systems
-  lib/                       Reusable behavior packages
-  datastore/                 Durable data authorities with clear ownership
+  lib/                       Capture, playback, volume, transcription
+  datastore/                 session-store (IndexedDB)
+
+Makefile                     `make start` / `make build` plus harness targets
 ```
 
 ## Target device
@@ -59,15 +53,15 @@ packages/
 
 ## Development
 
-See [docs/AI-PRODUCT-SLICE-HARNESS.md](docs/AI-PRODUCT-SLICE-HARNESS.md) for the full process.
-
-Quick harness commands:
+The runnable PWA lives in `apps/web-whisper-pwa`. GitHub Pages is served from the repository `docs/` folder (existing harness docs stay there; the app is published beside them).
 
 ```bash
-make harness-help                    # Show all available targets
-make watch                           # Start persistent phase watcher
-HARNESS_COMMIT_DIRTY=1 make phase-2-5 # After Phase 02 scaffold
+make start    # local Vite server
+make build    # production build → docs/ (GitHub Pages docroot)
+make harness-help
 ```
+
+See [docs/AI-PRODUCT-SLICE-HARNESS.md](docs/AI-PRODUCT-SLICE-HARNESS.md) for the full process.
 
 ## Source repositories
 

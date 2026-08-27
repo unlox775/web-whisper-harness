@@ -18,6 +18,7 @@ export interface CaptureStatus {
   currentDuration: number;
   watchdogActive: boolean;
   watchdogRemaining: number;
+  bufferSamples: number;
 }
 
 export interface CaptureSummary {

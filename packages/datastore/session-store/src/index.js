@@ -34,7 +34,10 @@ import {
 } from './transcripts.js';
 import {
   getStorageStats,
-  enforceRetentionPolicy
+  enforceRetentionPolicy,
+  dumpStore,
+  clearAll,
+  cleanupOrphans
 } from './storage.js';
 
 /**
@@ -87,5 +90,8 @@ export {
 // Storage Management
 export {
   getStorageStats,
-  enforceRetentionPolicy
+  enforceRetentionPolicy,
+  dumpStore,
+  clearAll,
+  cleanupOrphans
 };

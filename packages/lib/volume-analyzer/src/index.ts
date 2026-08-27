@@ -6,6 +6,7 @@
 export * from './types.js';
 export * from './volume.js';
 export * from './snips.js';
+export { analyzeVolumeForSession, proposeSnipsForSession } from './session.js';
 
 import type {
   ChunkWithBlob,
