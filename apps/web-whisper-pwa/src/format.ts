@@ -44,6 +44,38 @@ export function formatTimestamp(iso: string): string {
   return `${day} at ${time}`;
 }
 
+export function formatCapturedRange(createdAt: string, duration: number): string {
+  const start = new Date(createdAt);
+  if (Number.isNaN(start.getTime())) return '';
+  const end = new Date(start.getTime() + duration * 1000);
+  const dateStr = start.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  });
+  const startTime = start.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  const endTime = end.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `${dateStr} ${startTime} → ${endTime}`;
+}
+
+export function formatDurationHeroStyle(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '0m 0s';
+  const seconds = Math.floor(totalSeconds);
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m`;
+  }
+  return `${minutes}m ${rest}s`;
+}
+
 export function jsonReplacer(_key: string, value: unknown) {
   if (value instanceof Blob) {
     return { __blob: true, size: value.size, type: value.type };

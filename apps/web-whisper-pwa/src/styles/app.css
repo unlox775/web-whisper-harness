@@ -824,3 +824,8 @@ select:focus {
   font-size: 12px;
   color: var(--text-secondary);
 }
+
+.session-detail-card {
+  border-color: var(--accent-primary);
+  border-width: 1px;
+}

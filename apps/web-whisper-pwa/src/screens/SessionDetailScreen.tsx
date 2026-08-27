@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
 import { playChunk, playSession, playSnip, type PlaybackHandle } from '@web-whisper/playback-engine';
-import { formatDuration, formatTimestamp, jsonReplacer } from '../format';
+import { formatBytes, formatDuration, formatCapturedRange, formatDurationHeroStyle, jsonReplacer } from '../format';
 import { runDoctor, type DoctorReport } from '../doctor';
 import { buildTranscriptText, transcribeSession, type TranscribeProgress } from '../orchestration';
 import { useApp } from '../context';
@@ -23,12 +23,11 @@ export function SessionDetailScreen() {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
   const [transcribing, setTranscribing] = useState(false);
   const [progress, setProgress] = useState<TranscribeProgress | null>(null);
   const [failures, setFailures] = useState<Array<{ snipId: string; error: string }>>([]);
-  const [copied, setCopied] = useState(false);
-  const [showChunks, setShowChunks] = useState(false);
-  const [showSnips, setShowSnips] = useState(false);
+  const [snipsTab, setSnipsTab] = useState<'chunks' | 'snips'>('snips');
   const [showHistogram, setShowHistogram] = useState(false);
   const [showDoctor, setShowDoctor] = useState(false);
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
@@ -109,12 +108,12 @@ export function SessionDetailScreen() {
     else handle.resume();
   }
 
-  function seekBy(delta: number) {
+  function handleVolumeChange(level: number) {
+    setVolume(level);
     const handle = handleRef.current;
-    if (!handle) return;
-    const next = Math.max(0, Math.min((handle.currentTime || currentTime) + delta, duration || 0));
-    handle.seek(next);
-    setCurrentTime(next);
+    if (handle) {
+      handle.setVolume(level);
+    }
   }
 
   async function runTranscription(retryFailedOnly = false) {
@@ -151,32 +150,69 @@ export function SessionDetailScreen() {
     }
   }
 
-  async function copyTranscript() {
-    const text = buildTranscriptText(snips, transcripts, failures);
+  async function retrySnip(snipId: string) {
+    if (!app.settings.groqApiKey || !app.settings.keyValid) return;
+    const snip = snips.find((s) => s.id === snipId);
+    if (!snip) return;
+    
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      app.showToast('Copied!', 'success');
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      app.showToast('Could not copy transcript', 'error');
+      const blob = await sessionStore.getSnip(snipId);
+      if (!blob?.blob) {
+        app.showToast('Snip audio not found', 'error');
+        return;
+      }
+      const { transcribe, ERROR_CODES } = await import('@web-whisper/transcription-client');
+      const result = await transcribe(blob.blob, app.settings.groqApiKey);
+      if (result.error) {
+        const existingFailure = failures.find((f) => f.snipId === snipId);
+        if (!existingFailure) {
+          setFailures((prev) => [...prev, { snipId, error: result.error! }]);
+        }
+        const message = result.error === ERROR_CODES.RATE_LIMIT
+          ? 'Rate limit reached. Try again later.'
+          : `Transcription failed: ${result.error}`;
+        app.showToast(message, 'error');
+        return;
+      }
+      await sessionStore.putTranscript({
+        id: crypto.randomUUID(),
+        sessionId,
+        snipId,
+        text: result.text || '',
+        createdAt: new Date().toISOString(),
+      });
+      setFailures((prev) => prev.filter((f) => f.snipId !== snipId));
+      await load();
+      app.showToast('Transcription complete', 'success');
+    } catch (error) {
+      app.showToast(`Retry failed: ${error instanceof Error ? error.message : 'unknown error'}`, 'error');
     }
   }
 
-  async function downloadAudio() {
-    const blobs: Blob[] = [];
-    for (const chunk of chunks) {
-      const full = await sessionStore.getChunk(chunk.id);
-      if (full?.blob) blobs.push(full.blob);
-    }
-    if (!blobs.length) {
-      app.showToast('This session has no playable audio.', 'warning');
+  async function downloadSnip(snipId: string) {
+    const blob = await sessionStore.getSnip(snipId);
+    if (!blob?.blob) {
+      app.showToast('Snip audio not found', 'error');
       return;
     }
-    const url = URL.createObjectURL(new Blob(blobs, { type: 'audio/mpeg' }));
+    const url = URL.createObjectURL(blob.blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `web-whisper-${sessionId}.mp3`;
+    link.download = `snip-${snipId}.mp3`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadChunk(chunkId: string) {
+    const blob = await sessionStore.getChunk(chunkId);
+    if (!blob?.blob) {
+      app.showToast('Chunk audio not found', 'error');
+      return;
+    }
+    const url = URL.createObjectURL(blob.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `chunk-${chunkId}.mp3`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -204,6 +240,8 @@ export function SessionDetailScreen() {
   const failedCount = Math.max(failures.length, snips.length - transcripts.length);
   const transcribeComplete = transcripts.length > 0 && failedCount <= 0;
   const transcribePartial = transcripts.length > 0 && failedCount > 0;
+  const totalSize = chunks.reduce((sum, c) => sum + c.sizeBytes, 0);
+  const format = chunks[0]?.format || 'audio/mpeg';
 
   return (
     <>
@@ -211,74 +249,117 @@ export function SessionDetailScreen() {
         <button className="text-btn" onClick={app.goHome}>
           ← Sessions
         </button>
-        <h1 style={{ fontSize: 18 }}>{formatTimestamp(session.createdAt)}</h1>
+        <div style={{ flex: 1 }} />
       </header>
       <main className="scroll">
-        <section className="card">
-          <dl>
-            <div className="meta-row">
-              <dt>Duration</dt>
-              <dd>{formatDuration(session.duration)}</dd>
-            </div>
-            <div className="meta-row">
-              <dt>Recorded</dt>
-              <dd>{formatTimestamp(session.createdAt)}</dd>
-            </div>
-            {!hasAudio ? (
-              <div className="meta-row">
-                <dt>Status</dt>
-                <dd className="danger-text" style={{ fontWeight: 600, fontSize: 14 }}>
-                  Completed without playable audio
-                </dd>
-              </div>
-            ) : null}
-          </dl>
-        </section>
-
-        <section className="card">
-          <p className="kicker">PLAYBACK</p>
-          {!playing && currentTime === 0 ? (
-            <button className="cta" disabled={!hasAudio} onClick={() => void startPlayback()}>
-              Play Session
-            </button>
-          ) : (
-            <>
-              <input
-                className="seek"
-                type="range"
-                min={0}
-                max={duration || session.duration || 0}
-                step={0.1}
-                value={currentTime}
-                onChange={(event) => {
-                  const next = Number(event.target.value);
-                  setCurrentTime(next);
-                  handleRef.current?.seek(next);
+        <section className="card session-detail-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+            <p className="kicker">RECORDED SESSION</p>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button
+                className="icon-btn"
+                style={{ padding: 4, minHeight: 32, minWidth: 32, fontSize: 18 }}
+                onClick={() => {
+                  const durationStr = formatDuration(session.duration);
+                  app.askConfirm({
+                    title: 'Delete recording?',
+                    body: `Delete Recording ${durationStr}? This cannot be undone.`,
+                    confirmLabel: 'Delete',
+                    onConfirm: () => void app.deleteSessionById(session.id),
+                  });
                 }}
-              />
-              <p className="tiny">
-                {formatDuration(currentTime)} / {formatDuration(duration || session.duration)}
-              </p>
-              <div className="playback-row">
-                <button className="skip" onClick={() => seekBy(-15)}>
-                  −15s
-                </button>
+              >
+                🗑️
+              </button>
+              <button className="text-btn" onClick={app.goHome}>
+                Close
+              </button>
+            </div>
+          </div>
+
+          <h2 style={{ fontSize: 48, fontWeight: 700, marginBottom: 8 }}>
+            {formatDurationHeroStyle(session.duration)}
+          </h2>
+
+          <p className="tiny" style={{ marginBottom: 4 }}>
+            <strong>Captured:</strong> {formatCapturedRange(session.createdAt, session.duration)}
+          </p>
+          <p className="tiny" style={{ marginBottom: 4 }}>
+            <strong>Size:</strong> {formatBytes(totalSize)}
+          </p>
+          {chunks.length > 0 ? (
+            <p className="tiny" style={{ marginBottom: 16 }}>
+              <strong>Format:</strong> {format} · <strong>Chunks:</strong> {chunks.length}
+            </p>
+          ) : null}
+
+          {hasAudio && (currentTime > 0 || playing) ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
                 <button className="round-play" onClick={() => void togglePlay()}>
                   {playing ? '❚❚' : '▶'}
                 </button>
-                <button className="skip" onClick={() => seekBy(15)}>
-                  +15s
-                </button>
+                <div style={{ flex: 1 }}>
+                  <input
+                    className="seek"
+                    type="range"
+                    min={0}
+                    max={duration || session.duration || 0}
+                    step={0.1}
+                    value={currentTime}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      setCurrentTime(next);
+                      handleRef.current?.seek(next);
+                    }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                    <p className="tiny" style={{ margin: 0 }}>
+                      {formatDuration(currentTime)} / {formatDuration(duration || session.duration)}
+                    </p>
+                    {playing ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
+                        <span className="tiny">🔊</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={volume}
+                          onChange={(e) => handleVolumeChange(Number(e.target.value))}
+                          style={{ width: 80, accentColor: 'var(--accent-primary)' }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             </>
+          ) : hasAudio ? (
+            <button className="cta" onClick={() => void startPlayback()} style={{ marginTop: 12 }}>
+              Play Session
+            </button>
+          ) : (
+            <p className="danger-text" style={{ marginTop: 12 }}>
+              This session has no playable audio.
+            </p>
           )}
-          {!hasAudio ? (
-            <p className="help">This session has no playable audio.</p>
-          ) : null}
         </section>
 
         <section className="card">
-          <p className="kicker">TRANSCRIPTION</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <p className="kicker" style={{ margin: 0 }}>TRANSCRIPTION</p>
+            {keyReady && snips.length > 0 && !transcribing ? (
+              <button
+                className="linkish"
+                style={{ fontSize: 13, padding: 4 }}
+                onClick={() => void runTranscription(failedCount > 0)}
+              >
+                RETRY TX
+              </button>
+            ) : null}
+          </div>
+
           {!keyReady ? (
             <>
               <p>Transcription disabled. Add API key in Settings.</p>
@@ -308,100 +389,157 @@ export function SessionDetailScreen() {
                 </>
               ) : null}
             </>
-          ) : transcribePartial ? (
+          ) : transcripts.length > 0 ? (
             <>
-              <p className="warning-text">
-                {transcripts.length} of {snips.length} snips transcribed. {failedCount} failed.
+              <div className="transcript" style={{ border: '1px solid rgba(255, 255, 255, 0.1)', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                {transcriptText}
+              </div>
+              <p className="tiny" style={{ color: 'var(--accent-primary)' }}>
+                Transcribed {transcripts.length} of {snips.length} snips.
               </p>
-              <div className="transcript">{transcriptText}</div>
-              <button className="linkish" onClick={() => void runTranscription(true)}>
-                Retry Failed
-              </button>
+              {failedCount > 0 ? (
+                <p className="danger-text tiny" style={{ marginTop: 4 }}>
+                  {failedCount} snip transcription error{failedCount === 1 ? '' : 's'} recorded. See the snip list for details.
+                </p>
+              ) : null}
             </>
-          ) : transcribeComplete || transcripts.length > 0 ? (
-            <>
-              <div className="transcript">{transcriptText}</div>
-              <button className="cta-outline" onClick={() => void copyTranscript()}>
-                {copied ? 'Copied!' : 'Copy Transcript'}
-              </button>
-            </>
-          ) : (
+          ) : snips.length > 0 ? (
             <button className="cta" onClick={() => void runTranscription()}>
               Transcribe Session
             </button>
+          ) : (
+            <p className="muted">No snips available for transcription.</p>
           )}
         </section>
 
-        <section className="action-bar">
-          <button
-            className="linkish danger-text"
-            onClick={() =>
-              app.askConfirm({
-                title: 'Delete this session?',
-                body: 'This cannot be undone.',
-                confirmLabel: 'Delete',
-                onConfirm: () => void app.deleteSessionById(session.id),
-              })
-            }
-          >
-            Delete Session
-          </button>
-          <button className="linkish" onClick={() => void downloadAudio()}>
-            Download Audio
-          </button>
-        </section>
+        {snips.length > 0 ? (
+          <section className="card">
+            <p className="kicker" style={{ marginBottom: 12 }}>
+              {snipsTab === 'chunks' ? `CHUNKS (${chunks.length})` : `SNIPS (${snips.length})`} · {format}
+            </p>
+            <div className="pills" style={{ marginBottom: 16 }}>
+              <button
+                className={`pill ${snipsTab === 'chunks' ? 'active' : ''}`}
+                onClick={() => setSnipsTab('chunks')}
+              >
+                Chunks
+              </button>
+              <button
+                className={`pill ${snipsTab === 'snips' ? 'active' : ''}`}
+                onClick={() => setSnipsTab('snips')}
+              >
+                Snips
+              </button>
+            </div>
+
+            {snipsTab === 'chunks' ? (
+              <div style={{ maxHeight: 400, overflow: 'auto' }}>
+                {chunks.map((chunk, index) => (
+                  <div
+                    key={chunk.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      padding: '12px 0',
+                      borderBottom: index < chunks.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
+                      minHeight: 48,
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: 0, fontSize: 14, color: '#fff' }}>
+                        #{index + 1} {chunk.duration.toFixed(2)}s
+                      </p>
+                      <p className="tiny" style={{ margin: 0, marginTop: 2 }}>
+                        {formatBytes(chunk.sizeBytes)}
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        className="icon-btn"
+                        style={{ minHeight: 36, minWidth: 36, fontSize: 14 }}
+                        onClick={() => void playOne('chunk', chunk.id)}
+                      >
+                        ▶
+                      </button>
+                      <button
+                        className="icon-btn"
+                        style={{ minHeight: 36, minWidth: 36, fontSize: 14 }}
+                        onClick={() => void downloadChunk(chunk.id)}
+                      >
+                        ↓
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ maxHeight: 400, overflow: 'auto' }}>
+                {snips.map((snip, index) => {
+                  const transcript = transcripts.find((t) => t.snipId === snip.id);
+                  const failure = failures.find((f) => f.snipId === snip.id);
+                  const hasTranscript = Boolean(transcript);
+                  return (
+                    <div
+                      key={snip.id}
+                      style={{
+                        padding: '12px 0',
+                        borderBottom: index < snips.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none',
+                        minHeight: 48,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontSize: 14, color: '#fff' }}>
+                            #{index + 1} {snip.duration.toFixed(1)}s{' '}
+                            <span className="tiny">
+                              {formatDuration(snip.startTime)} → {formatDuration(snip.endTime)}
+                            </span>
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          {hasTranscript ? (
+                            <span
+                              className="chip enabled"
+                              style={{ fontSize: 10, padding: '2px 8px', minHeight: 20 }}
+                            >
+                              Transcribed
+                            </span>
+                          ) : null}
+                          {!hasTranscript && keyReady ? (
+                            <button
+                              className="linkish"
+                              style={{ fontSize: 12, padding: 4, minHeight: 32 }}
+                              onClick={() => void retrySnip(snip.id)}
+                            >
+                              RETRY
+                            </button>
+                          ) : null}
+                          <button
+                            className="icon-btn"
+                            style={{ minHeight: 36, minWidth: 36, fontSize: 14 }}
+                            onClick={() => void downloadSnip(snip.id)}
+                          >
+                            ↓
+                          </button>
+                        </div>
+                      </div>
+                      {failure ? (
+                        <p className="danger-text" style={{ fontSize: 12, marginTop: 6 }}>
+                          {failure.error}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        ) : null}
 
         {app.settings.developerModeEnabled ? (
           <>
-            <section className="card">
-              <p className="kicker">CHUNKS (Developer Mode)</p>
-              <button className="linkish" onClick={() => setShowChunks((value) => !value)}>
-                {showChunks ? 'Hide Chunks ▼' : 'Show Chunks ▶'}
-              </button>
-              {showChunks ? (
-                <div className="dev-list">
-                  {chunks.map((chunk) => (
-                    <div className="dev-row" key={chunk.id}>
-                      <span className="tiny">{chunk.id}</span>
-                      <span>{formatDuration(chunk.startTime)}</span>
-                      <span>{chunk.duration.toFixed(2)}s</span>
-                      <span className="tiny">{chunk.sizeBytes.toLocaleString()} bytes</span>
-                      <button className="linkish" onClick={() => void playOne('chunk', chunk.id)}>
-                        Play
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-
-            <section className="card">
-              <p className="kicker">SNIPS (Developer Mode)</p>
-              <button className="linkish" onClick={() => setShowSnips((value) => !value)}>
-                {showSnips ? 'Hide Snips ▼' : 'Show Snips ▶'}
-              </button>
-              {showSnips ? (
-                <div className="dev-list">
-                  {snips.map((snip) => {
-                    const preview = transcripts.find((item) => item.snipId === snip.id)?.text || '';
-                    return (
-                      <div className="dev-row" key={snip.id}>
-                        <span className="tiny">{snip.id}</span>
-                        <span>
-                          {formatDuration(snip.startTime)} – {formatDuration(snip.endTime)}
-                        </span>
-                        <span>{snip.duration.toFixed(1)}s</span>
-                        <span className="tiny">{preview.slice(0, 50)}</span>
-                        <button className="linkish" onClick={() => void playOne('snip', snip.id)}>
-                          Play
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </section>
-
             <section className="card">
               <p className="kicker">VOLUME HISTOGRAM (Developer Mode)</p>
               <button className="linkish" onClick={() => setShowHistogram((value) => !value)}>
