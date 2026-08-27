@@ -1,4 +1,4 @@
-import { SessionData, ChunkData, SnipData } from './types.js';
+import type { SessionData, ChunkData, SnipData } from './types.js';
 
 // Generate simple audio blobs with different tones for distinguishability
 function generateAudioBlob(durationSeconds: number, frequency: number): Blob {
