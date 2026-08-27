@@ -13,29 +13,23 @@ export async function seedTestSession() {
   console.log('Created session:', sessionId);
   
   const createdAt = new Date();
-  const duration = 1025;
   
-  await sessionStore.updateSession(sessionId, {
-    duration,
-    chunkCount: 256,
-    createdAt: createdAt.toISOString(),
-  });
-  
-  const sampleAudioData = new Uint8Array(1024).fill(0);
+  const sampleAudioData = new Uint8Array(10240).fill(0);
   const sampleBlob = new Blob([sampleAudioData], { type: 'audio/mpeg' });
   
-  for (let i = 0; i < 4; i++) {
-    await sessionStore.putChunk({
-      id: crypto.randomUUID(),
-      sessionId,
+  const chunkIds: string[] = [];
+  for (let i = 0; i < 256; i++) {
+    const result = await sessionStore.writeChunk(sessionId, {
       seq: i,
       startTime: i * 4,
+      endTime: (i + 1) * 4,
       duration: 4,
       sizeBytes: 1024,
-      format: 'audio/mpeg',
-      createdAt: new Date(createdAt.getTime() + i * 4000).toISOString(),
       blob: sampleBlob,
     });
+    if (!result.error && result.chunkId) {
+      chunkIds.push(result.chunkId);
+    }
   }
   
   const snips = [
@@ -45,48 +39,45 @@ export async function seedTestSession() {
     { startTime: 75.8, endTime: 90.0, duration: 14.2, text: 'This is a test snip with a rate limit error.' },
   ];
   
+  const snipIds: string[] = [];
   for (let i = 0; i < snips.length; i++) {
     const snip = snips[i];
-    const snipId = crypto.randomUUID();
+    const startChunkIndex = Math.floor(snip.startTime / 4);
+    const endChunkIndex = Math.floor(snip.endTime / 4);
     
-    await sessionStore.putSnip({
-      id: snipId,
-      sessionId,
+    const result = await sessionStore.writeSnip(sessionId, {
+      startChunkIndex,
+      endChunkIndex,
       startTime: snip.startTime,
       endTime: snip.endTime,
       duration: snip.duration,
-      sizeBytes: 31500,
-      createdAt: new Date(createdAt.getTime() + snip.startTime * 1000).toISOString(),
-      blob: sampleBlob,
+      chunkIds: chunkIds.slice(startChunkIndex, endChunkIndex + 1),
+      confidence: 0.85,
     });
     
-    if (i < snips.length - 1) {
-      await sessionStore.putTranscript({
-        id: crypto.randomUUID(),
-        sessionId,
-        snipId,
-        text: snip.text,
-        createdAt: new Date(createdAt.getTime() + snip.endTime * 1000).toISOString(),
-      });
+    if (!result.error && result.snipId) {
+      snipIds.push(result.snipId);
+      
+      if (i < snips.length - 1) {
+        await sessionStore.writeTranscript(result.snipId, snip.text);
+      }
     }
   }
   
   const volumeProfile = {
-    sessionId,
-    chunkVolumes: Array.from({ length: 256 }, (_, i) => ({
-      chunkSeq: i,
-      rms: 0.1 + Math.random() * 0.3,
-      peak: 0.3 + Math.random() * 0.5,
+    chunkVolumes: chunkIds.map((chunkId, i) => ({
+      chunkId,
+      peakDb: -20 + Math.random() * 10,
     })),
-    createdAt: new Date().toISOString(),
   };
   
-  await sessionStore.putVolumeProfile(volumeProfile);
+  await sessionStore.writeVolumeProfile(sessionId, volumeProfile);
   
-  console.log('Seeded test session with 4 snips (3 transcribed, 1 failed)');
+  console.log('✅ Seeded test session successfully!');
   console.log('Session ID:', sessionId);
-  console.log('Duration:', duration, 'seconds');
-  console.log('Navigate to session detail to view');
+  console.log('Chunks:', chunkIds.length);
+  console.log('Snips:', snipIds.length, '(3 transcribed, 1 failed)');
+  console.log('\n📱 Navigate to session detail to view the card');
   
   return sessionId;
 }

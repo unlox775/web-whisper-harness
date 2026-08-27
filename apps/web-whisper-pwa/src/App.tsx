@@ -48,7 +48,7 @@ function Shell() {
             <p style={{ marginTop: 10 }}>{app.confirm.body}</p>
             <div className="modal-actions">
               <button className="text-btn" onClick={() => app.askConfirm(null)}>
-                Cancel
+                Keep
               </button>
               <button
                 className="linkish danger-text"
