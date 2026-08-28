@@ -13,7 +13,8 @@ import { CaptureError, startCapture, type CaptureHandle } from '@web-whisper/cap
 import { validateKey } from '@web-whisper/transcription-client';
 import { analyzeVolumeForSession, proposeSnipsForSession } from '@web-whisper/volume-analyzer';
 import { capBytesFromMb, loadSettings, saveSetting } from './settings';
-import { isIsolationSettingsScreenshot, readScreenshotMode } from './screenshotMode';
+import { isIsolationSettingsScreenshot, isSessionDetailScreenshot, readScreenshotMode } from './screenshotMode';
+import { ensureSessionDetailScreenshotSession } from './sessionDetailScreenshot';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
 
 function captureStartOptions() {
@@ -211,6 +212,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAutoPlay(shouldAutoPlay);
     setScreen('session');
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!isSessionDetailScreenshot(readScreenshotMode())) return;
+    let cancelled = false;
+    void ensureSessionDetailScreenshotSession().then((id) => {
+      if (!cancelled && id) openSession(id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, openSession]);
 
   const deleteSessionById = useCallback(async (id: string) => {
     const result = await sessionStore.deleteSession(id);

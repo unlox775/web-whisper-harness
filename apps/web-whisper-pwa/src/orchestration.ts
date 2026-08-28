@@ -6,6 +6,8 @@ import {
 } from '@web-whisper/volume-analyzer';
 import type { SnipRecord, TranscriptRecord } from './types';
 
+export { buildTranscriptText } from './transcriptText';
+
 export type TranscribeProgress = {
   phase: 'analyzing' | 'transcribing';
   completed: number;
@@ -102,32 +104,4 @@ export async function transcribeSession(
   }
 
   return { total: snips.length, completed, failed, failures };
-}
-
-export function buildTranscriptText(
-  snips: SnipRecord[],
-  transcripts: TranscriptRecord[],
-  failures: Array<{ snipId: string; error: string }> = []
-): string {
-  const bySnip = new Map(transcripts.map((item) => [item.snipId, item.text]));
-  const failed = new Set(failures.map((item) => item.snipId));
-  return snips
-    .map((snip, index) => {
-      const stamp = formatStamp(snip.startTime);
-      if (failed.has(snip.id) && !bySnip.get(snip.id)) {
-        return `[${stamp}] [Snip ${index + 1} failed to transcribe]`;
-      }
-      const text = bySnip.get(snip.id);
-      if (!text) return `[${stamp}]`;
-      return `[${stamp}] ${text}`;
-    })
-    .join('\n\n')
-    .trim();
-}
-
-function formatStamp(seconds: number): string {
-  const whole = Math.max(0, Math.floor(seconds));
-  const m = Math.floor(whole / 60);
-  const s = whole % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
 }

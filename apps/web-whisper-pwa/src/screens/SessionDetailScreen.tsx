@@ -66,7 +66,7 @@ export function SessionDetailScreen() {
     }
   }, [app.autoPlay, session?.id]);
 
-  const transcriptText = buildTranscriptText(snips, transcripts, failures);
+  const transcriptText = buildTranscriptText(snips, transcripts);
 
   useEffect(() => {
     if (detailTab !== 'transcript' || !transcriptText) return;

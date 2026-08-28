@@ -39,6 +39,10 @@ export function isIsolationSettingsScreenshot(mode: string | null): boolean {
   return mode === 'isolation-settings';
 }
 
+export function isSessionDetailScreenshot(mode: string | null): boolean {
+  return mode === 'session-detail';
+}
+
 export function recordScreenshotPreview(mode: RecordScreenshotMode): {
   seconds: number;
   transcript: string;
