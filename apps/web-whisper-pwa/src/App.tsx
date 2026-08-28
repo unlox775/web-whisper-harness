@@ -4,9 +4,12 @@ import { RecordingScreen } from './screens/RecordingScreen';
 import { SessionDetailScreen } from './screens/SessionDetailScreen';
 import { SettingsModal } from './screens/SettingsModal';
 import { DeveloperConsole } from './screens/DeveloperConsole';
+import { isRecordScreenshot, readScreenshotMode } from './screenshotMode';
 
 function Shell() {
   const app = useApp();
+  const screenshot = readScreenshotMode();
+  const recording = app.screen === 'recording' || isRecordScreenshot(screenshot);
 
   if (!app.ready) {
     return (
@@ -20,9 +23,9 @@ function Shell() {
 
   return (
     <div className="app-shell">
-      {app.screen === 'home' ? <HomeScreen /> : null}
-      {app.screen === 'recording' ? <RecordingScreen /> : null}
-      {app.screen === 'session' && app.sessionId ? <SessionDetailScreen /> : null}
+      {app.screen === 'home' && !recording ? <HomeScreen /> : null}
+      {recording ? <RecordingScreen /> : null}
+      {app.screen === 'session' && app.sessionId && !recording ? <SessionDetailScreen /> : null}
 
       {app.settingsOpen ? <SettingsModal /> : null}
       {app.developerOpen && app.settings.developerModeEnabled ? <DeveloperConsole /> : null}

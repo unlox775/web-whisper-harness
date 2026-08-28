@@ -3,29 +3,38 @@ import * as sessionStore from '@web-whisper/session-store';
 import { transcribeAudio } from '@web-whisper/transcription-client';
 import { formatDuration } from '../format';
 import { useApp } from '../context';
+import {
+  isRecordScreenshot,
+  readScreenshotMode,
+  recordScreenshotPreview,
+} from '../screenshotMode';
 
 export function RecordingScreen() {
   const app = useApp();
-  const [seconds, setSeconds] = useState(0);
-  const [bufferSamples, setBufferSamples] = useState(0);
-  const [liveTranscript, setLiveTranscript] = useState('');
-  const [showPending, setShowPending] = useState(true);
+  const screenshot = readScreenshotMode();
+  const preview = isRecordScreenshot(screenshot) ? recordScreenshotPreview(screenshot) : null;
+
+  const [seconds, setSeconds] = useState(preview?.seconds ?? 0);
+  const [liveTranscript, setLiveTranscript] = useState(preview?.transcript ?? '');
+  const [snipsGathered, setSnipsGathered] = useState(preview?.snipsGathered ?? 0);
+  const [showPending, setShowPending] = useState(preview?.pending ?? true);
   const [failedChunks, setFailedChunks] = useState<string[]>([]);
   const [retrying, setRetrying] = useState(false);
   const transcriptBoxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (preview) return undefined;
     const timer = window.setInterval(() => {
       const status = app.captureHandle?.getStatus();
       if (status) {
         setSeconds(status.currentDuration);
-        setBufferSamples(status.bufferSamples || 0);
       }
     }, 100);
     return () => window.clearInterval(timer);
-  }, [app.captureHandle]);
+  }, [app.captureHandle, preview]);
 
   useEffect(() => {
+    if (preview) return undefined;
     const handle = app.captureHandle;
     if (!handle || !app.settings.groqApiKey || !app.settings.keyValid || !app.recordingSessionId) return;
 
@@ -59,6 +68,7 @@ export function RecordingScreen() {
           const text = result.text || '';
           if (text.trim()) {
             setLiveTranscript((prev) => (prev ? prev + ' ' + text : text));
+            setSnipsGathered((count) => count + 1);
             setShowPending(false);
           }
         }
@@ -73,7 +83,7 @@ export function RecordingScreen() {
     return () => {
       handle.off('chunkEncoded', handleChunkEncoded);
     };
-  }, [app.captureHandle, app.settings.groqApiKey, app.settings.keyValid, app.recordingSessionId]);
+  }, [app.captureHandle, app.settings.groqApiKey, app.settings.keyValid, app.recordingSessionId, preview]);
 
   useEffect(() => {
     if (transcriptBoxRef.current) {
@@ -109,6 +119,7 @@ export function RecordingScreen() {
           const text = result.text || '';
           if (text.trim()) {
             results.push(text);
+            setSnipsGathered((count) => count + 1);
           }
           setFailedChunks((prev) => prev.filter((id) => id !== failedKey));
         }
@@ -123,47 +134,56 @@ export function RecordingScreen() {
   }
 
   const hasTranscript = liveTranscript.trim().length > 0;
-  const showOverlay = app.settings.groqApiKey && app.settings.keyValid;
+  const showOverlay = Boolean(preview) || Boolean(app.settings.groqApiKey && app.settings.keyValid);
+  const showDeveloperHud = preview ? preview.showDeveloperHud : app.settings.developerModeEnabled;
 
   return (
     <main className="recording">
-      <div className="rec-indicator">
-        <span className="pulse" aria-hidden="true" />
-        <span>Recording</span>
+      <div className="rec-hud">
+        <div className="rec-indicator">
+          <span className="pulse" aria-hidden="true" />
+          <span>Recording</span>
+        </div>
+        <div className="duration">{formatDuration(seconds)}</div>
+        {showDeveloperHud ? (
+          <p className="tiny rec-dev-line">{snipsGathered} snips gathered</p>
+        ) : null}
       </div>
-      <div className="duration">{formatDuration(seconds)}</div>
-      {app.settings.developerModeEnabled ? (
-        <>
-          <p className="tiny">{app.chunkCount} chunks</p>
-          <p className="tiny">Buffer: {bufferSamples} samples</p>
-        </>
-      ) : null}
 
       {showOverlay ? (
-        <div className="live-transcript-overlay">
-          <h3 className="overlay-title">Live transcription</h3>
-          {showPending && !hasTranscript ? (
-            <p className="pending-message">Pending - first words arrive in about 30 seconds.</p>
-          ) : (
-            <div className="transcript-box" ref={transcriptBoxRef}>
-              {hasTranscript ? liveTranscript : ''}
-            </div>
-          )}
-          {failedChunks.length > 0 ? (
-            <button
-              className="retry-tx-btn"
-              disabled={retrying}
-              onClick={handleRetry}
-            >
-              {retrying ? 'RETRYING...' : 'RETRY TX'}
-            </button>
-          ) : null}
+        <div className="rec-overlay-slot">
+          <div className="live-transcript-overlay">
+            <h3 className="overlay-title">Live transcription</h3>
+            {showPending && !hasTranscript ? (
+              <p className="pending-message">Pending - first words arrive in about 30 seconds.</p>
+            ) : (
+              <div className="transcript-box" ref={transcriptBoxRef}>
+                {hasTranscript ? liveTranscript : ''}
+              </div>
+            )}
+            {failedChunks.length > 0 ? (
+              <button
+                className="retry-tx-btn"
+                disabled={retrying}
+                onClick={handleRetry}
+              >
+                {retrying ? 'RETRYING...' : 'RETRY TX'}
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
-      <button className="stop-btn" onClick={() => void app.stopRecording()}>
-        Stop Recording
-      </button>
+      <div className="rec-stop-slot">
+        <button
+          type="button"
+          className="stop-btn"
+          data-testid="stop-recording"
+          onClick={() => void app.stopRecording()}
+        >
+          Stop Recording
+        </button>
+      </div>
     </main>
   );
 }
