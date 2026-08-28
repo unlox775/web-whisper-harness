@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "npx --yes tsx --test src/snips.test.ts"
   },
   "keywords": [
     "audio",

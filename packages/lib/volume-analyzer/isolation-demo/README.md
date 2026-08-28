@@ -5,10 +5,11 @@ Package-local runnable demo for operating volume-analyzer independently without 
 ## Purpose
 
 Proves that volume-analyzer:
-- Computes volume profile (peak dB per chunk) from audio chunks
-- Detects silence based on threshold (e.g., < -40dB = silence)
-- Proposes snips (segment boundaries) by grouping loud chunks and splitting on silence
-- Allows operator to adjust silence threshold and see snip boundaries update in real-time
+- Computes volume profile (peak dB per 100ms sample) from audio chunks
+- Estimates an adaptive **noise floor** (original web-whisper percentiles) instead of a fixed −40 dB line
+- Proposes snips that wait for the original 10s target length and split on real quiet gaps, not every breath
+- Exposes four sliders (noise floor, min snip, max snip, quiet-gap) that recompute snips live
+- Persists tuner settings only in IndexedDB `web-whisper-volume-analyzer-demo-db` (isolated from the PWA)
 
 ## Runtime
 
@@ -35,22 +36,25 @@ Proves that volume-analyzer:
 ### 2. Control Panel (left quarter of viewport, below chrome)
 
 **Components:**
-- "Compute Volume" button (cyan, full-width, enabled when chunks available)
-- "Propose Snips" button (cyan, full-width, enabled after volume profile computed)
-- "Reset" button (gray, full-width, clears volume profile + snips + fixture chunks if fixture mode; always enabled)
-- Silence threshold slider: "-60dB ← → -20dB" (default -40dB, adjustable; updates snip proposals in real-time when volume profile exists)
+- "Compute Volume" button (cyan, full-width, enabled when chunks available; also proposes snips)
+- "Reset" button (gray, full-width, clears volume profile + snips; always enabled)
+- **Noise floor slider** (−70 dB to −20 dB; default **auto** percentile floor from original web-whisper)
+- **Min snip length slider** (1–20s, default **5s**)
+- **Max snip length slider** (10–90s, default **60s**)
+- **Quiet-gap duration slider** (0.2–2.5s, default **0.6s**)
 - Fixture pattern dropdown (only visible when "Enable Live Capture" OFF):
-  - "Quiet → Loud → Quiet → Loud → Quiet" (default, 5 segments)
-  - "All Quiet" (no loud sections, tests zero-snip case)
-  - "All Loud" (no silence, tests single-snip case)
-  - "Loud → Quiet → Loud" (2 loud segments, 1 silence gap)
+  - "Breath-paused speech (run-on)" (default; 2.2s phrases / 1.1s breaths — proves 10s target vs 4–5 word cuts)
+  - "Quiet → Loud → Quiet"
+  - "All Quiet"
+  - "All Loud"
+  - "Loud → Quiet → Loud"
+  - "Short Speech"
 
 **Behaviors:**
-- When "Compute Volume" clicked → volume profile computes (fixture chunks or live capture chunks analyzed), histogram panel populates, button disables until Reset
-- When "Propose Snips" clicked → snip list computes based on current silence threshold, snip list panel populates, button disables until Reset or threshold changes
-- When silence threshold slider moves → snip proposals recompute automatically (if volume profile exists), snip list updates
-- When fixture pattern dropdown changes → fixture chunks regenerate (if in fixture mode), volume profile + snips clear (must recompute)
-- When "Reset" clicked → volume profile cleared, snips cleared, histogram cleared, snip list cleared, buttons reset (Compute/Propose enabled again)
+- When "Compute Volume" clicked → volume profile computes, waveform populates, snips propose automatically using current sliders
+- When any aggressiveness slider moves → snip proposals recompute live (if volume profile exists)
+- When fixture pattern dropdown changes → fixture chunks regenerate, volume profile + snips clear (must recompute)
+- When "Reset" clicked → volume profile cleared, snips cleared, sliders restored to original defaults
 - When "Enable Live Capture" toggled ON → capture-engine included (in-memory), "Start Capture" button appears, fixture dropdown hidden
 
 ### 3. Volume Histogram Panel (center half of viewport, below chrome)

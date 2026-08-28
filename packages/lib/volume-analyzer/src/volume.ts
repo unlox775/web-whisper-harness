@@ -4,10 +4,8 @@
  * Decode MP3 chunks to PCM and compute volume profiles (peak dB per 100ms sample).
  */
 
+import { FALLBACK_QUIET_THRESHOLD_DB, SAMPLE_WINDOW_MS } from './defaults.js';
 import type { ChunkWithBlob, ChunkVolumeProfile } from './types.js';
-
-// Sample window size: 100ms
-const SAMPLE_WINDOW_MS = 100;
 
 /**
  * Decode MP3 blob to PCM using Web Audio API
@@ -79,7 +77,7 @@ export function computeVolumeSamples(audioBuffer: AudioBuffer): Float32Array {
  */
 export function aggregateChunkVolume(
   samples: Float32Array,
-  quietThreshold: number = -40
+  quietThreshold: number = FALLBACK_QUIET_THRESHOLD_DB
 ): { avgDb: number; peakDb: number; quietSampleCount: number } {
   if (samples.length === 0) {
     return { avgDb: -100, peakDb: -100, quietSampleCount: 0 };
@@ -112,7 +110,7 @@ export function aggregateChunkVolume(
  */
 export async function analyzeChunkVolume(
   chunk: ChunkWithBlob,
-  quietThreshold: number = -40
+  quietThreshold: number = FALLBACK_QUIET_THRESHOLD_DB
 ): Promise<ChunkVolumeProfile> {
   try {
     const audioBuffer = await decodeChunkToPCM(chunk.blob);
@@ -137,7 +135,7 @@ export async function analyzeChunkVolume(
  */
 export async function analyzeChunksVolume(
   chunks: ChunkWithBlob[],
-  quietThreshold: number = -40
+  quietThreshold: number = FALLBACK_QUIET_THRESHOLD_DB
 ): Promise<ChunkVolumeProfile[]> {
   const profiles: ChunkVolumeProfile[] = [];
   

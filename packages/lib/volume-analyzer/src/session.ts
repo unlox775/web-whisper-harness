@@ -14,6 +14,8 @@ import { analyzeChunksVolume } from './volume.js';
 import { proposeSnipsFromProfile } from './snips.js';
 
 async function loadStore() {
+  // session-store is JS without types; the PWA Vite alias resolves this at bundle time.
+  // @ts-expect-error -- no declaration file for session-store
   return import('../../../datastore/session-store/src/index.js');
 }
 
