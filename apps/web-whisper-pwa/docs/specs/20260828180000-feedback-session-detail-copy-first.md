@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-08-28T18:00:00Z
+Updated: 2026-08-28T18:00:00Z
 Product: apps/web-whisper-pwa
 
 # Session Detail Copy-First Feedback Spec
@@ -40,19 +41,34 @@ Session detail is the most important screen and must serve the real workflow: **
 
 ## QA Shots Required (1170×2532, `documentation/qa/`)
 
-- [ ] `session-detail-copy.png` — transcript textarea with text selected, Copy button, play bar + volume visible at rest
-- [ ] `session-detail-debug.png` — debug tab/hamburger showing snips (optional if debug exists)
+- [x] `session-detail-copy.png` — transcript textarea with text selected, Copy button, play bar + volume visible at rest
+- [x] `session-detail-debug.png` — debug tab/hamburger showing snips (optional if debug exists)
 
 ## Resolution Criteria
 
 Mark resolved when:
 
-- [ ] Transcript is a selectable `<textarea>` with auto-select on open
-- [ ] Copy button present; native selection path preserved
-- [ ] Play + seek + volume always visible when session has audio (idle)
-- [ ] Metadata quiet; transcript is the primary fold
-- [ ] Snips/chunks/histogram/doctor behind Debug (not default)
-- [ ] Close/trash, RETRY TX, Transcribed N of N retained
-- [ ] `make build` completed; `docs/` GitHub Pages updated
-- [ ] iPhone DevTools shots in `documentation/qa/` and linked in PR body
-- [ ] Spec updated with Resolution section documenting what shipped
+- [x] Transcript is a selectable `<textarea>` with auto-select on open
+- [x] Copy button present; native selection path preserved
+- [x] Play + seek + volume always visible when session has audio (idle)
+- [x] Metadata quiet; transcript is the primary fold
+- [x] Snips/chunks/histogram/doctor behind Debug (not default)
+- [x] Close/trash, RETRY TX, Transcribed N of N retained
+- [x] `make build` completed; `docs/` GitHub Pages updated
+- [x] iPhone DevTools shots in `documentation/qa/` and linked in PR body
+- [x] Spec updated with Resolution section documenting what shipped
+
+## Resolution
+
+Shipped on branch `cursor/session-detail-copy-first-79df` (PR draft).
+
+### What changed
+
+- `SessionDetailScreen.tsx`: copy-first transcript panel (`textarea` + auto-select + Copy), always-visible playback row, quiet meta line, Transcript/Debug tabs; snips/chunks/histogram/doctor only under Debug.
+- `app.css`: scoped `.session-detail-*` styles including `user-select: all` on the transcript textarea.
+- `make build` refreshed `docs/` GitHub Pages publish artifacts.
+
+### Proof shots (1170×2532)
+
+- `documentation/qa/session-detail-copy.png`
+- `documentation/qa/session-detail-debug.png`
