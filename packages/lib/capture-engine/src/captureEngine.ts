@@ -32,7 +32,9 @@ class CaptureSession {
   private totalSamples: number = 0;
   private chunkCount: number = 0;
   private sampleRate: number = 44100;
-  private pendingWrites: Promise<void>[] = [];
+  private persistQueue: Promise<void> = Promise.resolve();
+  private stopPromise: Promise<CaptureSummary> | null = null;
+  private lastSummary: CaptureSummary | null = null;
   
   private isActive: boolean = false;
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
@@ -190,19 +192,18 @@ class CaptureSession {
           blob,
           byteLength: blob.size,
         });
+        this.emit('chunkEncoded', {
+          sessionId: this.sessionId,
+          seq: this.chunkCount,
+          startTime,
+          endTime,
+          duration,
+          byteLength: blob.size,
+          blob,
+        } as ChunkEncodedEvent);
       } else {
-        this.pendingWrites.push(this.writeChunkToStore(blob, metadata));
+        this.enqueuePersist(blob, metadata, duration);
       }
-
-      this.emit('chunkEncoded', {
-        sessionId: this.sessionId,
-        seq: this.chunkCount,
-        startTime,
-        endTime,
-        duration,
-        byteLength: blob.size,
-        blob: this.options.inMemory ? blob : undefined,
-      } as ChunkEncodedEvent);
 
       this.chunkCount++;
     } catch (error: any) {
@@ -214,9 +215,27 @@ class CaptureSession {
     }
   }
 
-  private async writeChunkToStore(blob: Blob, metadata: ChunkMetadata): Promise<void> {
+  private enqueuePersist(blob: Blob, metadata: ChunkMetadata, duration: number): void {
+    this.persistQueue = this.persistQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const written = await this.writeChunkToStore(blob, metadata);
+        if (!written) return;
+        this.emit('chunkEncoded', {
+          sessionId: this.sessionId,
+          seq: metadata.seq,
+          startTime: metadata.startTime,
+          endTime: metadata.endTime,
+          duration,
+          byteLength: blob.size,
+          blob,
+        } as ChunkEncodedEvent);
+      });
+  }
+
+  private async writeChunkToStore(blob: Blob, metadata: ChunkMetadata): Promise<boolean> {
     try {
-      const sessionStore = await import('../../../datastore/session-store/src/index.js');
+      const sessionStore = await loadSessionStore();
       const result = await sessionStore.writeChunk(this.sessionId, {
         seq: metadata.seq,
         startTime: metadata.startTime,
@@ -231,7 +250,9 @@ class CaptureSession {
           reason: 'store_write_failed',
           details: result.error,
         } as CaptureErrorEvent);
+        return false;
       }
+      return true;
     } catch (error: any) {
       console.error('Failed to write chunk to session-store:', error);
       this.emit('captureError', {
@@ -239,6 +260,7 @@ class CaptureSession {
         reason: 'store_write_failed',
         details: error.message,
       } as CaptureErrorEvent);
+      return false;
     }
   }
 
@@ -273,14 +295,32 @@ class CaptureSession {
       details: 'Watchdog timeout: no audio received for ' + this.options.watchdogTimeout + 's',
     } as CaptureErrorEvent);
     
-    this.stop();
+    void this.stop();
   }
 
   async stop(): Promise<CaptureSummary> {
+    if (this.stopPromise) {
+      return this.stopPromise;
+    }
     if (!this.isActive) {
-      throw new CaptureError('invalid_handle', 'Capture handle is not active');
+      if (this.lastSummary) return this.lastSummary;
+      return {
+        chunksWritten: this.chunkCount,
+        totalDuration: this.totalSamples / this.sampleRate,
+        hasAudio: this.chunkCount > 0,
+        sessionId: this.sessionId,
+      };
     }
 
+    this.stopPromise = this.performStop();
+    return this.stopPromise;
+  }
+
+  abort(): Promise<CaptureSummary> {
+    return this.stop();
+  }
+
+  private async performStop(): Promise<CaptureSummary> {
     this.isActive = false;
     this.cancelWatchdog();
 
@@ -301,6 +341,7 @@ class CaptureSession {
               byteLength: blob.size,
               sampleRate: this.sampleRate,
             };
+            const duration = 0;
             if (this.options.inMemory) {
               this.inMemoryChunks.push({
                 seq: this.chunkCount,
@@ -309,8 +350,17 @@ class CaptureSession {
                 blob,
                 byteLength: blob.size,
               });
+              this.emit('chunkEncoded', {
+                sessionId: this.sessionId,
+                seq: this.chunkCount,
+                startTime,
+                endTime: startTime,
+                duration,
+                byteLength: blob.size,
+                blob,
+              } as ChunkEncodedEvent);
             } else {
-              this.pendingWrites.push(this.writeChunkToStore(blob, metadata));
+              this.enqueuePersist(blob, metadata, duration);
             }
             this.chunkCount++;
           }
@@ -320,9 +370,10 @@ class CaptureSession {
       }
     }
 
-    if (this.pendingWrites.length > 0) {
-      await Promise.all(this.pendingWrites);
-      this.pendingWrites = [];
+    try {
+      await this.persistQueue;
+    } catch (error) {
+      console.error('Failed to drain persist queue:', error);
     }
 
     activeSessions.delete(this.sessionId);
@@ -336,6 +387,7 @@ class CaptureSession {
       sessionId: this.sessionId,
     };
 
+    this.lastSummary = summary;
     this.emit('captureStopped', summary as CaptureStoppedEvent);
 
     return summary;
@@ -420,6 +472,7 @@ class CaptureSession {
   private createHandle(): CaptureHandle {
     return {
       stop: () => this.stop(),
+      abort: () => this.abort(),
       on: (eventName, callback) => this.on(eventName, callback),
       off: (eventName, callback) => this.off(eventName, callback),
       getStatus: () => this.getStatus(),
@@ -439,6 +492,15 @@ class CaptureSession {
 }
 
 const activeSessions = new Map<string, CaptureSession>();
+
+let sessionStoreModule: Promise<typeof import('../../../datastore/session-store/src/index.js')> | null = null;
+
+function loadSessionStore() {
+  if (!sessionStoreModule) {
+    sessionStoreModule = import('../../../datastore/session-store/src/index.js');
+  }
+  return sessionStoreModule;
+}
 
 export async function startCapture(
   sessionId: string,

@@ -62,9 +62,9 @@ export async function transcribeSession(
   const transcripts: TranscriptRecord[] = transcriptsResult.transcripts || [];
   const done = new Set(transcripts.map((item) => item.snipId));
 
-  const targets = options?.retryFailedOnly
-    ? snips.filter((snip) => !done.has(snip.id))
-    : snips;
+  // RETRY TX / re-transcribe never throws away audio or existing transcripts.
+  // Always skip snips that already have text; only missed/failed snips run.
+  const targets = snips.filter((snip) => !done.has(snip.id));
 
   let completed = snips.length - targets.length;
   let failed = 0;

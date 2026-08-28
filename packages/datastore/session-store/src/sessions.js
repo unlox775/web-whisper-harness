@@ -23,7 +23,8 @@ export async function createSession() {
       sizeBytes: 0,
       hasVolumeProfile: false,
       hasSnips: false,
-      hasTranscript: false
+      hasTranscript: false,
+      status: 'recording'
     };
     
     return new Promise((resolve, reject) => {
@@ -206,4 +207,85 @@ export async function deleteSession(sessionId) {
   } catch (err) {
     return { error: 'database_unavailable' };
   }
+}
+
+/**
+ * Recompute session duration/chunkCount/size from persisted chunks and mark
+ * the session ready (has audio) or error (no chunks). Does not delete audio.
+ * @param {string} sessionId
+ * @returns {Promise<{session: Object} | {error: string}>}
+ */
+export async function finalizeSession(sessionId) {
+  try {
+    const db = await getDatabase();
+    const session = await getSession(sessionId);
+    if (!session) {
+      return { error: 'session_not_found' };
+    }
+
+    return new Promise((resolve) => {
+      const transaction = db.transaction(['chunks', 'sessions'], 'readwrite');
+      const chunksStore = transaction.objectStore('chunks');
+      const sessionsStore = transaction.objectStore('sessions');
+      const index = chunksStore.index('by-sessionId-seq');
+      const request = index.openCursor(IDBKeyRange.bound([sessionId, 0], [sessionId, Infinity]));
+
+      let chunkCount = 0;
+      let sizeBytes = 0;
+      let duration = 0;
+
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          const chunk = cursor.value;
+          chunkCount += 1;
+          sizeBytes += chunk.sizeBytes || 0;
+          duration = Math.max(duration, chunk.endTime || 0);
+          cursor.continue();
+        }
+      };
+
+      transaction.oncomplete = () => {
+        const now = new Date().toISOString();
+        const updated = {
+          ...session,
+          chunkCount,
+          sizeBytes,
+          duration,
+          updatedAt: now,
+          status: chunkCount > 0 ? 'ready' : 'error'
+        };
+        const putTx = db.transaction(['sessions'], 'readwrite');
+        putTx.objectStore('sessions').put(updated);
+        putTx.oncomplete = () => resolve({ session: updated });
+        putTx.onerror = () => resolve({ error: 'database_unavailable' });
+      };
+
+      transaction.onerror = () => {
+        resolve({ error: 'database_unavailable' });
+      };
+    });
+  } catch (err) {
+    return { error: 'database_unavailable' };
+  }
+}
+
+/**
+ * Finalize any sessions still marked recording (page killed, cancel, crash).
+ * Keeps every session and its chunks; never deletes on abort.
+ * @returns {Promise<{reconciled: number} | {error: string}>}
+ */
+export async function reconcileDanglingSessions() {
+  const listed = await listSessions({ limit: 500, offset: 0 });
+  if (listed.error) {
+    return { error: listed.error };
+  }
+  let reconciled = 0;
+  for (const session of listed.sessions || []) {
+    if (session.status === 'recording') {
+      await finalizeSession(session.id);
+      reconciled += 1;
+    }
+  }
+  return { reconciled };
 }
