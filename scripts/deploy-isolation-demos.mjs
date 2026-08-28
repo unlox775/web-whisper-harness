@@ -3,9 +3,10 @@
  * for GitHub Pages. Uses the PWA's Vite / React so isolation-demo folders do
  * not need their own node_modules.
  */
-import { mkdir, rm, writeFile, access } from 'node:fs/promises';
+import { mkdir, rm, writeFile, access, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isolationDemoAliases, lamejsBrowserBundle, repoRoot } from './isolation-demo-vite.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pwaDir = join(root, 'apps/web-whisper-pwa');
@@ -20,25 +21,25 @@ const DEMOS = [
     react: false,
     storage: 'In-memory only (no IndexedDB / localStorage)',
     namespace: 'web-whisper-isolation-demo-capture-engine',
-    blurb: 'Mic / simulated PCM capture, MP3 chunks, watchdog. Chunks live in RAM until Reset or tab close.',
+    blurb: 'Live mic (primary) or simulated PCM. Real capture-engine, MP3 chunks in RAM until Reset.',
   },
   {
     id: 'playback-engine',
     title: 'Playback Engine',
     root: join(root, 'packages/lib/playback-engine/isolation-demo'),
     react: false,
-    storage: 'In-memory fixture audio (no store writes)',
+    storage: 'Live chunks in RAM; optional fixture blobs (no store writes)',
     namespace: 'web-whisper-isolation-demo-playback-engine',
-    blurb: 'Play session / chunk / snip from fixture blobs. Pause, resume, seek, volume.',
+    blurb: 'Record live audio then play it. Fixture session/chunk/snip remains optional.',
   },
   {
     id: 'volume-analyzer',
     title: 'Volume Analyzer',
     root: join(root, 'packages/lib/volume-analyzer/isolation-demo'),
     react: true,
-    storage: 'Fixture chunks in RAM; tuner settings in isolated IndexedDB',
+    storage: 'Live/fixture chunks in RAM; tuner settings in isolated IndexedDB',
     namespace: 'web-whisper-volume-analyzer-demo-db',
-    blurb: 'Volume profile + snip proposals from known fixture patterns (original noise-floor defaults). Live capture stays unimplemented.',
+    blurb: 'Live mic → volume profile + snip proposals (in-memory). Fixtures optional. Isolated tuner DB.',
   },
   {
     id: 'transcription-client',
@@ -47,7 +48,7 @@ const DEMOS = [
     react: false,
     storage: 'No persistence (API key stays in the input)',
     namespace: 'ww-iso-transcription-client:',
-    blurb: 'Fixture mock transcripts plus optional live Groq. Does not write PWA localStorage keys.',
+    blurb: 'Record live audio then transcribe (mock or real Groq). Fixture blob optional. No PWA keys.',
   },
   {
     id: 'session-store',
@@ -56,7 +57,7 @@ const DEMOS = [
     react: false,
     storage: 'Sandbox IndexedDB only',
     namespace: 'web-whisper-isolation-demo-session-store',
-    blurb: 'Create / read / delete sessions in a sandbox database. Never opens web-whisper-db.',
+    blurb: 'Live mic chunks flush into the sandbox DB. Never opens web-whisper-db.',
   },
 ];
 
@@ -79,6 +80,10 @@ if (!(await exists(join(pwaNm, 'vite/dist/node/index.js')))) {
 
 const { build } = await import(pwaEsm('vite/dist/node/index.js'));
 const { default: react } = await import(pwaEsm('@vitejs/plugin-react/dist/index.js'));
+const compactMobileCss = await readFile(
+  join(root, 'packages/isolation-demo-shared/compact-mobile.css'),
+  'utf8'
+);
 
 function indexHtml() {
   const cards = DEMOS.map(
@@ -161,13 +166,14 @@ function indexHtml() {
       color: var(--muted);
       line-height: 1.45;
     }
+    ${compactMobileCss}
   </style>
 </head>
 <body>
   <header>
     <p class="kicker">Factory floor</p>
     <h1>Isolation Demos</h1>
-    <p class="lead">Package-local HTML stacks. Each demo uses its own storage namespace so it cannot corrupt PWA sessions or other demos. Capture stays in-memory.</p>
+    <p class="lead">Package-local HTML stacks with live microphone capture. Each demo uses its own storage namespace so it cannot corrupt PWA sessions or other demos. Capture stays in-memory; session-store writes only to its sandbox DB.</p>
     <a class="back" href="../">← Web Whisper PWA</a>
   </header>
   <main class="grid">
@@ -187,22 +193,31 @@ for (const demo of DEMOS) {
     throw new Error(`Isolation demo missing index.html at ${demo.root}`);
   }
   console.log(`Building isolation demo: ${demo.id}`);
-  const aliases = demo.react
-    ? {
-        react: join(pwaNm, 'react'),
-        'react-dom': join(pwaNm, 'react-dom'),
-        'react/jsx-runtime': join(pwaNm, 'react/jsx-runtime.js'),
-        'react/jsx-dev-runtime': join(pwaNm, 'react/jsx-dev-runtime.js'),
-      }
-    : {};
+  const aliases = {
+    ...isolationDemoAliases(),
+    ...(demo.react
+      ? {
+          react: join(pwaNm, 'react'),
+          'react-dom': join(pwaNm, 'react-dom'),
+          'react/jsx-runtime': join(pwaNm, 'react/jsx-runtime.js'),
+          'react/jsx-dev-runtime': join(pwaNm, 'react/jsx-dev-runtime.js'),
+        }
+      : {}),
+  };
   await build({
     configFile: false,
     root: demo.root,
     base: './',
-    plugins: demo.react ? [react()] : [],
+    plugins: [...(demo.react ? [react()] : []), lamejsBrowserBundle()],
     resolve: {
       alias: aliases,
       dedupe: demo.react ? ['react', 'react-dom'] : [],
+    },
+    optimizeDeps: {
+      exclude: ['lamejs'],
+    },
+    server: {
+      fs: { allow: [repoRoot] },
     },
     build: {
       outDir: join(docsIsolation, demo.id),

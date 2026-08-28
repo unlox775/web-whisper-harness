@@ -5,6 +5,8 @@
  */
 
 import * as sessionStore from '../../src/index.js';
+import { startCapture, CaptureError } from '@web-whisper/capture-engine';
+import '../../../../isolation-demo-shared/compact-mobile.css';
 
 /** Distinct from PWA `web-whisper-db` and from other isolation demos. */
 const ISOLATION_DB_NAME = 'web-whisper-isolation-demo-session-store';
@@ -16,6 +18,9 @@ let lastCreatedSessionId = null;
 let currentDetailsSessionId = null;
 let chunkWriteCount = 0;
 let snipWriteCount = 0;
+let captureHandle = null;
+let pendingLiveChunks = [];
+let captureMeterTimer = null;
 
 // Initialize
 async function init() {
@@ -64,6 +69,129 @@ function setupEventListeners() {
       showToast(`Session created: ${result.id}`, 'success');
       await refreshUI();
     }
+  });
+
+  const chunkDataSource = document.getElementById('chunk-data-source');
+  const liveChunkControls = document.getElementById('live-chunk-controls');
+  const writeChunkBtn = document.getElementById('write-chunk-btn');
+  const liveCaptureStatus = document.getElementById('live-capture-status');
+
+  function syncChunkSourceUI() {
+    const live = chunkDataSource.value === 'live';
+    liveChunkControls.style.display = live ? 'block' : 'none';
+    writeChunkBtn.style.display = live ? 'none' : 'block';
+  }
+  chunkDataSource.addEventListener('change', syncChunkSourceUI);
+  syncChunkSourceUI();
+
+  async function ensureSessionId() {
+    let sessionId = document.getElementById('chunk-session-id').value.trim();
+    if (sessionId) return sessionId;
+    const result = await sessionStore.createSession();
+    if (result.error) {
+      showToast(`Error: ${result.error}`, 'error');
+      return null;
+    }
+    lastCreatedSessionId = result.id;
+    document.getElementById('last-session-id').textContent = `Last created: ${result.id}`;
+    document.getElementById('chunk-session-id').value = result.id;
+    document.getElementById('volume-session-id').value = result.id;
+    document.getElementById('snip-session-id').value = result.id;
+    showToast(`Session created: ${result.id}`, 'success');
+    await refreshUI();
+    return result.id;
+  }
+
+  document.getElementById('start-capture-btn').addEventListener('click', async () => {
+    const sessionId = await ensureSessionId();
+    if (!sessionId) return;
+    pendingLiveChunks = [];
+    try {
+      captureHandle = await startCapture(`iso-session-store-${Date.now()}`, {
+        audioSource: 'live',
+        chunkTargetDuration: 4.0,
+        watchdogTimeout: 10.0,
+        inMemory: true,
+      });
+      captureHandle.on('chunkEncoded', (data) => {
+        if (!data.blob) return;
+        pendingLiveChunks.push({
+          seq: data.seq,
+          startTime: data.startTime,
+          endTime: data.endTime,
+          duration: data.duration,
+          blob: data.blob,
+          sizeBytes: data.byteLength || data.blob.size,
+        });
+        liveCaptureStatus.textContent = `Recording… ${pendingLiveChunks.length} chunk(s) in RAM`;
+      });
+      captureHandle.on('captureError', (data) => {
+        liveCaptureStatus.textContent = `Capture error: ${data.reason || 'failed'}`;
+        document.getElementById('start-capture-btn').disabled = false;
+        document.getElementById('stop-capture-btn').disabled = true;
+      });
+      captureHandle.on('captureStopped', () => {
+        document.getElementById('start-capture-btn').disabled = false;
+        document.getElementById('stop-capture-btn').disabled = true;
+        captureHandle = null;
+        if (captureMeterTimer) {
+          clearInterval(captureMeterTimer);
+          captureMeterTimer = null;
+        }
+      });
+      document.getElementById('start-capture-btn').disabled = true;
+      document.getElementById('stop-capture-btn').disabled = false;
+      liveCaptureStatus.textContent = 'Recording… speak, then Stop & Write Chunks';
+      captureMeterTimer = setInterval(() => {
+        if (!captureHandle) return;
+        const status = captureHandle.getStatus();
+        liveCaptureStatus.textContent = `Recording… ${status.currentDuration.toFixed(1)}s → sandbox session ${sessionId.slice(0, 12)}…`;
+      }, 200);
+    } catch (error) {
+      const code = error instanceof CaptureError ? error.code : '';
+      liveCaptureStatus.textContent = `Failed: ${error.message || error}`;
+      if (code === 'permission_denied') {
+        alert('Microphone permission denied. Allow access in browser settings.');
+      }
+    }
+  });
+
+  document.getElementById('stop-capture-btn').addEventListener('click', async () => {
+    const sessionId = document.getElementById('chunk-session-id').value.trim();
+    if (captureHandle) {
+      try {
+        await captureHandle.stop();
+      } catch (error) {
+        showToast(`Stop failed: ${error.message}`, 'error');
+      }
+    }
+    if (!sessionId) {
+      showToast('No session ID to write chunks', 'error');
+      return;
+    }
+    if (pendingLiveChunks.length === 0) {
+      liveCaptureStatus.textContent = 'No audio captured.';
+      showToast('No live chunks to write', 'error');
+      return;
+    }
+    let written = 0;
+    for (const chunk of pendingLiveChunks) {
+      const result = await sessionStore.writeChunk(sessionId, {
+        ...chunk,
+        seq: chunkWriteCount,
+      });
+      if (result.error) {
+        showToast(`Error writing chunk: ${result.error}`, 'error');
+        break;
+      }
+      written++;
+      chunkWriteCount++;
+    }
+    document.getElementById('chunk-count').textContent = `Chunks written: ${chunkWriteCount}`;
+    liveCaptureStatus.textContent = `Wrote ${written} live chunk(s) to sandbox DB (not web-whisper-db).`;
+    showToast(`Wrote ${written} live chunks`, 'success');
+    pendingLiveChunks = [];
+    await refreshUI();
   });
 
   // Write Chunk
