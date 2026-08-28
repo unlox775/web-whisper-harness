@@ -13,6 +13,7 @@ import { CaptureError, startCapture, type CaptureHandle } from '@web-whisper/cap
 import { validateKey } from '@web-whisper/transcription-client';
 import { analyzeVolumeForSession, proposeSnipsForSession } from '@web-whisper/volume-analyzer';
 import { capBytesFromMb, loadSettings, saveSetting } from './settings';
+import { isIsolationSettingsScreenshot, readScreenshotMode } from './screenshotMode';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
 
 type ConfirmState = {
@@ -150,6 +151,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast(`Failed to save settings: ${message}`, 'error');
     }
   }, [showToast]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!isIsolationSettingsScreenshot(readScreenshotMode())) return;
+    if (!settings.developerModeEnabled) {
+      updateSetting('developerModeEnabled', true);
+    }
+    setSettingsOpen(true);
+  }, [ready, settings.developerModeEnabled, updateSetting]);
 
   const persistKey = useCallback((apiKey: string, valid: boolean, status: string) => {
     setSettings((current) => ({

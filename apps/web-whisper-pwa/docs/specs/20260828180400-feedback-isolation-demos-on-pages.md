@@ -49,25 +49,46 @@ No demo opens `web-whisper-db`. Capture remains in-memory. Volume-analyzer does 
 - Demo Vite `base` is `./` so nested Pages paths resolve assets.
 - Isolation Demos link is gated on developer mode: Settings App section + ladybug Developer Console.
 - Href is relative `isolation-demos/` from the published PWA (`docs/index.html`). Canonical URL: https://unlox775.github.io/web-whisper-harness/isolation-demos/
+- QA helper: `?screenshot=isolation-settings` opens Settings with developer mode enabled.
 
 ## QA Shots Required (1170×2532, `documentation/qa/`)
 
-- [ ] `isolation-demos-settings-entry.png` — Settings (developer mode on) showing Isolation Demos control
-- [ ] `isolation-demos-index.png` — Pages index listing the five package demos
+- [x] `isolation-demos-settings-entry.png` — Settings (developer mode on) showing Isolation Demos control
+- [x] `isolation-demos-index.png` — Pages index listing the five package demos
 
 ## Resolution Criteria
 
 Mark resolved when:
 
-- [ ] `make build` publishes `docs/isolation-demos/index.html` and per-package pages
-- [ ] Index lists capture, playback, volume-analyzer, transcription, session-store
-- [ ] Session-store demo uses a DB name other than `web-whisper-db`
-- [ ] Other demos do not write PWA storage
-- [ ] Developer-mode Settings and ladybug expose Isolation Demos
-- [ ] iPhone 1170×2532 shots in `documentation/qa/` and PR body
-- [ ] Session detail, recording Stop layout, and snip defaults untouched
-- [ ] PR kept draft
+- [x] `make build` publishes `docs/isolation-demos/index.html` and per-package pages
+- [x] Index lists capture, playback, volume-analyzer, transcription, session-store
+- [x] Session-store demo uses a DB name other than `web-whisper-db`
+- [x] Other demos do not write PWA storage
+- [x] Developer-mode Settings and ladybug expose Isolation Demos
+- [x] iPhone 1170×2532 shots in `documentation/qa/` and PR body
+- [x] Session detail, recording Stop layout, and snip defaults untouched
+- [x] PR kept draft
 
 ## Resolution
 
-Shipped on branch `cursor/isolation-demos-on-pages-7e5a` (PR draft). See the Resolution section at the bottom of this file after implementation.
+Shipped on branch `cursor/isolation-demos-on-pages-7e5a` (PR draft #23).
+
+### What changed
+
+- `scripts/deploy-isolation-demos.mjs` builds each package isolation-demo with the PWA’s Vite/React and publishes to `docs/isolation-demos/`.
+- `Makefile` `build` target runs that script after PWA `deploy-docs`.
+- Session-store isolation demo uses IndexedDB `web-whisper-isolation-demo-session-store` and prefixed sessionStorage keys.
+- PWA Settings (developer mode) and ladybug Developer Console link to the Isolation Demos index via `isolationDemosHref()`.
+- Spec + QA report under `documentation/qa/`.
+
+### Proof shots (1170×2532)
+
+![Settings entry to Isolation Demos](../../../documentation/qa/isolation-demos-settings-entry.png)
+
+![Isolation Demos index on Pages](../../../documentation/qa/isolation-demos-index.png)
+
+### Verification
+
+- Interactive iPhone viewport pass: developer-mode gate, Settings + ladybug entry, index cards, Capture IN-MEMORY, Session Store sandbox DB name.
+- `make build` publishes PWA + `docs/isolation-demos/`.
+- Session detail, recording Stop layout, and snip defaults untouched.

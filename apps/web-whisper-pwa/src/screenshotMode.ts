@@ -1,4 +1,5 @@
 export type RecordScreenshotMode = 'record' | 'record-hud' | 'record-dev';
+export type IsolationScreenshotMode = 'isolation-settings';
 
 const RECORD_MODES = new Set<string>(['record', 'record-hud', 'record-dev']);
 
@@ -32,6 +33,10 @@ export function readScreenshotMode(): string | null {
 
 export function isRecordScreenshot(mode: string | null): mode is RecordScreenshotMode {
   return !!mode && RECORD_MODES.has(mode);
+}
+
+export function isIsolationSettingsScreenshot(mode: string | null): boolean {
+  return mode === 'isolation-settings';
 }
 
 export function recordScreenshotPreview(mode: RecordScreenshotMode): {
