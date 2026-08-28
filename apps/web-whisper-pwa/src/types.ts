@@ -8,6 +8,7 @@ export type SessionRecord = {
   hasVolumeProfile: boolean;
   hasSnips: boolean;
   hasTranscript: boolean;
+  status?: 'recording' | 'ready' | 'error';
 };
 
 export type ChunkRecord = {

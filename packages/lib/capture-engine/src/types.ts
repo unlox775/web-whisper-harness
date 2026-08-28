@@ -7,6 +7,8 @@ export interface CaptureOptions {
 
 export interface CaptureHandle {
   stop: () => Promise<CaptureSummary>;
+  /** Same as stop(): flush remainder, persist queued chunks, keep the session. */
+  abort: () => Promise<CaptureSummary>;
   on: (eventName: string, callback: EventCallback) => void;
   off: (eventName: string, callback: EventCallback) => void;
   getStatus: () => CaptureStatus;

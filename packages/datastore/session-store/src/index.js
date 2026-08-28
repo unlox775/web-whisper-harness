@@ -11,7 +11,9 @@ import {
   createSession,
   getSession,
   listSessions,
-  deleteSession
+  deleteSession,
+  finalizeSession,
+  reconcileDanglingSessions
 } from './sessions.js';
 import {
   writeChunk,
@@ -57,7 +59,9 @@ export {
   createSession,
   getSession,
   listSessions,
-  deleteSession
+  deleteSession,
+  finalizeSession,
+  reconcileDanglingSessions
 };
 
 // Chunk Operations

@@ -10,7 +10,7 @@ function lamejsBrowserBundle() {
   return {
     name: 'lamejs-browser-bundle',
     transform(code: string, id: string) {
-      const normalized = id.replace(/\\/g, '/');
+      const normalized = id.replace(/\\/g, '/').split('?')[0]; // Remove query params
       if (!normalized.endsWith('/lamejs/lame.min.js') && !normalized.endsWith('/lamejs/lame.all.js')) {
         return null;
       }

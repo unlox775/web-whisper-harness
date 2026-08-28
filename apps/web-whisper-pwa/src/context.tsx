@@ -16,6 +16,19 @@ import { capBytesFromMb, loadSettings, saveSetting } from './settings';
 import { isIsolationSettingsScreenshot, readScreenshotMode } from './screenshotMode';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
 
+function captureStartOptions() {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('simulate') === '1') {
+      return { audioSource: 'simulated' as const };
+    }
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 type ConfirmState = {
   title: string;
   body: string;
@@ -50,6 +63,7 @@ type AppContextValue = {
   refresh: () => Promise<void>;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
+  abortRecording: () => Promise<void>;
   openSession: (id: string, autoPlay?: boolean) => void;
   goHome: () => void;
   deleteSessionById: (id: string) => Promise<void>;
@@ -76,6 +90,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [chunkCount, setChunkCount] = useState(0);
   const toastId = useRef(0);
   const handleRef = useRef<CaptureHandle | null>(null);
+  const recordingSessionIdRef = useRef<string | null>(null);
+  const finishingRef = useRef(false);
+  const abortRecordingRef = useRef<(() => Promise<void>) | null>(null);
 
   const capBytes = capBytesFromMb(settings.storageCapMb);
 
@@ -114,6 +131,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       await sessionStore.init({ databaseName: 'web-whisper-db' });
+      if (cancelled) return;
+      await sessionStore.reconcileDanglingSessions();
       if (cancelled) return;
       const loaded = loadSettings();
       setSettings(loaded);
@@ -177,6 +196,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [showToast]);
 
   const goHome = useCallback(() => {
+    if (handleRef.current || recordingSessionIdRef.current) {
+      void abortRecordingRef.current?.();
+      return;
+    }
     setScreen('home');
     setSessionId(null);
     setAutoPlay(false);
@@ -211,8 +234,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const handle = await startCapture(created.id);
+      const handle = await startCapture(created.id, captureStartOptions());
       handleRef.current = handle;
+      recordingSessionIdRef.current = created.id;
       setCaptureHandle(handle);
       setRecordingSessionId(created.id);
       setChunkCount(0);
@@ -222,18 +246,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       handle.on('captureError', (event: { reason?: string; details?: string }) => {
         if (event.reason === 'no_audio_received') {
-          setCaptureHandle(null);
-          handleRef.current = null;
-          openSession(created.id);
+          void finishCaptureRef.current?.('session');
           return;
         }
         if (event.reason === 'store_write_failed') {
           showToast('Storage write failed. Recording may be incomplete.', 'warning');
           return;
         }
+        if (event.reason === 'encoding_failed') {
+          showToast(`Recording failed: ${event.details || event.reason}`, 'error');
+          void finishCaptureRef.current?.('home');
+          return;
+        }
         showToast(`Recording failed: ${event.details || event.reason}`, 'error');
       });
     } catch (error) {
+      // Capture never started — no encoded audio to keep.
       await sessionStore.deleteSession(created.id);
       if (error instanceof CaptureError && error.code === 'permission_denied') {
         setPermissionError(
@@ -244,40 +272,107 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const message = error instanceof Error ? error.message : 'Could not start recording';
       showToast(message, 'error');
     }
-  }, [openSession, showToast]);
+  }, [showToast]);
 
-  const stopRecording = useCallback(async () => {
-    const handle = handleRef.current;
-    const id = recordingSessionId;
-    try {
-      const summary = handle ? await handle.stop() : { hasAudio: false, sessionId: id };
+  const finishCapture = useCallback(
+    async (navigate: 'session' | 'home' | 'none') => {
+      if (finishingRef.current && navigate === 'none') {
+        const handle = handleRef.current;
+        if (handle) {
+          try {
+            await handle.stop();
+          } catch {
+            // keep session
+          }
+        }
+        return;
+      }
+      if (finishingRef.current) return;
+      finishingRef.current = true;
+      const handle = handleRef.current;
+      const id = recordingSessionIdRef.current;
+      let summary: { hasAudio?: boolean; sessionId?: string | null } = { hasAudio: false, sessionId: id };
+      try {
+        if (handle) {
+          summary = await handle.stop();
+        }
+      } catch {
+        // Abort/stop must never drop audio that already landed in IndexedDB.
+      }
       handleRef.current = null;
+      recordingSessionIdRef.current = null;
       setCaptureHandle(null);
       setRecordingSessionId(null);
       if (id) {
-        void analyzeVolumeForSession(id)
-          .then((analysis) => {
-            if (analysis.success) return proposeSnipsForSession(id);
-            return analysis;
-          })
-          .catch((error) => {
-            console.warn('Post-recording analysis failed', error);
-          });
-        await enforceCap();
+        await sessionStore.finalizeSession(id);
+        if (navigate !== 'none') {
+          void analyzeVolumeForSession(id)
+            .then((analysis) => {
+              if (analysis.success) return proposeSnipsForSession(id);
+              return analysis;
+            })
+            .catch((error) => {
+              console.warn('Post-recording analysis failed', error);
+            });
+          await enforceCap();
+        }
+      }
+      finishingRef.current = false;
+      if (navigate === 'session' && id) {
         openSession(id);
-        if (summary && 'hasAudio' in summary && summary.hasAudio === false) {
+        if (summary && summary.hasAudio === false) {
           showToast('This session has no playable audio.', 'warning');
         }
-      } else {
-        goHome();
+      } else if (navigate === 'home') {
+        setScreen('home');
+        setSessionId(null);
+        setAutoPlay(false);
+        await refresh();
       }
-    } catch {
-      handleRef.current = null;
-      setCaptureHandle(null);
-      if (id) openSession(id);
-      else goHome();
-    }
-  }, [enforceCap, goHome, openSession, recordingSessionId, showToast]);
+    },
+    [enforceCap, openSession, refresh, showToast]
+  );
+
+  const finishCaptureRef = useRef(finishCapture);
+  finishCaptureRef.current = finishCapture;
+
+  const stopRecording = useCallback(async () => {
+    await finishCapture('session');
+  }, [finishCapture]);
+
+  const abortRecording = useCallback(async () => {
+    await finishCapture('home');
+  }, [finishCapture]);
+
+  abortRecordingRef.current = abortRecording;
+
+  useEffect(() => {
+    const persistOnUnload = () => {
+      void finishCaptureRef.current?.('none');
+    };
+    const persistAndReturnHome = () => {
+      void finishCaptureRef.current?.('home');
+    };
+    const onPageShow = () => {
+      if (!handleRef.current) {
+        setScreen((current) => (current === 'recording' ? 'home' : current));
+        void refresh();
+      }
+    };
+    window.addEventListener('pagehide', persistAndReturnHome);
+    window.addEventListener('beforeunload', persistOnUnload);
+    window.addEventListener('pageshow', onPageShow);
+    document.addEventListener('freeze', persistOnUnload);
+    (window as unknown as { __webWhisperAbortRecording?: () => Promise<void> }).__webWhisperAbortRecording =
+      abortRecording;
+    return () => {
+      window.removeEventListener('pagehide', persistOnUnload);
+      window.removeEventListener('beforeunload', persistOnUnload);
+      window.removeEventListener('pageshow', onPageShow);
+      document.removeEventListener('freeze', persistOnUnload);
+      delete (window as unknown as { __webWhisperAbortRecording?: () => Promise<void> }).__webWhisperAbortRecording;
+    };
+  }, [abortRecording, refresh]);
 
   const value = useMemo<AppContextValue>(
     () => ({
@@ -307,6 +402,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refresh,
       startRecording,
       stopRecording,
+      abortRecording,
       openSession,
       goHome,
       deleteSessionById,
@@ -329,6 +425,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       settingsOpen,
       startRecording,
       stopRecording,
+      abortRecording,
       usedBytes,
       showToast,
       updateSetting,
