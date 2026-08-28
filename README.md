@@ -2,6 +2,11 @@
 
 This repository is a from-scratch rebuild of [Web Whisper](https://github.com/unlox775/web-whisper) using the [AI Product Slice Harness](docs/AI-PRODUCT-SLICE-HARNESS.md).
 
+## Try It Now
+
+- **Web app (GitHub Pages):** https://unlox775.github.io/web-whisper-harness/
+- Install the PWA from Safari/Chrome (“Add to Home Screen” / “Install app”). On iOS you may still see microprompting for microphone access—tap “Allow” when prompted.
+
 ## What is Web Whisper?
 
 Web Whisper is a trustworthy long-form audio recorder for iPhone (Progressive Web App) that:
@@ -67,5 +72,6 @@ See [docs/AI-PRODUCT-SLICE-HARNESS.md](docs/AI-PRODUCT-SLICE-HARNESS.md) for the
 
 - **This rebuild**: https://github.com/unlox775/web-whisper-harness
 - **Original Web Whisper**: https://github.com/unlox775/web-whisper
-- **Live PWA**: https://unlox775.github.io/web-whisper/
+- **Live PWA (this rebuild):** https://unlox775.github.io/web-whisper-harness/
+- **Live PWA (original):** https://unlox775.github.io/web-whisper/
 - **AI Product Slice Harness**: https://github.com/unlox775/ai-product-slice-harness
