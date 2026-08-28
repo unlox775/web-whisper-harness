@@ -18,7 +18,7 @@
     <div class="chrome-right">
       <label class="toggle-container">
         <input type="checkbox" id="liveModeToggle">
-        <span>Enable Live Mode</span>
+        <span>Live Groq API</span>
       </label>
     </div>
   </header>
@@ -26,6 +26,23 @@
   <main class="main-content">
     <!-- Control Panel (Left) -->
     <aside class="control-panel">
+      <div class="control-section">
+        <label>Audio source</label>
+        <label class="radio-row">
+          <input type="radio" name="audioSource" value="live" checked>
+          Live microphone
+        </label>
+        <label class="radio-row">
+          <input type="radio" name="audioSource" value="fixture">
+          Fixture blob (optional)
+        </label>
+      </div>
+
+      <div id="liveCaptureSection" class="control-section">
+        <button id="recordBtn" class="btn btn-primary" type="button">Start Capture</button>
+        <button id="recordStopBtn" class="btn btn-secondary" type="button" disabled>Stop Capture</button>
+        <p id="audioStatus" class="audio-status">No live audio yet. Record, then Transcribe.</p>
+      </div>
       <div class="control-section">
         <label for="apiKeyInput">Groq API Key</label>
         <input 

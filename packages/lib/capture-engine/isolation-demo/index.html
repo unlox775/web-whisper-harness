@@ -13,7 +13,7 @@
       <h1>Capture Engine Isolation Demo</h1>
     </div>
     <div class="chrome-center">
-      <span class="data-mode-chip">IN-MEMORY (not persisted)</span>
+      <span class="data-mode-chip live" id="dataModeChip">LIVE MICROPHONE (in-memory)</span>
     </div>
     <div class="chrome-right">
       <span class="mic-status" id="micStatus">Not requested</span>
@@ -27,12 +27,12 @@
       
       <div class="control-group">
         <label>
-          <input type="radio" name="audioSource" value="simulated" checked>
-          Simulated PCM stream
+          <input type="radio" name="audioSource" value="live" checked>
+          Live Microphone
         </label>
         <label>
-          <input type="radio" name="audioSource" value="live">
-          Live Microphone
+          <input type="radio" name="audioSource" value="simulated">
+          Simulated PCM (optional)
         </label>
       </div>
 
