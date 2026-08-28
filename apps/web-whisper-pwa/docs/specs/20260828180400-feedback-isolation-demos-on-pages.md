@@ -37,7 +37,7 @@ GitHub Pages is same-origin (`https://unlox775.github.io`), so path is not isola
 | PWA | IndexedDB + localStorage | IndexedDB `web-whisper-db`; keys `groq_api_key`, `developer_mode_enabled`, … |
 | capture-engine demo | In-memory only | Reserved `web-whisper-isolation-demo-capture-engine` (unused; no IDB / localStorage writes) |
 | playback-engine demo | In-memory fixtures | Reserved `web-whisper-isolation-demo-playback-engine` (unused; fixture RAM only) |
-| volume-analyzer demo | In-memory fixtures | Reserved `web-whisper-isolation-demo-volume-analyzer` (unused; live-capture toggle stays unimplemented / in-memory if later wired) |
+| volume-analyzer demo | Fixture chunks in RAM; tuner settings in isolated IndexedDB | IndexedDB `web-whisper-volume-analyzer-demo-db` (live-capture toggle stays unimplemented) |
 | transcription-client demo | None | Reserved prefix `ww-iso-transcription-client:` (API key stays in the input; not written to PWA keys) |
 | session-store demo | Sandbox IndexedDB | IndexedDB `web-whisper-isolation-demo-session-store`; sessionStorage `ww-iso-session-store:*` |
 
