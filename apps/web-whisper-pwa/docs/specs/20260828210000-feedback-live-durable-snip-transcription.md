@@ -75,9 +75,19 @@ Intent of the original app (`unlox775/web-whisper`, `recording-slices.ts` `listS
 
 ## QA proof (1170×2532)
 
-1. `documentation/qa/record-live-durable.png` — mid-record overlay showing transcript after a snip completed (`?screenshot=record-durable`)
-2. `documentation/qa/after-stop-home.png` — after stop, Home list showing the new session (`?screenshot=home-after-stop`)
-3. `documentation/qa/session-transcribed-already.png` — session opened later with transcript already present, no Transcribe Session CTA (`?screenshot=session-transcribed`)
+1. Mid-record overlay showing durable snip transcript (`?screenshot=record-durable`):
+
+![Live overlay with durable snip transcript; Stop still visible](../../../../documentation/qa/record-live-durable.png)
+
+2. After Stop, Home list showing the new session (not detail) (`?screenshot=home-after-stop`):
+
+![Home list after Stop with READY session card](../../../../documentation/qa/after-stop-home.png)
+
+3. Session opened later with transcript already present, no Transcribe Session CTA (`?screenshot=session-transcribed`):
+
+![Session detail with transcript already present](../../../../documentation/qa/session-transcribed-already.png)
+
+Behavioral check: `?simulate=1` → Start recording → Stop Recording landed on Home (not session detail).
 
 ## Resolution
 
@@ -92,6 +102,8 @@ Intent of the original app (`unlox775/web-whisper`, `recording-slices.ts` `listS
 
 ### Verification
 
-- volume-analyzer unit tests for trailing-drop and incremental `windowStartTime`
-- Screenshot previews for the three QA shots
+- volume-analyzer unit tests for trailing-drop and incremental `windowStartTime` (9/9 pass)
+- iPhone 1170×2532 QA shots in `documentation/qa/`
+- Browser: Stop → Home confirmed with `?simulate=1`
 - `make build` published PWA to `docs/`
+- Draft PR (#26), not merged
