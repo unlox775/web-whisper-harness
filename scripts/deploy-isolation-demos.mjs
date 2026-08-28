@@ -36,9 +36,9 @@ const DEMOS = [
     title: 'Volume Analyzer',
     root: join(root, 'packages/lib/volume-analyzer/isolation-demo'),
     react: true,
-    storage: 'In-memory fixture chunks (no store writes)',
-    namespace: 'web-whisper-isolation-demo-volume-analyzer',
-    blurb: 'Volume profile + snip proposals from known fixture patterns. Live capture stays unimplemented / in-memory.',
+    storage: 'Fixture chunks in RAM; tuner settings in isolated IndexedDB',
+    namespace: 'web-whisper-volume-analyzer-demo-db',
+    blurb: 'Volume profile + snip proposals from known fixture patterns (original noise-floor defaults). Live capture stays unimplemented.',
   },
   {
     id: 'transcription-client',
