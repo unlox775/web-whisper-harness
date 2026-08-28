@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-08-28T18:02:00Z
+Resolved: 2026-08-28T18:00:00Z
 Product: packages/lib/volume-analyzer
 
 # Feedback: Snip segmentation aggressiveness / noise floor
@@ -82,3 +83,17 @@ Goal: snips typically several seconds to low tens of seconds on continuous speec
 - PWA session-detail / recording overlay restyle
 - Changing capture chunk duration
 - Migrating already-persisted aggressive snips in session-store
+
+## Resolution
+
+**Resolved:** 2026-08-28T18:00:00Z
+
+### What shipped
+
+- Copied original `DEFAULT_SESSION_ANALYSIS_CONFIG` into `src/defaults.ts` / `DEFAULT_SNIP_OPTIONS`
+- Replaced split-every-gap algorithm with original quiet-gap + 10s target gating and adaptive percentile noise floor
+- Isolation demo: four live sliders, waveform+snip overlay, IndexedDB `web-whisper-volume-analyzer-demo-db`
+- Unit tests in `src/snips.test.ts` (run-on speech stays multi-second; aggressive overrides still over-segment)
+- QA shots (1170×2532):
+  - `documentation/qa/shot-01-volume-analyzer-demo-sliders-long-snips.png` — breath-paused fixture, 2 snips avg 11.6s
+  - `documentation/qa/shot-02-volume-analyzer-demo-slider-recompute.png` — quiet-gap slider to 1.9s merges to one 23.1s snip
