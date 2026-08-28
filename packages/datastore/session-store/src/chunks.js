@@ -134,7 +134,8 @@ export async function getChunksForSession(sessionId) {
             startTime: chunk.startTime,
             endTime: chunk.endTime,
             duration: chunk.duration,
-            sizeBytes: chunk.sizeBytes
+            sizeBytes: chunk.sizeBytes,
+            audioPurgedAt: chunk.audioPurgedAt || null
           });
           cursor.continue();
         } else {

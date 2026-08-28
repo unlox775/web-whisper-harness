@@ -152,8 +152,9 @@ export function SettingsModal() {
               />
             </label>
             <p className="help">
-              Maximum storage for session data. Old sessions will be deleted when this
-              limit is reached.
+              Maximum storage for session data. When this limit is reached, audio
+              (and waveforms) for already-transcribed snips is removed so recording
+              can continue. Transcripts are kept.
             </p>
           </section>
         </div>

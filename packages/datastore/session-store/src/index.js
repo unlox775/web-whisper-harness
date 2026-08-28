@@ -3,10 +3,10 @@
  * 
  * IndexedDB datastore authority for Web Whisper data.
  * Owns sessions, chunks, volume profiles, snips, transcripts.
- * Enforces retention policy (storage cap, deletion).
+ * Enforces retention policy (storage cap: purge transcribed audio, keep text).
  */
 
-import { initDatabase, getDatabase } from './db.js';
+import { initDatabase, closeDatabase } from './db.js';
 import {
   createSession,
   getSession,
@@ -41,6 +41,11 @@ import {
   clearAll,
   cleanupOrphans
 } from './storage.js';
+import {
+  isChunkAudioPurged,
+  hasValidTranscriptText,
+  RETENTION_APPROACH_RATIO
+} from './retention.js';
 
 /**
  * Initialize session-store with database name
@@ -97,5 +102,9 @@ export {
   enforceRetentionPolicy,
   dumpStore,
   clearAll,
-  cleanupOrphans
+  cleanupOrphans,
+  closeDatabase,
+  isChunkAudioPurged,
+  hasValidTranscriptText,
+  RETENTION_APPROACH_RATIO
 };

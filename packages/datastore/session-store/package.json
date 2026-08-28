@@ -8,7 +8,10 @@
     ".": "./src/index.js"
   },
   "scripts": {
-    "test": "echo \"No tests yet\" && exit 0"
+    "test": "node --test src/storage.retention.test.js"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0"
   },
   "keywords": [
     "indexeddb",

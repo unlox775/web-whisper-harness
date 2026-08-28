@@ -12,6 +12,12 @@ function isErrorResult(value: PlaybackHandle | { error: string }): value is { er
   return 'error' in value;
 }
 
+function playbackFailMessage(error: string): string {
+  if (error === 'audio_purged') return 'Audio removed after transcription';
+  if (error === 'chunks_missing') return 'Session has no playable audio.';
+  return `Playback failed: ${error}`;
+}
+
 type DetailTab = 'transcript' | 'debug';
 
 export function SessionDetailScreen() {
@@ -117,12 +123,7 @@ export function SessionDetailScreen() {
   async function startPlayback() {
     const result = await playSession(sessionId);
     if (isErrorResult(result)) {
-      app.showToast(
-        result.error === 'chunks_missing'
-          ? 'Session has no playable audio.'
-          : `Playback failed: ${result.error}`,
-        'error'
-      );
+      app.showToast(playbackFailMessage(result.error), 'error');
       return;
     }
     bindHandle(result);
@@ -183,7 +184,7 @@ export function SessionDetailScreen() {
         sessionId,
         app.settings.groqApiKey,
         setProgress,
-        { retryFailedOnly }
+        { retryFailedOnly, onTranscriptWritten: () => app.enforceCap({ force: true }) }
       );
       setFailures(outcome.failures);
       if (outcome.empty) {
@@ -212,7 +213,7 @@ export function SessionDetailScreen() {
     const blobs: Blob[] = [];
     for (const chunkId of snip.chunkIds || []) {
       const chunk = await sessionStore.getChunk(chunkId);
-      if (chunk?.blob) blobs.push(chunk.blob);
+      if (chunk?.blob && chunk.blob.size > 0) blobs.push(chunk.blob);
     }
     return new Blob(blobs, { type: 'audio/mpeg' });
   }
@@ -225,7 +226,10 @@ export function SessionDetailScreen() {
     try {
       const blob = await assembleSnipBlob(snip);
       if (!blob.size) {
-        app.showToast('Snip audio not found', 'error');
+        app.showToast(
+          snip.audioPurgedAt ? 'Audio removed after transcription' : 'Snip audio not found',
+          'error'
+        );
         return;
       }
       const { transcribeAudio } = await import('@web-whisper/transcription-client');
@@ -243,6 +247,7 @@ export function SessionDetailScreen() {
       }
       await sessionStore.writeTranscript(snipId, 'text' in result ? result.text || '' : '');
       setFailures((prev) => prev.filter((f) => f.snipId !== snipId));
+      await app.enforceCap({ force: true });
       await load();
       app.showToast('Transcription complete', 'success');
     } catch (error) {
@@ -258,7 +263,10 @@ export function SessionDetailScreen() {
     }
     const blob = await assembleSnipBlob(snip);
     if (!blob.size) {
-      app.showToast('Snip audio not found', 'error');
+      app.showToast(
+        snip.audioPurgedAt ? 'Audio removed after transcription' : 'Snip audio not found',
+        'error'
+      );
       return;
     }
     const url = URL.createObjectURL(blob);
@@ -271,8 +279,11 @@ export function SessionDetailScreen() {
 
   async function downloadChunk(chunkId: string) {
     const blob = await sessionStore.getChunk(chunkId);
-    if (!blob?.blob) {
-      app.showToast('Chunk audio not found', 'error');
+    if (!blob?.blob || blob.blob.size <= 0) {
+      app.showToast(
+        blob?.audioPurgedAt ? 'Audio removed after transcription' : 'Chunk audio not found',
+        'error'
+      );
       return;
     }
     const url = URL.createObjectURL(blob.blob);
@@ -286,7 +297,12 @@ export function SessionDetailScreen() {
   async function playOne(kind: 'chunk' | 'snip', id: string) {
     const result = kind === 'chunk' ? await playChunk(id) : await playSnip(id);
     if (isErrorResult(result)) {
-      app.showToast(`${kind} playback failed: ${result.error}`, 'error');
+      app.showToast(
+        result.error === 'audio_purged'
+          ? 'Audio removed after transcription'
+          : `${kind} playback failed: ${result.error}`,
+        'error'
+      );
       return;
     }
     bindHandle(result);

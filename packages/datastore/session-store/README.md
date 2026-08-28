@@ -4,7 +4,7 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 
 ## Boundary
 
-- **Owns**: IndexedDB schema (object stores: sessions, chunks, volume-profiles, snips, transcripts), all create/read/update/delete operations, storage quota enforcement (200 MB default cap, configurable), retention policy (delete oldest sessions when quota exceeded), data integrity (session existence validation, referential integrity for chunks/snips/transcripts)
+- **Owns**: IndexedDB schema (object stores: sessions, chunks, volume-profiles, snips, transcripts), all create/read/update/delete operations, storage quota enforcement (200 MB default cap, configurable), retention policy (purge transcribed audio when quota exceeded; keep transcripts), data integrity (session existence validation, referential integrity for chunks/snips/transcripts)
 - **Does NOT own**: Audio capture logic (capture-engine), volume computation logic (volume-analyzer), transcription logic (transcription-client), playback logic (playback-engine), UI (PWA)
 
 ## Main Callable Interfaces
@@ -44,7 +44,7 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 ### Storage Management
 
 - `getStorageStats()` → returns `{usedBytes, capBytes, sessionCount, chunkCount}`
-- `enforceRetentionPolicy()` → deletes oldest sessions if quota exceeded (called by PWA after recording, or by periodic background task)
+- `enforceRetentionPolicy(capBytes)` → purges audio (and volume/waveform data) for snips that already have a successful transcript when over/approaching the cap; keeps sessions and transcript text. Oldest fully-transcribed audio first. Untranscribed audio is never deleted.
 
 ## Isolation Demo
 

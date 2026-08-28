@@ -104,15 +104,15 @@ Proves that session-store:
   - Usage: "24%"
   - Sessions: "5"
   - Chunks: "15"
-- "Enforce Retention Policy" button (red, triggers retention policy: deletes oldest sessions until used <= cap)
+- "Enforce Retention Policy" button (red, triggers retention: purges oldest fully-transcribed audio until used is under the approaching-cap threshold; sessions and transcripts stay)
 - Retention log (scrollable, shows results of last enforcement):
   - "Retention policy enforced at 2026-08-26 15:25:10"
-  - "Deleted 2 sessions (ses_old001, ses_old002) to reclaim 0.8 MB"
+  - "Deleted 0 session(s); purged 3 transcribed chunk(s) to reclaim 0.8 MB"
   - "New usage: 1.2 MB / 5.0 MB (24%)"
 
 **Behaviors:**
 - When "Update Cap" clicked → storage cap setting updates, storage stats "Cap" field updates, usage percentage recalculates
-- When "Enforce Retention Policy" clicked → retention policy runs (sorts sessions by createdAt asc, deletes oldest until used <= cap), retention log updates with results, session list panel updates (deleted session rows removed), storage stats update
+- When "Enforce Retention Policy" clicked → retention policy runs (oldest fully-transcribed audio first; never deletes untranscribed audio or transcript text), retention log updates, session list sizes update, chunk details show "removed after transcription"
 - Storage stats update automatically whenever data written or deleted (after "Write Chunk", after "Delete" session, after "Enforce Retention Policy")
 
 ### 5. Reload Test Panel (bottom strip, spans full width, secondary disclosure)

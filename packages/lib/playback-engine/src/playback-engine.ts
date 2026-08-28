@@ -35,8 +35,18 @@ export async function playSession(
       }
       const blobs: Blob[] = [];
       const missingChunkIds: string[] = [];
+      const purgedChunkIds: string[] = [];
+      const isPurged =
+        typeof store.isChunkAudioPurged === 'function'
+          ? store.isChunkAudioPurged
+          : (chunk: { audioPurgedAt?: number | null; blob?: Blob }) =>
+              Boolean(chunk?.audioPurgedAt) || (chunk?.blob && chunk.blob.size <= 0);
       for (const meta of metas) {
         const chunk = await store.getChunk(meta.id);
+        if (chunk && isPurged(chunk)) {
+          purgedChunkIds.push(meta.id);
+          continue;
+        }
         if (!chunk?.blob) {
           missingChunkIds.push(meta.id);
         } else {
@@ -44,6 +54,9 @@ export async function playSession(
         }
       }
       if (blobs.length === 0) {
+        if (purgedChunkIds.length > 0) {
+          return { error: 'audio_purged', sessionId, purgedChunkIds };
+        }
         return { error: 'chunks_missing', sessionId, missingChunkIds };
       }
       return startHandle(new Blob(blobs, { type: 'audio/mpeg' }));
@@ -86,11 +99,16 @@ export async function playChunk(
   const store = await loadSessionStore();
   if (store) {
     const chunk = await store.getChunk(chunkId);
-    if (chunk?.blob) {
+    if (chunk && typeof store.isChunkAudioPurged === 'function' && store.isChunkAudioPurged(chunk)) {
+      return { error: 'audio_purged', chunkId };
+    }
+    if (chunk?.blob && chunk.blob.size > 0) {
       return startHandle(chunk.blob);
     }
-    if (chunk && !chunk.blob) {
-      return { error: 'chunk_read_failed', chunkId };
+    if (chunk && (!chunk.blob || chunk.blob.size <= 0)) {
+      return chunk.audioPurgedAt
+        ? { error: 'audio_purged', chunkId }
+        : { error: 'chunk_read_failed', chunkId };
     }
   }
 
@@ -115,9 +133,19 @@ export async function playSnip(
     if (snip) {
       const chunkIds: string[] = snip.chunkIds || snip.chunkRefs || [];
       const missingChunkIds: string[] = [];
+      const purgedChunkIds: string[] = [];
       const blobs: Blob[] = [];
+      const isPurged =
+        typeof store.isChunkAudioPurged === 'function'
+          ? store.isChunkAudioPurged
+          : (chunk: { audioPurgedAt?: number | null; blob?: Blob }) =>
+              Boolean(chunk?.audioPurgedAt) || (chunk?.blob && chunk.blob.size <= 0);
       for (const chunkId of chunkIds) {
         const chunk = await store.getChunk(chunkId);
+        if (chunk && isPurged(chunk)) {
+          purgedChunkIds.push(chunkId);
+          continue;
+        }
         if (!chunk?.blob) {
           missingChunkIds.push(chunkId);
         } else {
@@ -125,6 +153,9 @@ export async function playSnip(
         }
       }
       if (blobs.length === 0) {
+        if (purgedChunkIds.length > 0 || snip.audioPurgedAt) {
+          return { error: 'audio_purged', snipId, purgedChunkIds };
+        }
         return { error: 'snip_chunks_missing', snipId, missingChunkIds };
       }
       return startHandle(new Blob(blobs, { type: 'audio/mpeg' }));

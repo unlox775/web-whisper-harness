@@ -25,7 +25,7 @@ async function assembleSnipBlob(snip: SnipRecord): Promise<Blob> {
   const blobs: Blob[] = [];
   for (const chunkId of snip.chunkIds || []) {
     const chunk = await sessionStore.getChunk(chunkId);
-    if (chunk?.blob) blobs.push(chunk.blob);
+    if (chunk?.blob && chunk.blob.size > 0) blobs.push(chunk.blob);
   }
   return new Blob(blobs, { type: 'audio/mpeg' });
 }
@@ -50,7 +50,7 @@ export async function transcribeSession(
   sessionId: string,
   apiKey: string,
   onProgress: (progress: TranscribeProgress) => void,
-  options?: { retryFailedOnly?: boolean }
+  options?: { retryFailedOnly?: boolean; onTranscriptWritten?: () => Promise<void> | void }
 ): Promise<TranscribeOutcome> {
   onProgress({ phase: 'analyzing', completed: 0, total: 0 });
   const snips = await ensureSnips(sessionId);
@@ -99,6 +99,9 @@ export async function transcribeSession(
     }
     await sessionStore.writeTranscript(snip.id, result.text || '');
     completed += 1;
+    if (options?.onTranscriptWritten) {
+      await options.onTranscriptWritten();
+    }
   }
 
   return { total: snips.length, completed, failed, failures };
