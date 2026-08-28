@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, jsonReplacer } from '../format';
 import { useApp } from '../context';
+import { isolationDemosHref } from '../isolationDemos';
 
 const TABLES = [
   { id: 'sessions', label: 'Sessions' },
@@ -46,9 +47,29 @@ export function DeveloperConsole() {
       <section className="sheet tall" onClick={(event) => event.stopPropagation()}>
         <div className="sheet-head">
           <h2>Developer Console</h2>
-          <button className="text-btn" onClick={() => app.setDeveloperOpen(false)}>
-            Close
-          </button>
+          <div className="sheet-head-actions">
+            <a
+              className="text-btn isolation-demos-head-link"
+              href={isolationDemosHref()}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Isolation Demos
+            </a>
+            <button className="text-btn" onClick={() => app.setDeveloperOpen(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+        <div className="iso-demos-block iso-demos-block-console">
+          <a
+            className="cta-outline isolation-demos-link"
+            href={isolationDemosHref()}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Isolation Demos
+          </a>
         </div>
         <div className="tabs">
           <button

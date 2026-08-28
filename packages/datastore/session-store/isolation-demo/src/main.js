@@ -4,7 +4,11 @@
  * Desktop factory-floor store inspector for session-store package
  */
 
-import * as sessionStore from '../../../src/index.js';
+import * as sessionStore from '../../src/index.js';
+
+/** Distinct from PWA `web-whisper-db` and from other isolation demos. */
+const ISOLATION_DB_NAME = 'web-whisper-isolation-demo-session-store';
+const ISOLATION_RELOAD_FLAG = 'ww-iso-session-store:hadDataBeforeReload';
 
 // State
 let currentStorageCap = 5 * 1024 * 1024; // 5 MB default
@@ -15,7 +19,7 @@ let snipWriteCount = 0;
 
 // Initialize
 async function init() {
-  await sessionStore.init({ databaseName: 'web-whisper-sandbox-db' });
+  await sessionStore.init({ databaseName: ISOLATION_DB_NAME });
   await refreshUI();
   checkPersistence();
   setupEventListeners();
@@ -23,9 +27,9 @@ async function init() {
 
 // Check if data persisted across page reload
 function checkPersistence() {
-  const hadData = sessionStorage.getItem('hadDataBeforeReload');
+  const hadData = sessionStorage.getItem(ISOLATION_RELOAD_FLAG);
   if (hadData === 'true') {
-    sessionStorage.removeItem('hadDataBeforeReload');
+    sessionStorage.removeItem(ISOLATION_RELOAD_FLAG);
     setTimeout(async () => {
       const stats = await sessionStore.getStorageStats();
       if (stats.sessionCount > 0) {
@@ -234,7 +238,7 @@ function setupEventListeners() {
   document.getElementById('reload-page-btn').addEventListener('click', async () => {
     const stats = await sessionStore.getStorageStats();
     if (stats.sessionCount > 0) {
-      sessionStorage.setItem('hadDataBeforeReload', 'true');
+      sessionStorage.setItem(ISOLATION_RELOAD_FLAG, 'true');
     }
     window.location.reload();
   });

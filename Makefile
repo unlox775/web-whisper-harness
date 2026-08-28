@@ -14,8 +14,9 @@ install:
 start: install
 	npm --prefix $(PWA_DIR) start
 
-# Production build published to docs/ for GitHub Pages.
+# Production build published to docs/ for GitHub Pages (PWA + Isolation Demos).
 build: install
 	node scripts/generate-icons.mjs
 	npm --prefix $(PWA_DIR) run build
 	node scripts/deploy-docs.mjs
+	node scripts/deploy-isolation-demos.mjs

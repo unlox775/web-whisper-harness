@@ -747,6 +747,33 @@ select:focus {
   accent-color: var(--accent-primary);
 }
 
+.iso-demos-block {
+  margin-top: 8px;
+}
+
+.iso-demos-block-console {
+  padding: 0 0 12px;
+}
+
+a.isolation-demos-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+a.isolation-demos-head-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sheet-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .narrow {
   width: 120px;
 }

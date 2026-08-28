@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { validateKey } from '@web-whisper/transcription-client';
 import { useApp } from '../context';
+import { isolationDemosHref } from '../isolationDemos';
 
 const GROQ_CONSOLE = 'https://console.groq.com/keys';
 const GROQ_PRICING = 'https://groq.com/pricing';
@@ -119,6 +120,22 @@ export function SettingsModal() {
               />
               Enable developer mode
             </label>
+            {app.settings.developerModeEnabled ? (
+              <div className="iso-demos-block">
+                <a
+                  className="cta-outline isolation-demos-link"
+                  href={isolationDemosHref()}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Isolation Demos
+                </a>
+                <p className="help">
+                  Package factory-floor demos on GitHub Pages. Each demo uses its own
+                  storage namespace so it cannot corrupt PWA sessions.
+                </p>
+              </div>
+            ) : null}
             <label className="field">
               Storage cap (MB)
               <input

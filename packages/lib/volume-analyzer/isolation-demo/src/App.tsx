@@ -18,6 +18,10 @@ import {
   saveTunerSettings,
 } from './demoStore';
 
+// Storage: fixture chunks in RAM; tuner settings in isolated IndexedDB
+// `web-whisper-volume-analyzer-demo-db` (see demoStore.ts). Must never open
+// `web-whisper-db`. Live-capture toggle stays unimplemented.
+
 function App() {
   const [selectedPattern, setSelectedPattern] = useState(FIXTURE_PATTERNS[0].id);
   const [liveCaptureEnabled, setLiveCaptureEnabled] = useState(false);

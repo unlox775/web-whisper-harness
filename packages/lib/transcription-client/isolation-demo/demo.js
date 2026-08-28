@@ -7,6 +7,10 @@
 import { validateKey, transcribeAudio } from '../src/index.js';
 import { createFixtureAudioBlob } from '../src/fixture.js';
 
+// Storage: none. API key stays in the input and is not written to PWA
+// localStorage (`groq_api_key`). Reserved unused prefix:
+// `ww-iso-transcription-client:`.
+
 // State
 let currentMode = 'fixture';
 let fixtureAudioBlob = null;

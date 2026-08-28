@@ -7,6 +7,10 @@ import {
   type PlaybackError,
 } from '../../src/index.js';
 
+// Storage: in-memory fixture blobs only. Must never open IndexedDB
+// `web-whisper-db`. Reserved unused namespace:
+// `web-whisper-isolation-demo-playback-engine`.
+
 // State
 let currentHandle: PlaybackHandle | null = null;
 let currentDuration = 11.6;

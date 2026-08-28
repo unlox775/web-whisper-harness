@@ -20,7 +20,7 @@ Proves that session-store:
 
 ## Data Mode
 
-**Sandbox IndexedDB** (database name "web-whisper-sandbox-db", separate from production "web-whisper-db"). All writes go to sandbox database. Data persists across page reloads (proves durable storage). Can include **capture-engine** (in-memory → flush to store), **volume-analyzer** (fixture or live-from-capture → write to store) as optional demo dependencies for testing integrated write flows.
+**Sandbox IndexedDB** (database name "web-whisper-isolation-demo-session-store", separate from production "web-whisper-db" and from other isolation demos). All writes go to sandbox database. Data persists across page reloads (proves durable storage). Can include **capture-engine** (in-memory → flush to store), **volume-analyzer** (fixture or live-from-capture → write to store) as optional demo dependencies for testing integrated write flows.
 
 **Safe default**: Manual data entry (click "Create Session" button, manually write chunks via file upload or fixture, manually write volume profiles + snips, manually write transcripts via text input).
 
@@ -31,7 +31,7 @@ Proves that session-store:
 ### 1. Top Chrome Panel (fixed header, spans full width)
 
 - **Left**: "Session Store Isolation Demo" heading (bold)
-- **Center**: Database name chip "SANDBOX DB (web-whisper-sandbox-db)" (cyan border, white text)
+- **Center**: Database name chip "SANDBOX DB (web-whisper-isolation-demo-session-store)" (cyan border, white text)
 - **Right**: Storage stats: "Storage: 1.2 MB / 5.0 MB (24%)" (updates when data written/deleted)
 
 ### 2. Write Operations Panel (left quarter of viewport, below chrome, scrollable)
@@ -130,7 +130,7 @@ Proves that session-store:
 ## Before / After States
 
 **Before state (page load, sandbox DB empty):**
-- Top chrome: "SANDBOX DB (web-whisper-sandbox-db)" chip, storage stats "0 B / 5.0 MB (0%)"
+- Top chrome: "SANDBOX DB (web-whisper-isolation-demo-session-store)" chip, storage stats "0 B / 5.0 MB (0%)"
 - Write operations panel: All inputs empty or default, "Create Session" button enabled, other write buttons enabled
 - Session list panel: Empty, placeholder text "No sessions yet. Click 'Create Session' to start."
 - Storage management panel: Storage cap "5.0 MB" (default), storage stats all 0, retention log empty
@@ -178,7 +178,7 @@ Proves that session-store:
 
 (To be filled by Phase 06 implementation agent)
 
-- Sandbox database name: "web-whisper-sandbox-db" (not "web-whisper-db")
+- Sandbox database name: "web-whisper-isolation-demo-session-store" (not "web-whisper-db")
 - IndexedDB schema: Same as production schema (object stores: sessions, chunks, volume-profiles, snips, transcripts)
 - Fixture chunk generation: Generate small MP3 blobs (1–4s each) using Web Audio API or pre-encoded fixture files
 - Fixture volume profile: Mock peakDb values (e.g., [-50, -20, -45, -15, -55] for 5 chunks)

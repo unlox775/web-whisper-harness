@@ -7,6 +7,7 @@ const demoRoot = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(demoRoot, '..');
 
 export default defineConfig({
+  base: './',
   plugins: [react()],
   resolve: {
     alias: {
