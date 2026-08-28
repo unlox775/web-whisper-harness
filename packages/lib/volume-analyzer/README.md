@@ -15,8 +15,8 @@ This product lives under `packages/lib/`. Lib packages own behavior.
 ### Owns
 
 - **Volume computation**: Decode MP3 chunks to PCM using Web Audio API `decodeAudioData()`, compute peak dB or RMS volume per time sample (100ms intervals), produce volume profile array
-- **Silence detection**: Compare volume samples to threshold (default -40dB or 30% relative volume), mark regions as "quiet" or "loud"
-- **Snip proposal algorithm**: Group contiguous loud chunks into snips, split on silence gaps longer than minimum duration, merge short snips, split long snips, handle edge cases (all-quiet → zero snips, all-loud → one snip)
+- **Silence detection**: Compare volume samples to an adaptive noise floor (original web-whisper percentiles) or an optional dB override; mark regions as "quiet" or "loud"
+- **Snip proposal algorithm**: Copy original `proposeSegments` — skip quiet gaps until min 5s, cut only after the 10s target at a quiet-region center, cap consideration at 60s. All-quiet → zero snips, all-loud → one snip.
 - **Volume profile schema**: Format of volume profile data structure written to session-store (chunk-level and sample-level)
 
 ### Does NOT Own
@@ -45,7 +45,7 @@ Planning names (not frozen APIs). Each interface states caller, input, output, s
 
 - **Input**: 
   - `sessionId` (string or UUID; requires session with volume profile already computed)
-  - `options` (optional): `{quietThreshold?: number, minSnipDuration?: number, maxSnipDuration?: number}` (defaults: quietThreshold -40dB or 30%, minSnipDuration 5s, maxSnipDuration 60s)
+  - `options` (optional): `{quietThreshold?: number, minSnipDuration?: number, targetSnipDuration?: number, maxSnipDuration?: number, minSilenceGapDuration?: number}` (defaults: adaptive noise floor, min 5s, target 10s, max 60s, quiet-gap 0.6s — original web-whisper)
 - **Action**: Read volume profile from session-store (calls `analyzeVolume(sessionId)` first if profile missing), detect silence gaps (volume < threshold for > 1s), group contiguous loud regions into snips, merge snips shorter than minSnipDuration, split snips longer than maxSnipDuration, write snip list to session-store
 - **Output**: `{success: boolean, snips: [{snipId, startTime, endTime, startChunkIndex, endChunkIndex, confidence}]}` (snips also written to session-store)
 - **Caller**: PWA after recording completes (automated), or user "Re-snip" button (developer mode with custom threshold)
@@ -83,7 +83,8 @@ See `isolation-demo/README.md` for the package-local runnable demo.
 
 See `docs/specs/` for detailed implementation specs and work orders.
 
-- `docs/specs/20260826152037-initial-product-spec.md` - Initial product spec (Phase 03, `Spec Status: unresolved` until Phase 06 implementation complete)
+- `docs/specs/20260826152037-initial-product-spec.md` - Initial product spec
+- `docs/specs/20260828180200-feedback-snip-noise-floor.md` - Dave feedback: copy original noise-floor / quiet-gap constants
 
 ## Customers
 
@@ -101,12 +102,11 @@ See `docs/specs/` for detailed implementation specs and work orders.
 
 ### Snip Proposal
 
-1. Mark samples >= quietThreshold as "loud," samples < threshold as "quiet"
-2. Find silence gaps (contiguous quiet regions ≥ 1s)
-3. Group contiguous loud regions between silence gaps into candidate snips
-4. Merge snips shorter than minSnipDuration (default 5s)
-5. Split snips longer than maxSnipDuration (default 60s) at nearest internal silence gap
-6. Assign snip IDs, compute chunk references, compute confidence (loud sample ratio)
+1. Convert peak-dB samples to linear amplitude and estimate a **noise floor** (12th percentile) unless `quietThreshold` is passed
+2. Find quiet gaps (contiguous samples below the floor lasting ≥ 0.6s, after the first loud frame)
+3. Skip gaps until the running snip is at least `minSnipDuration` (5s)
+4. Cut only once the snip has reached `targetSnipDuration` (10s), at the quiet-region center
+5. Assign snip IDs, compute chunk references, compute confidence (loud sample ratio)
 
 ### Edge Cases
 

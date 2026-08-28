@@ -1,7 +1,7 @@
 /**
  * Fixture Audio Generator
- * 
- * Generate synthetic MP3 audio chunks with known volume patterns for testing.
+ *
+ * Generate synthetic WAV chunks with known volume patterns for testing.
  */
 
 export interface FixturePattern {
@@ -10,11 +10,21 @@ export interface FixturePattern {
   description: string;
   chunks: Array<{
     duration: number; // seconds
-    loudness: 'quiet' | 'loud'; // Target loudness level
+    loudness: 'quiet' | 'loud';
   }>;
 }
 
 export const FIXTURE_PATTERNS: FixturePattern[] = [
+  {
+    id: 'breath-paused-speech',
+    name: 'Breath-paused speech (run-on)',
+    description:
+      '24s of 2.2s phrases with 1.1s breaths — old split-every-gap cuts every 4–5 words; original target-length keeps ~10s snips',
+    chunks: Array.from({ length: 7 }, () => [
+      { duration: 2.2, loudness: 'loud' as const },
+      { duration: 1.1, loudness: 'quiet' as const },
+    ]).flat(),
+  },
   {
     id: 'quiet-loud-quiet',
     name: 'Quiet → Loud → Quiet',
@@ -29,17 +39,13 @@ export const FIXTURE_PATTERNS: FixturePattern[] = [
     id: 'all-quiet',
     name: 'All Quiet',
     description: '10s of near-silence',
-    chunks: [
-      { duration: 10, loudness: 'quiet' },
-    ],
+    chunks: [{ duration: 10, loudness: 'quiet' }],
   },
   {
     id: 'all-loud',
     name: 'All Loud',
     description: '10s of continuous speech',
-    chunks: [
-      { duration: 10, loudness: 'loud' },
-    ],
+    chunks: [{ duration: 10, loudness: 'loud' }],
   },
   {
     id: 'loud-quiet-loud',
@@ -55,59 +61,45 @@ export const FIXTURE_PATTERNS: FixturePattern[] = [
     id: 'short-speech',
     name: 'Short Speech',
     description: '3s loud (< 5s min duration)',
-    chunks: [
-      { duration: 3, loudness: 'loud' },
-    ],
+    chunks: [{ duration: 3, loudness: 'loud' }],
   },
 ];
 
-/**
- * Generate synthetic audio chunk as MP3 blob
- */
 export async function generateFixtureChunk(
   duration: number,
   loudness: 'quiet' | 'loud'
 ): Promise<Blob> {
   const sampleRate = 48000;
   const audioContext = new OfflineAudioContext(1, sampleRate * duration, sampleRate);
-  
-  // Create oscillator with appropriate gain
+
   const oscillator = audioContext.createOscillator();
   const gainNode = audioContext.createGain();
-  
-  oscillator.frequency.value = 440; // A4 note
+
+  oscillator.frequency.value = 440;
   oscillator.type = 'sine';
-  
-  // Set gain based on loudness level
-  // quiet ~= -55dB, loud ~= -15dB
+
+  // quiet ~= -54dB, loud ~= -14dB
   const gain = loudness === 'quiet' ? 0.002 : 0.2;
   gainNode.gain.value = gain;
-  
+
   oscillator.connect(gainNode);
   gainNode.connect(audioContext.destination);
-  
+
   oscillator.start(0);
   oscillator.stop(duration);
-  
+
   const audioBuffer = await audioContext.startRendering();
-  
-  // Convert to WAV (simplified MP3 substitute for demo purposes)
-  const wavBlob = audioBufferToWav(audioBuffer);
-  return wavBlob;
+  return audioBufferToWav(audioBuffer);
 }
 
-/**
- * Convert AudioBuffer to WAV blob (simplified for demo)
- */
 function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
   const length = audioBuffer.length * audioBuffer.numberOfChannels * 2;
   const buffer = new ArrayBuffer(44 + length);
   const view = new DataView(buffer);
-  const channels = [];
+  const channels: Float32Array[] = [];
   let offset = 0;
   let pos = 0;
 
-  // Write WAV header
   const setUint16 = (data: number) => {
     view.setUint16(pos, data, true);
     pos += 2;
@@ -117,21 +109,20 @@ function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
     pos += 4;
   };
 
-  setUint32(0x46464952); // "RIFF"
-  setUint32(36 + length); // file length - 8
-  setUint32(0x45564157); // "WAVE"
-  setUint32(0x20746d66); // "fmt " chunk
-  setUint32(16); // length = 16
-  setUint16(1); // PCM (uncompressed)
+  setUint32(0x46464952);
+  setUint32(36 + length);
+  setUint32(0x45564157);
+  setUint32(0x20746d66);
+  setUint32(16);
+  setUint16(1);
   setUint16(audioBuffer.numberOfChannels);
   setUint32(audioBuffer.sampleRate);
-  setUint32(audioBuffer.sampleRate * 2 * audioBuffer.numberOfChannels); // avg. bytes/sec
-  setUint16(audioBuffer.numberOfChannels * 2); // block-align
-  setUint16(16); // 16-bit
-  setUint32(0x61746164); // "data" chunk
+  setUint32(audioBuffer.sampleRate * 2 * audioBuffer.numberOfChannels);
+  setUint16(audioBuffer.numberOfChannels * 2);
+  setUint16(16);
+  setUint32(0x61746164);
   setUint32(length);
 
-  // Write interleaved PCM samples
   for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
     channels.push(audioBuffer.getChannelData(i));
   }
@@ -149,9 +140,6 @@ function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-/**
- * Generate complete fixture pattern
- */
 export async function generateFixturePattern(pattern: FixturePattern) {
   const chunks = [];
   let currentTime = 0;
@@ -159,7 +147,7 @@ export async function generateFixturePattern(pattern: FixturePattern) {
   for (let i = 0; i < pattern.chunks.length; i++) {
     const chunkSpec = pattern.chunks[i];
     const blob = await generateFixtureChunk(chunkSpec.duration, chunkSpec.loudness);
-    
+
     chunks.push({
       id: `fixture-chunk-${i}`,
       seq: i,
@@ -168,7 +156,7 @@ export async function generateFixturePattern(pattern: FixturePattern) {
       endTime: currentTime + chunkSpec.duration,
       duration: chunkSpec.duration,
     });
-    
+
     currentTime += chunkSpec.duration;
   }
 
