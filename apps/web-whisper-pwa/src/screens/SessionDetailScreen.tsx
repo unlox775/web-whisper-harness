@@ -7,6 +7,11 @@ import { buildTranscriptText, transcribeSession, type TranscribeProgress } from 
 import { useApp } from '../context';
 import type { ChunkRecord, SessionRecord, SnipRecord, TranscriptRecord } from '../types';
 import { VolumeHistogram } from '../components/VolumeHistogram';
+import {
+  isSessionTranscribedScreenshot,
+  readScreenshotMode,
+  sessionTranscribedPreview,
+} from '../screenshotMode';
 
 function isErrorResult(value: PlaybackHandle | { error: string }): value is { error: string } {
   return 'error' in value;
@@ -16,15 +21,20 @@ type DetailTab = 'transcript' | 'debug';
 
 export function SessionDetailScreen() {
   const app = useApp();
-  const sessionId = app.sessionId!;
-  const [session, setSession] = useState<SessionRecord | null>(null);
+  const screenshotPreview = isSessionTranscribedScreenshot(readScreenshotMode())
+    ? sessionTranscribedPreview()
+    : null;
+  const sessionId = screenshotPreview?.session.id ?? app.sessionId!;
+  const [session, setSession] = useState<SessionRecord | null>(screenshotPreview?.session ?? null);
   const [chunks, setChunks] = useState<ChunkRecord[]>([]);
-  const [snips, setSnips] = useState<SnipRecord[]>([]);
-  const [transcripts, setTranscripts] = useState<TranscriptRecord[]>([]);
+  const [snips, setSnips] = useState<SnipRecord[]>(screenshotPreview?.snips ?? []);
+  const [transcripts, setTranscripts] = useState<TranscriptRecord[]>(
+    screenshotPreview?.transcripts ?? []
+  );
   const [volumeProfile, setVolumeProfile] = useState<any>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(screenshotPreview?.session.duration ?? 0);
   const [volume, setVolume] = useState(1);
   const [transcribing, setTranscribing] = useState(false);
   const [progress, setProgress] = useState<TranscribeProgress | null>(null);
@@ -53,6 +63,7 @@ export function SessionDetailScreen() {
   }
 
   useEffect(() => {
+    if (screenshotPreview) return undefined;
     void load();
     return () => {
       handleRef.current?.stop();
@@ -66,7 +77,8 @@ export function SessionDetailScreen() {
     }
   }, [app.autoPlay, session?.id]);
 
-  const transcriptText = buildTranscriptText(snips, transcripts);
+  const transcriptText =
+    screenshotPreview?.transcriptText ?? buildTranscriptText(snips, transcripts);
 
   useEffect(() => {
     if (detailTab !== 'transcript' || !transcriptText) return;

@@ -1,7 +1,9 @@
-export type RecordScreenshotMode = 'record' | 'record-hud' | 'record-dev';
+import type { SessionRecord, SnipRecord, TranscriptRecord } from './types';
+
+export type RecordScreenshotMode = 'record' | 'record-hud' | 'record-dev' | 'record-durable';
 export type IsolationScreenshotMode = 'isolation-settings';
 
-const RECORD_MODES = new Set<string>(['record', 'record-hud', 'record-dev']);
+const RECORD_MODES = new Set<string>(['record', 'record-hud', 'record-dev', 'record-durable']);
 
 const TALL_LIVE_TRANSCRIPT = [
   'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed.',
@@ -20,6 +22,19 @@ const TALL_LIVE_TRANSCRIPT = [
   'Keep going, keep going, more lines so the internal scroll is obvious on a tall iPhone viewport and the HUD still shows Recording plus time.',
   'One more paragraph about nothing in particular except filling height: weather, traffic, what we are having for dinner, who is picking up whom.',
   'And a last beat so the scroller has somewhere to go: Stop Recording stays in its own bottom slot, z-index on top, always visible.',
+].join(' ');
+
+const DURABLE_SNIP_TRANSCRIPT = [
+  'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed.',
+  'We need milk, eggs, sourdough, the good butter not the cheap one, and those frozen blueberries she actually eats.',
+].join(' ');
+
+const HOME_SNIPPET =
+  'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed. We need milk, eggs, sourdough...';
+
+const SESSION_TRANSCRIPT = [
+  'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed.',
+  'We need milk, eggs, sourdough, the good butter not the cheap one, and those frozen blueberries she actually eats.',
 ].join(' ');
 
 export function readScreenshotMode(): string | null {
@@ -43,6 +58,14 @@ export function isSessionDetailScreenshot(mode: string | null): boolean {
   return mode === 'session-detail';
 }
 
+export function isHomeAfterStopScreenshot(mode: string | null): boolean {
+  return mode === 'home-after-stop';
+}
+
+export function isSessionTranscribedScreenshot(mode: string | null): boolean {
+  return mode === 'session-transcribed';
+}
+
 export function recordScreenshotPreview(mode: RecordScreenshotMode): {
   seconds: number;
   transcript: string;
@@ -57,6 +80,15 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       pending: true,
       showDeveloperHud: false,
       snipsGathered: 0,
+    };
+  }
+  if (mode === 'record-durable') {
+    return {
+      seconds: 47,
+      transcript: DURABLE_SNIP_TRANSCRIPT,
+      pending: false,
+      showDeveloperHud: true,
+      snipsGathered: 2,
     };
   }
   if (mode === 'record-dev') {
@@ -74,5 +106,103 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
     pending: false,
     showDeveloperHud: false,
     snipsGathered: 16,
+  };
+}
+
+export function homeAfterStopPreview(): {
+  session: SessionRecord;
+  snipCount: number;
+  transcriptCount: number;
+  snippet: string;
+} {
+  const createdAt = new Date();
+  createdAt.setMinutes(createdAt.getMinutes() - 1);
+  return {
+    session: {
+      id: 'ses-screenshot-after-stop',
+      createdAt: createdAt.toISOString(),
+      updatedAt: createdAt.toISOString(),
+      duration: 47,
+      chunkCount: 12,
+      sizeBytes: 188416,
+      hasVolumeProfile: true,
+      hasSnips: true,
+      hasTranscript: true,
+      status: 'ready',
+    },
+    snipCount: 2,
+    transcriptCount: 2,
+    snippet: HOME_SNIPPET,
+  };
+}
+
+export function sessionTranscribedPreview(): {
+  session: SessionRecord;
+  snips: SnipRecord[];
+  transcripts: TranscriptRecord[];
+  transcriptText: string;
+} {
+  const createdAt = new Date();
+  createdAt.setMinutes(createdAt.getMinutes() - 2);
+  const iso = createdAt.toISOString();
+  const sessionId = 'ses-screenshot-transcribed';
+  const snips: SnipRecord[] = [
+    {
+      id: 'snip-screenshot-0',
+      sessionId,
+      startChunkIndex: 0,
+      endChunkIndex: 2,
+      startTime: 0,
+      endTime: 12.4,
+      duration: 12.4,
+      chunkIds: ['chk-0', 'chk-1', 'chk-2'],
+      confidence: 0.9,
+      createdAt: iso,
+    },
+    {
+      id: 'snip-screenshot-1',
+      sessionId,
+      startChunkIndex: 3,
+      endChunkIndex: 6,
+      startTime: 12.4,
+      endTime: 28.1,
+      duration: 15.7,
+      chunkIds: ['chk-3', 'chk-4', 'chk-5', 'chk-6'],
+      confidence: 0.88,
+      createdAt: iso,
+    },
+  ];
+  const transcripts: TranscriptRecord[] = [
+    {
+      snipId: 'snip-screenshot-0',
+      sessionId,
+      text: 'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed.',
+      createdAt: iso,
+      updatedAt: iso,
+    },
+    {
+      snipId: 'snip-screenshot-1',
+      sessionId,
+      text: 'We need milk, eggs, sourdough, the good butter not the cheap one, and those frozen blueberries she actually eats.',
+      createdAt: iso,
+      updatedAt: iso,
+    },
+  ];
+  return {
+    session: {
+      id: sessionId,
+      createdAt: iso,
+      updatedAt: iso,
+      duration: 47,
+      chunkCount: 12,
+      sizeBytes: 188416,
+      hasVolumeProfile: true,
+      hasSnips: true,
+      hasTranscript: true,
+      status: 'ready',
+    },
+    snips,
+    transcripts,
+    transcriptText: SESSION_TRANSCRIPT,
   };
 }

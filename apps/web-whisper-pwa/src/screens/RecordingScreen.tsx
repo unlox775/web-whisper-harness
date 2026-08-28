@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import * as sessionStore from '@web-whisper/session-store';
-import { transcribeAudio } from '@web-whisper/transcription-client';
+import {
+  ingestGrowingSession,
+  overlayTranscriptText,
+} from '../orchestration';
 import { formatDuration } from '../format';
 import { useApp } from '../context';
 import {
@@ -8,6 +10,7 @@ import {
   readScreenshotMode,
   recordScreenshotPreview,
 } from '../screenshotMode';
+import type { SnipRecord, TranscriptRecord } from '../types';
 
 export function RecordingScreen() {
   const app = useApp();
@@ -18,9 +21,28 @@ export function RecordingScreen() {
   const [liveTranscript, setLiveTranscript] = useState(preview?.transcript ?? '');
   const [snipsGathered, setSnipsGathered] = useState(preview?.snipsGathered ?? 0);
   const [showPending, setShowPending] = useState(preview?.pending ?? true);
-  const [failedChunks, setFailedChunks] = useState<string[]>([]);
+  const [failedSnips, setFailedSnips] = useState<string[]>([]);
   const [retrying, setRetrying] = useState(false);
   const transcriptBoxRef = useRef<HTMLDivElement>(null);
+
+  function applyDurableState(
+    snips: SnipRecord[],
+    transcripts: TranscriptRecord[],
+    failures: Array<{ snipId: string; error: string }> = []
+  ) {
+    const text = overlayTranscriptText(snips, transcripts);
+    setLiveTranscript(text);
+    setSnipsGathered(snips.length);
+    if (text.trim()) setShowPending(false);
+    const done = new Set(
+      transcripts.filter((item) => item.text?.trim()).map((item) => item.snipId)
+    );
+    setFailedSnips((prev) => {
+      const next = new Set(prev);
+      for (const failure of failures) next.add(failure.snipId);
+      return [...next].filter((id) => !done.has(id));
+    });
+  }
 
   useEffect(() => {
     if (preview) return undefined;
@@ -36,54 +58,36 @@ export function RecordingScreen() {
   useEffect(() => {
     if (preview) return undefined;
     const handle = app.captureHandle;
-    if (!handle || !app.settings.groqApiKey || !app.settings.keyValid || !app.recordingSessionId) return;
+    const sessionId = app.recordingSessionId;
+    if (!handle || !sessionId) return undefined;
 
-    const handleChunkEncoded = async (event: { sessionId: string; seq: number; blob?: Blob }) => {
-      const { sessionId, seq, blob } = event;
-      
+    const apiKey = app.settings.groqApiKey;
+    const canTranscribe = Boolean(apiKey && app.settings.keyValid);
+
+    const runTick = async () => {
       try {
-        let chunkBlob = blob;
-        
-        if (!chunkBlob) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-          const chunks = await sessionStore.getChunksForSession(sessionId);
-          const chunk = chunks.chunks?.find((c: any) => c.seq === seq);
-          if (chunk) {
-            const fullChunk = await sessionStore.getChunk(chunk.id);
-            chunkBlob = fullChunk?.blob;
-          }
-        }
-        
-        if (!chunkBlob) return;
-
-        const result = await transcribeAudio(chunkBlob, {
-          apiKey: app.settings.groqApiKey,
-          mode: 'live',
+        const result = await ingestGrowingSession(sessionId, {
+          apiKey: canTranscribe ? apiKey : undefined,
+          includeTrailing: false,
+          transcribe: canTranscribe,
         });
-
-        if ('error' in result && result.error) {
-          setFailedChunks((prev) => [...prev, `${sessionId}-${seq}`]);
-          console.error('Live transcription failed for chunk:', seq, result.error);
-        } else {
-          const text = result.text || '';
-          if (text.trim()) {
-            setLiveTranscript((prev) => (prev ? prev + ' ' + text : text));
-            setSnipsGathered((count) => count + 1);
-            setShowPending(false);
-          }
-        }
+        applyDurableState(result.snips, result.transcripts, result.failures);
       } catch (err) {
-        setFailedChunks((prev) => [...prev, `${sessionId}-${seq}`]);
-        console.error('Live transcription failed for chunk:', seq, err);
+        console.error('Live snip ingest failed', err);
       }
     };
 
-    handle.on('chunkEncoded', handleChunkEncoded);
-
+    handle.on('chunkEncoded', runTick);
     return () => {
-      handle.off('chunkEncoded', handleChunkEncoded);
+      handle.off('chunkEncoded', runTick);
     };
-  }, [app.captureHandle, app.settings.groqApiKey, app.settings.keyValid, app.recordingSessionId, preview]);
+  }, [
+    app.captureHandle,
+    app.recordingSessionId,
+    app.settings.groqApiKey,
+    app.settings.keyValid,
+    preview,
+  ]);
 
   useEffect(() => {
     if (transcriptBoxRef.current) {
@@ -94,41 +98,15 @@ export function RecordingScreen() {
   async function handleRetry() {
     if (!app.settings.groqApiKey || !app.settings.keyValid || !app.recordingSessionId) return;
     setRetrying(true);
-    const failedKeys = [...failedChunks];
-    const results: string[] = [];
-    
-    const allChunks = await sessionStore.getChunksForSession(app.recordingSessionId);
-    
-    for (const failedKey of failedKeys) {
-      const [sessionId, seqStr] = failedKey.split('-');
-      const seq = parseInt(seqStr, 10);
-      
-      try {
-        const chunk = allChunks.chunks?.find((c: any) => c.seq === seq);
-        if (!chunk) continue;
-        
-        const fullChunk = await sessionStore.getChunk(chunk.id);
-        if (!fullChunk?.blob) continue;
-
-        const result = await transcribeAudio(fullChunk.blob, {
-          apiKey: app.settings.groqApiKey,
-          mode: 'live',
-        });
-
-        if (!('error' in result) || !result.error) {
-          const text = result.text || '';
-          if (text.trim()) {
-            results.push(text);
-            setSnipsGathered((count) => count + 1);
-          }
-          setFailedChunks((prev) => prev.filter((id) => id !== failedKey));
-        }
-      } catch (err) {
-        console.error('Retry transcription failed for chunk:', seq, err);
-      }
-    }
-    if (results.length > 0) {
-      setLiveTranscript((prev) => (prev ? prev + ' ' + results.join(' ') : results.join(' ')));
+    try {
+      const result = await ingestGrowingSession(app.recordingSessionId, {
+        apiKey: app.settings.groqApiKey,
+        includeTrailing: false,
+        transcribe: true,
+      });
+      applyDurableState(result.snips, result.transcripts, result.failures);
+    } catch (err) {
+      console.error('Retry live snip transcription failed', err);
     }
     setRetrying(false);
   }
@@ -161,11 +139,11 @@ export function RecordingScreen() {
                 {hasTranscript ? liveTranscript : ''}
               </div>
             )}
-            {failedChunks.length > 0 ? (
+            {failedSnips.length > 0 ? (
               <button
                 className="retry-tx-btn"
                 disabled={retrying}
-                onClick={handleRetry}
+                onClick={() => void handleRetry()}
               >
                 {retrying ? 'RETRYING...' : 'RETRY TX'}
               </button>

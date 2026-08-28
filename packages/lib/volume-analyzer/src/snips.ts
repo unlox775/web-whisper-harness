@@ -355,7 +355,19 @@ export function proposeSnipsFromProfile(
     return [];
   }
 
-  const samples = flattenSamples(volumeProfile);
+  const allSamples = flattenSamples(volumeProfile);
+  if (allSamples.length === 0) {
+    return [];
+  }
+
+  const windowStart = Math.max(0, options.windowStartTime ?? 0);
+  const includeTrailing = options.includeTrailing !== false;
+  const samples =
+    windowStart > 0
+      ? allSamples
+          .filter((sample) => sample.time >= windowStart - 1e-6)
+          .map((sample) => ({ ...sample, time: sample.time - windowStart }))
+      : allSamples;
   if (samples.length === 0) {
     return [];
   }
@@ -379,13 +391,19 @@ export function proposeSnipsFromProfile(
     return [];
   }
 
-  const totalDuration = totalDurationSeconds(chunks, volumeProfile);
+  const fullDuration = totalDurationSeconds(chunks, volumeProfile);
+  const totalDuration = Math.max(0, fullDuration - windowStart);
   const quietRegions = detectQuietRegions(
     samples,
     thresholdDb,
     resolved.minSilenceGapDuration,
-    resolved.initialIgnoreMs
+    windowStart > 0 ? 0 : resolved.initialIgnoreMs
   );
-  const regions = proposeSegmentsFromQuietRegions(quietRegions, totalDuration, resolved);
-  return createSnipsFromRegions(regions, chunks, volumeProfile, thresholdDb);
+  const relativeRegions = proposeSegmentsFromQuietRegions(quietRegions, totalDuration, resolved);
+  const regions = relativeRegions.map((region) => ({
+    startTime: region.startTime + windowStart,
+    endTime: region.endTime + windowStart,
+  }));
+  const ready = includeTrailing || regions.length === 0 ? regions : regions.slice(0, -1);
+  return createSnipsFromRegions(ready, chunks, volumeProfile, thresholdDb);
 }
