@@ -54,10 +54,22 @@
       color: #cccccc;
     }
 
-    .data-mode-chip.real-store {
+    .data-mode-chip.live {
       border-color: #00bcd4;
       background: #004d5c;
       color: #00bcd4;
+    }
+
+    .live-panel {
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #3e3e42;
+    }
+
+    .live-status {
+      font-size: 12px;
+      color: #9cdcfe;
+      margin: 8px 0;
     }
 
     .main-content {
@@ -286,12 +298,13 @@
       margin-right: 8px;
     }
   </style>
-  <script type="module" crossorigin src="./assets/index-BAFJrK-W.js"></script>
+  <script type="module" crossorigin src="./assets/index-CVxZ7pXd.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-C2U0nnk3.css">
 </head>
 <body>
   <div class="top-chrome">
     <h1>Playback Engine Isolation Demo</h1>
-    <div class="data-mode-chip fixture">FIXTURE MODE (mock audio)</div>
+    <div class="data-mode-chip live" id="data-mode-chip">LIVE FROM CAPTURE (in-memory)</div>
   </div>
 
   <div class="main-content">
@@ -366,8 +379,28 @@
     <!-- Playback Control Panel -->
     <div class="panel">
       <h2>Playback Controls</h2>
-      
+
       <div class="control-group">
+        <label>Audio source</label>
+        <div class="radio-group">
+          <label>
+            <input type="radio" name="audio-source" value="live" checked>
+            Live microphone
+          </label>
+          <label>
+            <input type="radio" name="audio-source" value="fixture">
+            Fixture (optional)
+          </label>
+        </div>
+      </div>
+
+      <div class="live-panel" id="live-panel">
+        <button class="btn-play" id="btn-record">Start Capture</button>
+        <button class="btn-stop" id="btn-record-stop" disabled>Stop Capture</button>
+        <div class="live-status" id="live-status">No live audio yet. Record, then Play.</div>
+      </div>
+      
+      <div id="fixture-target-panel" style="display: none;">
         <label>Playback Target</label>
         <div class="radio-group">
           <label>

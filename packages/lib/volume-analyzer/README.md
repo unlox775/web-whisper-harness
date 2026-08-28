@@ -46,9 +46,9 @@ Planning names (not frozen APIs). Each interface states caller, input, output, s
 - **Input**: 
   - `sessionId` (string or UUID; requires session with volume profile already computed)
   - `options` (optional): `{quietThreshold?: number, minSnipDuration?: number, targetSnipDuration?: number, maxSnipDuration?: number, minSilenceGapDuration?: number}` (defaults: adaptive noise floor, min 5s, target 10s, max 60s, quiet-gap 0.6s — original web-whisper)
-- **Action**: Read volume profile from session-store (calls `analyzeVolume(sessionId)` first if profile missing), detect silence gaps (volume < threshold for > 1s), group contiguous loud regions into snips, merge snips shorter than minSnipDuration, split snips longer than maxSnipDuration, write snip list to session-store
+- **Action**: Read volume profile from session-store, detect quiet-gap cuts using original 5s min / 10s target gating. Already-persisted snips are frozen; only audio after the last snip end is proposed (`windowStartTime`). Pass `{ includeTrailing: false }` while recording so the in-progress tail is not written until a quiet-gap cut closes it (or until Stop with the default `includeTrailing: true`).
 - **Output**: `{success: boolean, snips: [{snipId, startTime, endTime, startChunkIndex, endChunkIndex, confidence}]}` (snips also written to session-store)
-- **Caller**: PWA after recording completes (automated), or user "Re-snip" button (developer mode with custom threshold)
+- **Caller**: PWA during capture (each encoded chunk, trailing held back) and after Stop (commit last snip). Also developer mode "Re-snip".
 - **Store read**: Session-store (read session metadata, read volume profile for session)
 - **Store changed**: Session-store (write snip list for session: array of `{snipId, startTime, endTime, startChunkIndex, endChunkIndex, chunkRefs: [chunkIds], confidence}`)
 - **Failure result**: `{success: false, error: "Session not found" | "Volume profile missing" | "Session-store write failed"}` (all-quiet session is not a failure, returns `{success: true, snips: []}`)

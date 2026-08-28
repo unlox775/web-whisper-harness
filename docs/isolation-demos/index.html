@@ -66,19 +66,35 @@
       color: var(--muted);
       line-height: 1.45;
     }
+    /**
+ * Isolation demo compact mobile typography.
+ *
+ * Dave uses these factory-floor demos on iPhone, including landscape.
+ * Halve type and padding on phones; leave desktop (fine pointer, wide window)
+ * readable at full size.
+ *
+ * Detection: narrow viewport OR touch-only (covers iPhone landscape >480px).
+ */
+@media (max-width: 480px), ((hover: none) and (pointer: coarse)) {
+  html {
+    zoom: 0.5;
+    -webkit-text-size-adjust: 100%;
+  }
+}
+
   </style>
 </head>
 <body>
   <header>
     <p class="kicker">Factory floor</p>
     <h1>Isolation Demos</h1>
-    <p class="lead">Package-local HTML stacks. Each demo uses its own storage namespace so it cannot corrupt PWA sessions or other demos. Capture stays in-memory.</p>
+    <p class="lead">Package-local HTML stacks with live microphone capture. Each demo uses its own storage namespace so it cannot corrupt PWA sessions or other demos. Capture stays in-memory; session-store writes only to its sandbox DB.</p>
     <a class="back" href="../">← Web Whisper PWA</a>
   </header>
   <main class="grid">
       <a class="card" href="./capture-engine/">
         <h2>Capture Engine</h2>
-        <p>Mic / simulated PCM capture, MP3 chunks, watchdog. Chunks live in RAM until Reset or tab close.</p>
+        <p>Live mic (primary) or simulated PCM. Real capture-engine, MP3 chunks in RAM until Reset.</p>
         <dl>
           <div><dt>Storage</dt><dd>In-memory only (no IndexedDB / localStorage)</dd></div>
           <div><dt>Namespace</dt><dd><code>web-whisper-isolation-demo-capture-engine</code></dd></div>
@@ -87,25 +103,25 @@
       </a>
       <a class="card" href="./playback-engine/">
         <h2>Playback Engine</h2>
-        <p>Play session / chunk / snip from fixture blobs. Pause, resume, seek, volume.</p>
+        <p>Record live audio then play it. Fixture session/chunk/snip remains optional.</p>
         <dl>
-          <div><dt>Storage</dt><dd>In-memory fixture audio (no store writes)</dd></div>
+          <div><dt>Storage</dt><dd>Live chunks in RAM; optional fixture blobs (no store writes)</dd></div>
           <div><dt>Namespace</dt><dd><code>web-whisper-isolation-demo-playback-engine</code></dd></div>
         </dl>
         <span class="open">Open demo</span>
       </a>
       <a class="card" href="./volume-analyzer/">
         <h2>Volume Analyzer</h2>
-        <p>Volume profile + snip proposals from known fixture patterns (original noise-floor defaults). Live capture stays unimplemented.</p>
+        <p>Live mic → volume profile + snip proposals (in-memory). Fixtures optional. Isolated tuner DB.</p>
         <dl>
-          <div><dt>Storage</dt><dd>Fixture chunks in RAM; tuner settings in isolated IndexedDB</dd></div>
+          <div><dt>Storage</dt><dd>Live/fixture chunks in RAM; tuner settings in isolated IndexedDB</dd></div>
           <div><dt>Namespace</dt><dd><code>web-whisper-volume-analyzer-demo-db</code></dd></div>
         </dl>
         <span class="open">Open demo</span>
       </a>
       <a class="card" href="./transcription-client/">
         <h2>Transcription Client</h2>
-        <p>Fixture mock transcripts plus optional live Groq. Does not write PWA localStorage keys.</p>
+        <p>Record live audio then transcribe (mock or real Groq). Fixture blob optional. No PWA keys.</p>
         <dl>
           <div><dt>Storage</dt><dd>No persistence (API key stays in the input)</dd></div>
           <div><dt>Namespace</dt><dd><code>ww-iso-transcription-client:</code></dd></div>
@@ -114,7 +130,7 @@
       </a>
       <a class="card" href="./session-store/">
         <h2>Session Store</h2>
-        <p>Create / read / delete sessions in a sandbox database. Never opens web-whisper-db.</p>
+        <p>Live mic chunks flush into the sandbox DB. Never opens web-whisper-db.</p>
         <dl>
           <div><dt>Storage</dt><dd>Sandbox IndexedDB only</dd></div>
           <div><dt>Namespace</dt><dd><code>web-whisper-isolation-demo-session-store</code></dd></div>

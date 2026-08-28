@@ -11,9 +11,14 @@ import {
 import * as sessionStore from '@web-whisper/session-store';
 import { CaptureError, startCapture, type CaptureHandle } from '@web-whisper/capture-engine';
 import { validateKey } from '@web-whisper/transcription-client';
-import { analyzeVolumeForSession, proposeSnipsForSession } from '@web-whisper/volume-analyzer';
 import { capBytesFromMb, loadSettings, saveSetting } from './settings';
-import { isIsolationSettingsScreenshot, readScreenshotMode } from './screenshotMode';
+import { ingestGrowingSession, transcribeSession } from './orchestration';
+import {
+  isIsolationSettingsScreenshot,
+  isSessionDetailScreenshot,
+  readScreenshotMode,
+} from './screenshotMode';
+import { ensureSessionDetailScreenshotSession } from './sessionDetailScreenshot';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
 
 function captureStartOptions() {
@@ -218,6 +223,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setScreen('session');
   }, []);
 
+  useEffect(() => {
+    if (!ready) return;
+    if (!isSessionDetailScreenshot(readScreenshotMode())) return;
+    let cancelled = false;
+    void ensureSessionDetailScreenshotSession().then((id) => {
+      if (!cancelled && id) openSession(id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, openSession]);
+
   const deleteSessionById = useCallback(async (id: string) => {
     const result = await sessionStore.deleteSession(id);
     if (result.error && result.error !== 'session_not_found') {
@@ -254,7 +271,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       handle.on('captureError', (event: { reason?: string; details?: string }) => {
         if (event.reason === 'no_audio_received') {
-          void finishCaptureRef.current?.('session');
+          void finishCaptureRef.current?.('home');
           return;
         }
         if (event.reason === 'store_write_failed') {
@@ -315,14 +332,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (id) {
         await sessionStore.finalizeSession(id);
         if (navigate !== 'none') {
-          void analyzeVolumeForSession(id)
-            .then((analysis) => {
-              if (analysis.success) return proposeSnipsForSession(id);
-              return analysis;
-            })
-            .catch((error) => {
-              console.warn('Post-recording analysis failed', error);
+          const apiKey = settings.groqApiKey;
+          const canTranscribe = Boolean(apiKey && settings.keyValid);
+          try {
+            await ingestGrowingSession(id, {
+              apiKey: canTranscribe ? apiKey : undefined,
+              includeTrailing: true,
+              transcribe: false,
             });
+          } catch (error) {
+            console.warn('Post-recording snip commit failed', error);
+          }
+          if (canTranscribe && apiKey) {
+            void transcribeSession(id, apiKey, () => {}, {
+              onTranscriptWritten: () => enforceCap({ force: true }),
+            })
+              .then(() => refresh())
+              .catch((error) => {
+                console.warn('Post-recording transcription failed', error);
+              });
+          }
           await enforceCap({ force: true });
         }
       }
@@ -339,14 +368,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await refresh();
       }
     },
-    [enforceCap, openSession, refresh, showToast]
+    [enforceCap, openSession, refresh, settings.groqApiKey, settings.keyValid, showToast]
   );
 
   const finishCaptureRef = useRef(finishCapture);
   finishCaptureRef.current = finishCapture;
 
   const stopRecording = useCallback(async () => {
-    await finishCapture('session');
+    await finishCapture('home');
   }, [finishCapture]);
 
   const abortRecording = useCallback(async () => {

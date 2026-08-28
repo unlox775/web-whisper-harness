@@ -2,8 +2,13 @@ import { useState } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { useApp } from '../context';
-import { transcribeSession, type TranscribeProgress } from '../orchestration';
+import { transcribeSession } from '../orchestration';
 import type { SessionRecord, SnipRecord, TranscriptRecord } from '../types';
+import {
+  homeAfterStopPreview,
+  isHomeAfterStopScreenshot,
+  readScreenshotMode,
+} from '../screenshotMode';
 
 const GROQ_CONSOLE = 'https://console.groq.com/keys';
 
@@ -24,17 +29,20 @@ function SessionCard({
   session,
   onRetry,
   retrying,
+  previewCounts,
 }: {
   session: SessionRecord;
   onRetry: (sessionId: string) => void;
   retrying: boolean;
+  previewCounts?: { snipCount: number; transcriptCount: number; snippet: string };
 }) {
   const app = useApp();
-  const [snipCount, setSnipCount] = useState(0);
-  const [transcriptCount, setTranscriptCount] = useState(0);
-  const [snippet, setSnippet] = useState('');
+  const [snipCount, setSnipCount] = useState(previewCounts?.snipCount ?? 0);
+  const [transcriptCount, setTranscriptCount] = useState(previewCounts?.transcriptCount ?? 0);
+  const [snippet, setSnippet] = useState(previewCounts?.snippet ?? '');
 
   useState(() => {
+    if (previewCounts) return;
     (async () => {
       const snipsResult = await sessionStore.getSnipsForSession(session.id);
       const snips = (snipsResult.snips || []) as SnipRecord[];
@@ -110,6 +118,10 @@ export function HomeScreen() {
   const app = useApp();
   const capLabel = `${formatBytes(app.usedBytes)} / ${formatBytes(app.capBytes)}`;
   const [retryingSession, setRetryingSession] = useState<string | null>(null);
+  const homePreview = isHomeAfterStopScreenshot(readScreenshotMode())
+    ? homeAfterStopPreview()
+    : null;
+  const sessions = homePreview ? [homePreview.session] : app.sessions;
 
   async function handleRetry(sessionId: string) {
     if (!app.settings.groqApiKey || !app.settings.keyValid) return;
@@ -212,15 +224,24 @@ export function HomeScreen() {
           </p>
         </section>
 
-        {app.sessions.length === 0 ? (
+        {sessions.length === 0 ? (
           <section className="card empty-sessions" aria-label="Recording sessions" />
         ) : (
-          app.sessions.map((session) => (
+          sessions.map((session) => (
             <SessionCard
               key={session.id}
               session={session}
               onRetry={handleRetry}
               retrying={retryingSession === session.id}
+              previewCounts={
+                homePreview && homePreview.session.id === session.id
+                  ? {
+                      snipCount: homePreview.snipCount,
+                      transcriptCount: homePreview.transcriptCount,
+                      snippet: homePreview.snippet,
+                    }
+                  : undefined
+              }
             />
           ))
         )}

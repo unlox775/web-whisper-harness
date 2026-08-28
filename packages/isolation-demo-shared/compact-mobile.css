@@ -1,0 +1,15 @@
+/**
+ * Isolation demo compact mobile typography.
+ *
+ * Dave uses these factory-floor demos on iPhone, including landscape.
+ * Halve type and padding on phones; leave desktop (fine pointer, wide window)
+ * readable at full size.
+ *
+ * Detection: narrow viewport OR touch-only (covers iPhone landscape >480px).
+ */
+@media (max-width: 480px), ((hover: none) and (pointer: coarse)) {
+  html {
+    zoom: 0.5;
+    -webkit-text-size-adjust: 100%;
+  }
+}

@@ -73,6 +73,16 @@ export interface SnipOptions {
   noisePercentile?: number;
   /** Milliseconds ignored at the start before quiet detection (original 120). */
   initialIgnoreMs?: number;
+  /**
+   * Absolute seconds. Only propose snips in audio after this point.
+   * Used while recording to freeze already-persisted snips and process new audio only.
+   */
+  windowStartTime?: number;
+  /**
+   * When false, drop the trailing in-progress snip that still runs to the current
+   * audio end (not yet closed by a quiet-gap cut). Default true.
+   */
+  includeTrailing?: boolean;
 }
 
 /** Fully resolved snip options (adaptive threshold still optional). */

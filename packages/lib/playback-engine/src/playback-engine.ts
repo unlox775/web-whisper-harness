@@ -18,6 +18,23 @@ async function startHandle(blob: Blob): Promise<PlaybackHandle> {
   return handle;
 }
 
+/**
+ * Play concatenated MP3 blobs from RAM (isolation demos / in-memory capture).
+ * Does not open session-store or IndexedDB.
+ */
+export async function playBlobs(
+  blobs: Blob[]
+): Promise<PlaybackHandle | PlaybackError> {
+  if (!blobs || blobs.length === 0) {
+    return { error: 'no_chunks' };
+  }
+  const valid = blobs.filter((blob) => blob instanceof Blob);
+  if (valid.length === 0) {
+    return { error: 'invalid_blob' };
+  }
+  return startHandle(new Blob(valid, { type: 'audio/mpeg' }));
+}
+
 export async function playSession(
   sessionId: string
 ): Promise<PlaybackHandle | PlaybackError> {

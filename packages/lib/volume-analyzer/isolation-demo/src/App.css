@@ -55,6 +55,11 @@ body {
   white-space: nowrap;
 }
 
+.data-mode-chip.live {
+  border-color: #22d3ee;
+  background: rgba(34, 211, 238, 0.25);
+}
+
 .db-chip {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.65rem;

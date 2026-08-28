@@ -102,4 +102,40 @@ describe('proposeSnipsFromProfile', () => {
     const floor = computeAdaptiveQuietThresholdDb(samples);
     assert.ok(floor > -55 && floor < -25, `floor was ${floor.toFixed(1)} dB`);
   });
+
+  it('drops the trailing in-progress snip while recording (includeTrailing: false)', () => {
+    // 12s loud + 1s quiet + 8s loud → one closed cut after target, plus a growing tail
+    const series = [...Array(120).fill(-14), ...Array(10).fill(-55), ...Array(80).fill(-14)];
+    const { volumeProfile, chunks } = makeProfile(series);
+    const closed = proposeSnipsFromProfile(volumeProfile, chunks, { includeTrailing: false });
+    const all = proposeSnipsFromProfile(volumeProfile, chunks, { includeTrailing: true });
+    assert.ok(all.length >= 2, `expected a closed snip plus a tail, got ${all.length}`);
+    assert.equal(closed.length, all.length - 1);
+    assert.ok(closed[0].endTime < all[all.length - 1].endTime);
+  });
+
+  it('only proposes snips after windowStartTime (incremental live window)', () => {
+    const phrase = [...Array(120).fill(-14), ...Array(10).fill(-55)];
+    const series = [...phrase, ...phrase, ...Array(80).fill(-14)];
+    const { volumeProfile, chunks } = makeProfile(series);
+    const firstPass = proposeSnipsFromProfile(volumeProfile, chunks, { includeTrailing: false });
+    assert.ok(firstPass.length >= 1, 'first closed snip should be ready');
+    const lastEnd = firstPass[firstPass.length - 1].endTime;
+    const secondPass = proposeSnipsFromProfile(volumeProfile, chunks, {
+      windowStartTime: lastEnd,
+      includeTrailing: false,
+    });
+    for (const snip of secondPass) {
+      assert.ok(
+        snip.startTime >= lastEnd - 0.05,
+        `incremental snip started at ${snip.startTime}, expected >= ${lastEnd}`
+      );
+    }
+  });
+
+  it('does not invent a snip covering the whole session when includeTrailing is false and no cut exists', () => {
+    const { volumeProfile, chunks } = makeProfile(Array(80).fill(-14));
+    const closed = proposeSnipsFromProfile(volumeProfile, chunks, { includeTrailing: false });
+    assert.equal(closed.length, 0);
+  });
 });

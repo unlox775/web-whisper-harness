@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Session Store Isolation Demo</title>
-  <script type="module" crossorigin src="./assets/index-HSRj-Bs2.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-1DPEyZFG.css">
+  <script type="module" crossorigin src="./assets/index-C4KSSYK-.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-BikSPL_Z.css">
 </head>
 <body>
   <div id="app">
@@ -38,11 +38,17 @@
           <label>
             Data Source:
             <select id="chunk-data-source" class="select-field">
-              <option value="fixture">Fixture Data</option>
+              <option value="live">Live Microphone</option>
+              <option value="fixture">Fixture Data (optional)</option>
               <option value="upload" disabled>Upload MP3 File</option>
             </select>
           </label>
-          <button id="write-chunk-btn" class="btn btn-primary">Write Chunk</button>
+          <div id="live-chunk-controls">
+            <button id="start-capture-btn" class="btn btn-primary">Start Capture</button>
+            <button id="stop-capture-btn" class="btn btn-secondary" disabled>Stop & Write Chunks</button>
+            <div id="live-capture-status" class="info-text">Live capture writes to sandbox DB only (not web-whisper-db).</div>
+          </div>
+          <button id="write-chunk-btn" class="btn btn-primary" style="display: none;">Write Chunk</button>
           <div id="chunk-count" class="info-text">Chunks written: 0</div>
         </section>
 
@@ -139,7 +145,6 @@
                     <th>End Time</th>
                     <th>Duration</th>
                     <th>Size</th>
-                    <th>Audio</th>
                   </tr>
                 </thead>
                 <tbody id="chunks-list"></tbody>
