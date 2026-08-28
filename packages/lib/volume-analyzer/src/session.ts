@@ -7,6 +7,7 @@ import type {
   ChunkMetadata,
   ChunkVolumeProfile,
   ChunkWithBlob,
+  Snip,
   SnipOptions,
   SnipResult,
 } from './types.js';
@@ -18,6 +19,8 @@ async function loadStore() {
   // @ts-expect-error -- no declaration file for session-store
   return import('../../../datastore/session-store/src/index.js');
 }
+
+const SNIP_START_EPSILON = 0.05;
 
 function profilesFromStored(volumeProfile: {
   chunkVolumes?: Array<{
@@ -38,6 +41,56 @@ function profilesFromStored(volumeProfile: {
   }));
 }
 
+function storedFromProfiles(profiles: ChunkVolumeProfile[]) {
+  return {
+    chunkVolumes: [...profiles]
+      .sort((a, b) => a.chunkIndex - b.chunkIndex)
+      .map((profile) => ({
+        chunkId: profile.chunkId,
+        peakDb: profile.peakDb,
+        avgDb: profile.avgDb,
+        chunkIndex: profile.chunkIndex,
+        samples: Array.from(profile.samples),
+      })),
+  };
+}
+
+function summaryFromProfiles(profiles: ChunkVolumeProfile[]): AnalysisResult {
+  if (profiles.length === 0) {
+    return { success: false, error: 'no_chunks' };
+  }
+  const avgVolume =
+    profiles.reduce((sum, profile) => sum + profile.avgDb, 0) / profiles.length;
+  const maxVolume = Math.max(...profiles.map((profile) => profile.peakDb));
+  const sampleCount = profiles.reduce((sum, profile) => sum + profile.samples.length, 0);
+  return {
+    success: true,
+    profileSummary: {
+      chunkCount: profiles.length,
+      avgVolume,
+      maxVolume,
+      sampleCount,
+    },
+  };
+}
+
+function mapStoredSnips(snips: any[]): Snip[] {
+  return snips.map((snip: any, index: number) => ({
+    snipId: index,
+    startTime: snip.startTime,
+    endTime: snip.endTime,
+    duration: snip.duration,
+    startChunkIndex: snip.startChunkIndex,
+    endChunkIndex: snip.endChunkIndex,
+    chunkRefs: snip.chunkIds || snip.chunkRefs || [],
+    confidence: snip.confidence ?? 0,
+  }));
+}
+
+/**
+ * Decode new chunks only and merge into the stored volume profile.
+ * Re-running on a growing session does not re-decode already-profiled chunks.
+ */
 export async function analyzeVolumeForSession(sessionId: string): Promise<AnalysisResult> {
   try {
     const store = await loadStore();
@@ -55,11 +108,16 @@ export async function analyzeVolumeForSession(sessionId: string): Promise<Analys
       return { success: false, error: 'no_chunks' };
     }
 
-    const chunks: ChunkWithBlob[] = [];
+    const storedProfile = await store.getVolumeProfile(sessionId);
+    const existingProfiles = storedProfile ? profilesFromStored(storedProfile) : [];
+    const knownIds = new Set(existingProfiles.map((profile) => profile.chunkId));
+
+    const newChunks: ChunkWithBlob[] = [];
     for (const meta of metas) {
+      if (knownIds.has(meta.id)) continue;
       const full = await store.getChunk(meta.id);
       if (full?.blob) {
-        chunks.push({
+        newChunks.push({
           id: full.id,
           seq: full.seq,
           startTime: full.startTime,
@@ -70,39 +128,21 @@ export async function analyzeVolumeForSession(sessionId: string): Promise<Analys
       }
     }
 
-    if (chunks.length === 0) {
+    let chunkProfiles = existingProfiles;
+    if (newChunks.length > 0) {
+      const added = await analyzeChunksVolume(newChunks);
+      chunkProfiles = [...existingProfiles, ...added].sort(
+        (a, b) => a.chunkIndex - b.chunkIndex
+      );
+      const written = await store.writeVolumeProfile(sessionId, storedFromProfiles(chunkProfiles));
+      if (written.error) {
+        return { success: false, error: 'session_store_write_failed' };
+      }
+    } else if (!storedProfile) {
       return { success: false, error: 'no_chunks' };
     }
 
-    const chunkProfiles = await analyzeChunksVolume(chunks);
-    const written = await store.writeVolumeProfile(sessionId, {
-      chunkVolumes: chunkProfiles.map((profile) => ({
-        chunkId: profile.chunkId,
-        peakDb: profile.peakDb,
-        avgDb: profile.avgDb,
-        chunkIndex: profile.chunkIndex,
-        samples: Array.from(profile.samples),
-      })),
-    });
-
-    if (written.error) {
-      return { success: false, error: 'session_store_write_failed' };
-    }
-
-    const avgVolume =
-      chunkProfiles.reduce((sum, profile) => sum + profile.avgDb, 0) / chunkProfiles.length;
-    const maxVolume = Math.max(...chunkProfiles.map((profile) => profile.peakDb));
-    const sampleCount = chunkProfiles.reduce((sum, profile) => sum + profile.samples.length, 0);
-
-    return {
-      success: true,
-      profileSummary: {
-        chunkCount: chunks.length,
-        avgVolume,
-        maxVolume,
-        sampleCount,
-      },
-    };
+    return summaryFromProfiles(chunkProfiles);
   } catch (error) {
     return {
       success: false,
@@ -111,6 +151,13 @@ export async function analyzeVolumeForSession(sessionId: string): Promise<Analys
   }
 }
 
+/**
+ * Propose snips for a (possibly still-growing) session.
+ *
+ * Already-persisted snips are frozen. Only audio after the last snip end is
+ * proposed. Pass `{ includeTrailing: false }` while recording so the in-progress
+ * tail is not written until a quiet-gap cut closes it (or until Stop).
+ */
 export async function proposeSnipsForSession(
   sessionId: string,
   options?: SnipOptions
@@ -120,23 +167,6 @@ export async function proposeSnipsForSession(
     const session = await store.getSession(sessionId);
     if (!session) {
       return { success: false, error: 'session_not_found' };
-    }
-
-    const existing = await store.getSnipsForSession(sessionId);
-    if (!existing.error && existing.snips && existing.snips.length > 0) {
-      return {
-        success: true,
-        snips: existing.snips.map((snip: any, index: number) => ({
-          snipId: index,
-          startTime: snip.startTime,
-          endTime: snip.endTime,
-          duration: snip.duration,
-          startChunkIndex: snip.startChunkIndex,
-          endChunkIndex: snip.endChunkIndex,
-          chunkRefs: snip.chunkIds || snip.chunkRefs || [],
-          confidence: snip.confidence ?? 0,
-        })),
-      };
     }
 
     const storedProfile = await store.getVolumeProfile(sessionId);
@@ -156,10 +186,27 @@ export async function proposeSnipsForSession(
       duration: chunk.duration,
     }));
 
-    const volumeProfile = profilesFromStored(storedProfile);
-    const snips = proposeSnipsFromProfile(volumeProfile, chunks, options);
+    const existingResult = await store.getSnipsForSession(sessionId);
+    const existing = existingResult.error ? [] : existingResult.snips || [];
+    const lastEnd =
+      existing.length > 0
+        ? Math.max(...existing.map((snip: { endTime: number }) => snip.endTime))
+        : 0;
 
-    for (const snip of snips) {
+    const volumeProfile = profilesFromStored(storedProfile);
+    const proposed = proposeSnipsFromProfile(volumeProfile, chunks, {
+      ...options,
+      windowStartTime: lastEnd,
+    });
+
+    for (const snip of proposed) {
+      const alreadyHave = existing.some(
+        (stored: { startTime: number }) =>
+          Math.abs(stored.startTime - snip.startTime) < SNIP_START_EPSILON
+      );
+      if (alreadyHave || snip.startTime < lastEnd - SNIP_START_EPSILON) {
+        continue;
+      }
       const written = await store.writeSnip(sessionId, {
         startChunkIndex: snip.startChunkIndex,
         endChunkIndex: snip.endChunkIndex,
@@ -174,6 +221,8 @@ export async function proposeSnipsForSession(
       }
     }
 
+    const next = await store.getSnipsForSession(sessionId);
+    const snips = next.error ? [...mapStoredSnips(existing), ...proposed] : mapStoredSnips(next.snips || []);
     return { success: true, snips };
   } catch (error) {
     return {
