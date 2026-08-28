@@ -34,11 +34,15 @@ body {
 .chrome-center .data-mode-chip {
   display: inline-block;
   padding: 0.4rem 1rem;
-  border: 2px solid #00d9ff;
+  border: 2px solid #6e6e6e;
   border-radius: 20px;
   color: #ffffff;
   font-size: 0.9rem;
   font-weight: 500;
+}
+
+.chrome-center .data-mode-chip.live {
+  border-color: #00d9ff;
 }
 
 .chrome-right .mic-status {

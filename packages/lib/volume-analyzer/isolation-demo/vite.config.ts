@@ -1,24 +1,24 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const demoRoot = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.resolve(demoRoot, '..');
+import {
+  isolationDemoAliases,
+  lamejsBrowserBundle,
+  repoRoot,
+} from '../../../../scripts/isolation-demo-vite.mjs';
 
 export default defineConfig({
   base: './',
-  plugins: [react()],
+  plugins: [react(), lamejsBrowserBundle()],
   resolve: {
-    alias: {
-      '@web-whisper/volume-analyzer': path.join(packageRoot, 'src/index.ts'),
-    },
+    alias: isolationDemoAliases(),
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    exclude: ['lamejs'],
   },
   server: {
     port: 3000,
     host: true,
-    fs: {
-      allow: [path.resolve(packageRoot, '../..')],
-    },
+    fs: { allow: [repoRoot] },
   },
 });

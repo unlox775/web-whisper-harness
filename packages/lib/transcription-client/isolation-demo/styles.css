@@ -127,6 +127,21 @@ body {
   background-color: #333;
 }
 
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #e0e0e0;
+  cursor: pointer;
+}
+
+.audio-status {
+  font-size: 0.8rem;
+  color: #00cccc;
+  line-height: 1.35;
+}
+
 /* Buttons */
 .btn {
   padding: 0.75rem 1rem;
