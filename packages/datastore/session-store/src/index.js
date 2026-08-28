@@ -43,7 +43,7 @@ import {
 /**
  * Initialize session-store with database name
  * @param {Object} config
- * @param {string} config.databaseName - Database name ('web-whisper-db' for production, 'web-whisper-sandbox-db' for demo)
+ * @param {string} config.databaseName - Database name ('web-whisper-db' for production, 'web-whisper-isolation-demo-session-store' for the Isolation Demo)
  * @returns {Promise<{initialized: boolean}>}
  */
 export async function init(config = {}) {

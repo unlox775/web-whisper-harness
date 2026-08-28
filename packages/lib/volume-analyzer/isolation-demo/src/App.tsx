@@ -11,6 +11,10 @@ import {
 import VolumeHistogram from './VolumeHistogram';
 import SnipList from './SnipList';
 
+// Storage: in-memory fixture chunks only. Must never open IndexedDB
+// `web-whisper-db`. Live-capture toggle stays unimplemented. Reserved unused
+// namespace: `web-whisper-isolation-demo-volume-analyzer`.
+
 function App() {
   const [selectedPattern, setSelectedPattern] = useState(FIXTURE_PATTERNS[0].id);
   const [liveCaptureEnabled, setLiveCaptureEnabled] = useState(false);

@@ -5,6 +5,7 @@ This repository is a from-scratch rebuild of [Web Whisper](https://github.com/un
 ## Try It Now
 
 - **Web app (GitHub Pages):** https://unlox775.github.io/web-whisper-harness/
+- **Isolation Demos (GitHub Pages):** https://unlox775.github.io/web-whisper-harness/isolation-demos/
 - Install the PWA from Safari/Chrome (“Add to Home Screen” / “Install app”). On iOS you may still see microprompting for microphone access—tap “Allow” when prompted.
 
 ## What is Web Whisper?
@@ -37,6 +38,7 @@ The original Web Whisper proves that browser-based long-form recording can be tr
 ```
 docs/                        GitHub Pages docroot (PWA + harness markdown)
   index.html                 Published PWA
+  isolation-demos/           Package Isolation Demos index + per-package pages
   pwa-assets/                Built JS/CSS
   FOUNDER-vision.md          Detailed founder perspective and product goals
   SLICE-UP-plan.md           Alternative product-boundary philosophies
@@ -62,7 +64,7 @@ The runnable PWA lives in `apps/web-whisper-pwa`. GitHub Pages is served from th
 
 ```bash
 make start    # local Vite server
-make build    # production build → docs/ (GitHub Pages docroot)
+make build    # production build → docs/ (PWA + Isolation Demos for GitHub Pages)
 make harness-help
 ```
 

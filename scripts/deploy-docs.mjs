@@ -43,4 +43,6 @@ for (const name of publishNames) {
 }
 
 await writeFile(join(docs, '.nojekyll'), '');
+// Isolation Demos are published separately by scripts/deploy-isolation-demos.mjs
+// into docs/isolation-demos/. Do not delete that tree here.
 console.log('Published PWA to docs/ (GitHub Pages docroot)');

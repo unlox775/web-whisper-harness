@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Playback Engine Isolation Demo</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .top-chrome {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 60px;
+      background: #2d2d30;
+      border-bottom: 1px solid #3e3e42;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      justify-content: space-between;
+      z-index: 100;
+    }
+
+    .top-chrome h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .data-mode-chip {
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 2px solid;
+    }
+
+    .data-mode-chip.fixture {
+      border-color: #6e6e6e;
+      background: #3e3e42;
+      color: #cccccc;
+    }
+
+    .data-mode-chip.real-store {
+      border-color: #00bcd4;
+      background: #004d5c;
+      color: #00bcd4;
+    }
+
+    .main-content {
+      margin-top: 60px;
+      height: calc(100vh - 60px);
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 1px;
+      background: #3e3e42;
+    }
+
+    .panel {
+      background: #252526;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .panel h2 {
+      font-size: 14px;
+      color: #cccccc;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .info-line {
+      font-size: 13px;
+      margin-bottom: 8px;
+      color: #d4d4d4;
+    }
+
+    .info-label {
+      color: #9cdcfe;
+      font-weight: 500;
+    }
+
+    .chunks-table,
+    .snips-table {
+      width: 100%;
+      margin-top: 12px;
+      font-size: 12px;
+      border-collapse: collapse;
+    }
+
+    .chunks-table th,
+    .snips-table th {
+      text-align: left;
+      padding: 6px 8px;
+      background: #1e1e1e;
+      color: #9cdcfe;
+      font-weight: 500;
+    }
+
+    .chunks-table td,
+    .snips-table td {
+      padding: 6px 8px;
+      border-top: 1px solid #3e3e42;
+    }
+
+    .control-group {
+      margin-bottom: 20px;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 12px;
+      color: #9cdcfe;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    .radio-group {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .radio-group label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      color: #d4d4d4;
+    }
+
+    select {
+      width: 100%;
+      padding: 8px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border: 1px solid #3e3e42;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 8px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    button:not(:disabled):hover {
+      opacity: 0.9;
+    }
+
+    .btn-play {
+      background: #00bcd4;
+      color: #ffffff;
+    }
+
+    .btn-pause {
+      background: #ffa726;
+      color: #ffffff;
+    }
+
+    .btn-resume {
+      background: #00bcd4;
+      color: #ffffff;
+    }
+
+    .btn-stop {
+      background: #ef5350;
+      color: #ffffff;
+    }
+
+    .seek-control {
+      margin-bottom: 16px;
+    }
+
+    .seek-control input[type="range"] {
+      width: 100%;
+      margin-top: 6px;
+    }
+
+    .state-display {
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .state-display.idle {
+      background: #3e3e42;
+      color: #9e9e9e;
+    }
+
+    .state-display.playing {
+      background: #1b5e20;
+      color: #81c784;
+    }
+
+    .state-display.paused {
+      background: #f57f17;
+      color: #ffd54f;
+    }
+
+    .state-display.stopped {
+      background: #b71c1c;
+      color: #ef5350;
+    }
+
+    .time-display {
+      text-align: center;
+      font-size: 16px;
+      font-family: 'Courier New', monospace;
+      color: #d4d4d4;
+      margin-bottom: 16px;
+    }
+
+    .event-feed {
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .event-entry {
+      margin-bottom: 4px;
+      padding: 4px;
+      border-radius: 2px;
+    }
+
+    .event-entry.playing {
+      color: #81c784;
+    }
+
+    .event-entry.paused {
+      color: #ffd54f;
+    }
+
+    .event-entry.timeupdate {
+      color: #9e9e9e;
+    }
+
+    .event-entry.seeked {
+      color: #00bcd4;
+    }
+
+    .event-entry.ended {
+      color: #64b5f6;
+    }
+
+    .event-entry.stopped {
+      color: #ef5350;
+    }
+
+    .event-entry.error {
+      color: #ef5350;
+      background: #3e1b1b;
+    }
+
+    .event-timestamp {
+      color: #6e6e6e;
+      margin-right: 8px;
+    }
+  </style>
+  <script type="module" crossorigin src="./assets/index-DwyrO4OM.js"></script>
+</head>
+<body>
+  <div class="top-chrome">
+    <h1>Playback Engine Isolation Demo</h1>
+    <div class="data-mode-chip fixture">FIXTURE MODE (mock audio)</div>
+  </div>
+
+  <div class="main-content">
+    <!-- Fixture Data Panel -->
+    <div class="panel">
+      <h2>Fixture Session Data</h2>
+      <div class="info-line">
+        <span class="info-label">Session ID:</span> demo-session-001
+      </div>
+      <div class="info-line">
+        <span class="info-label">Duration:</span> <span id="session-duration">11.6s</span>
+      </div>
+      <div class="info-line">
+        <span class="info-label">Chunks:</span> 3
+      </div>
+
+      <table class="chunks-table">
+        <thead>
+          <tr>
+            <th>Seq</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Duration</th>
+          </tr>
+        </thead>
+        <tbody id="chunks-tbody">
+          <tr>
+            <td>0</td>
+            <td>0.0s</td>
+            <td>4.0s</td>
+            <td>4.0s</td>
+          </tr>
+          <tr>
+            <td>1</td>
+            <td>4.0s</td>
+            <td>8.1s</td>
+            <td>4.1s</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>8.1s</td>
+            <td>11.6s</td>
+            <td>3.5s</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 style="margin-top: 20px;">Fixture Snips</h2>
+      <table class="snips-table">
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Chunks</th>
+            <th>Duration</th>
+          </tr>
+        </thead>
+        <tbody id="snips-tbody">
+          <tr>
+            <td>First snip</td>
+            <td>0-1</td>
+            <td>8.1s</td>
+          </tr>
+          <tr>
+            <td>Second snip</td>
+            <td>2</td>
+            <td>3.5s</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Playback Control Panel -->
+    <div class="panel">
+      <h2>Playback Controls</h2>
+      
+      <div class="control-group">
+        <label>Playback Target</label>
+        <div class="radio-group">
+          <label>
+            <input type="radio" name="target" value="session" checked>
+            Session
+          </label>
+          <label>
+            <input type="radio" name="target" value="chunk">
+            Chunk
+          </label>
+          <label>
+            <input type="radio" name="target" value="snip">
+            Snip
+          </label>
+        </div>
+
+        <select id="target-select" style="display: none;">
+          <option value="">Select target...</option>
+        </select>
+      </div>
+
+      <div class="state-display idle" id="state-display">
+        State: Idle
+      </div>
+
+      <div class="time-display" id="time-display">
+        Time: 0.0s / 11.6s
+      </div>
+
+      <button class="btn-play" id="btn-play">Play</button>
+      <button class="btn-pause" id="btn-pause" disabled>Pause</button>
+      <button class="btn-resume" id="btn-resume" disabled>Resume</button>
+      <button class="btn-stop" id="btn-stop" disabled>Stop</button>
+
+      <div class="seek-control">
+        <label>Seek Position</label>
+        <input type="range" id="seek-slider" min="0" max="11.6" step="0.1" value="0" disabled>
+      </div>
+
+      <div class="seek-control">
+        <label>Volume</label>
+        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1">
+      </div>
+    </div>
+
+    <!-- Event Feed Panel -->
+    <div class="panel">
+      <h2>Playback Events</h2>
+      <div class="event-feed" id="event-feed">
+        <div class="event-entry" style="color: #6e6e6e;">
+          No events yet. Click 'Play' to start playback.
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

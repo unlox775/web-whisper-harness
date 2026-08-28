@@ -1,4 +1,7 @@
 // Demo app logic
+// Storage: in-memory only. Must never open IndexedDB `web-whisper-db` or write
+// PWA localStorage keys. Reserved unused namespace:
+// `web-whisper-isolation-demo-capture-engine`.
 let captureHandle = null;
 let updateInterval = null;
 let chunks = [];
