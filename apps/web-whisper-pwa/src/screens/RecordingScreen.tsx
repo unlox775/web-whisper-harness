@@ -70,6 +70,7 @@ export function RecordingScreen() {
           apiKey: canTranscribe ? apiKey : undefined,
           includeTrailing: false,
           transcribe: canTranscribe,
+          onTranscriptWritten: () => app.enforceCap({ force: true }),
         });
         applyDurableState(result.snips, result.transcripts, result.failures);
       } catch (err) {
@@ -86,6 +87,7 @@ export function RecordingScreen() {
     app.recordingSessionId,
     app.settings.groqApiKey,
     app.settings.keyValid,
+    app.enforceCap,
     preview,
   ]);
 
@@ -103,6 +105,7 @@ export function RecordingScreen() {
         apiKey: app.settings.groqApiKey,
         includeTrailing: false,
         transcribe: true,
+        onTranscriptWritten: () => app.enforceCap({ force: true }),
       });
       applyDurableState(result.snips, result.transcripts, result.failures);
     } catch (err) {

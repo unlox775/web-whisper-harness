@@ -131,7 +131,7 @@ export function HomeScreen() {
         sessionId,
         app.settings.groqApiKey,
         () => {},
-        { retryFailedOnly: true }
+        { retryFailedOnly: true, onTranscriptWritten: () => app.enforceCap({ force: true }) }
       );
       if (outcome.stopReason) {
         app.showToast(`Transcription failed: ${outcome.stopReason}`, 'error');

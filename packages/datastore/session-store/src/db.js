@@ -8,11 +8,27 @@ let dbName = 'web-whisper-db';
 const DB_VERSION = 1;
 
 /**
+ * Close the current database connection (tests / switching DB names).
+ */
+export function closeDatabase() {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+  }
+}
+
+/**
  * Initialize IndexedDB database
  * @param {string} databaseName - Database name
  * @returns {Promise<IDBDatabase>}
  */
 export async function initDatabase(databaseName) {
+  if (dbInstance && dbName === databaseName) {
+    return dbInstance;
+  }
+  if (dbInstance) {
+    closeDatabase();
+  }
   dbName = databaseName;
   
   return new Promise((resolve, reject) => {

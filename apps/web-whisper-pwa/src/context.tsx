@@ -72,7 +72,7 @@ type AppContextValue = {
   openSession: (id: string, autoPlay?: boolean) => void;
   goHome: () => void;
   deleteSessionById: (id: string) => Promise<void>;
-  enforceCap: () => Promise<void>;
+  enforceCap: (opts?: { force?: boolean }) => Promise<void>;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -120,17 +120,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const enforceCap = useCallback(async () => {
+  const lastEnforceAt = useRef(0);
+
+  const enforceCap = useCallback(async (opts?: { force?: boolean }) => {
+    if (!opts?.force && Date.now() - lastEnforceAt.current < 4000) return;
+    lastEnforceAt.current = Date.now();
     const result = await sessionStore.enforceRetentionPolicy(capBytes);
     if (result.error) return;
-    if (result.deletedSessions > 0) {
-      showToast(
-        `Storage quota exceeded. Old sessions were deleted to make space.`,
-        'warning'
-      );
+    const purged = Array.isArray(result.purgedChunkIds) ? result.purgedChunkIds.length : 0;
+    if (purged > 0 || result.deletedSessions > 0) {
       await refresh();
     }
-  }, [capBytes, refresh, showToast]);
+  }, [capBytes, refresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +163,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [refresh, showToast]);
+
+  useEffect(() => {
+    if (!ready) return;
+    void enforceCap({ force: true });
+  }, [ready, capBytes, enforceCap]);
 
   const updateSetting = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -245,6 +251,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [goHome, refresh, sessionId, showToast]);
 
   const startRecording = useCallback(async () => {
+    await enforceCap({ force: true });
     const created = await sessionStore.createSession();
     if (created.error || !created.id) {
       showToast('Storage unavailable. Check browser storage permissions.', 'error');
@@ -260,6 +267,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setScreen('recording');
       handle.on('chunkEncoded', (event: { seq?: number }) => {
         setChunkCount((event.seq ?? 0) + 1);
+        void enforceCap();
       });
       handle.on('captureError', (event: { reason?: string; details?: string }) => {
         if (event.reason === 'no_audio_received') {
@@ -267,6 +275,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (event.reason === 'store_write_failed') {
+          void enforceCap({ force: true });
           showToast('Storage write failed. Recording may be incomplete.', 'warning');
           return;
         }
@@ -289,7 +298,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const message = error instanceof Error ? error.message : 'Could not start recording';
       showToast(message, 'error');
     }
-  }, [showToast]);
+  }, [enforceCap, showToast]);
 
   const finishCapture = useCallback(
     async (navigate: 'session' | 'home' | 'none') => {
@@ -335,13 +344,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
             console.warn('Post-recording snip commit failed', error);
           }
           if (canTranscribe && apiKey) {
-            void transcribeSession(id, apiKey, () => {})
+            void transcribeSession(id, apiKey, () => {}, {
+              onTranscriptWritten: () => enforceCap({ force: true }),
+            })
               .then(() => refresh())
               .catch((error) => {
                 console.warn('Post-recording transcription failed', error);
               });
           }
-          await enforceCap();
+          await enforceCap({ force: true });
         }
       }
       finishingRef.current = false;

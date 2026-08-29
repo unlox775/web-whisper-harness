@@ -20,6 +20,7 @@ export type ChunkRecord = {
   duration: number;
   sizeBytes: number;
   blob?: Blob;
+  audioPurgedAt?: number | string | null;
 };
 
 export type SnipRecord = {
@@ -33,6 +34,7 @@ export type SnipRecord = {
   chunkIds: string[];
   confidence: number;
   createdAt: string;
+  audioPurgedAt?: number | string | null;
 };
 
 export type TranscriptRecord = {

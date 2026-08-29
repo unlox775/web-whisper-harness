@@ -352,12 +352,12 @@ function setupEventListeners() {
       const logEntry = `
         <div class="retention-log-entry">
           <div><strong>Retention policy enforced</strong> at ${timestamp}</div>
-          <div>Deleted ${result.deletedSessions} session(s) to reclaim ${formatBytes(result.reclaimedBytes)}</div>
+          <div>Deleted ${result.deletedSessions || 0} session(s); purged ${result.purgedChunkIds?.length || 0} transcribed chunk(s) to reclaim ${formatBytes(result.reclaimedBytes)}</div>
           <div>New usage: ${formatBytes(result.newUsedBytes)} / ${formatBytes(currentStorageCap)} (${Math.round((result.newUsedBytes / currentStorageCap) * 100)}%)</div>
         </div>
       `;
       document.getElementById('retention-log').innerHTML = logEntry + document.getElementById('retention-log').innerHTML;
-      showToast(`Deleted ${result.deletedSessions} sessions`, 'success');
+      showToast(`Purged ${result.purgedChunkIds?.length || 0} transcribed chunk(s); sessions kept`, 'success');
       await refreshUI();
     }
   });
@@ -502,6 +502,7 @@ async function loadSessionDetails(sessionId) {
         <td>${formatTime(chunk.endTime)}</td>
         <td>${formatDuration(chunk.duration)}</td>
         <td>${formatBytes(chunk.sizeBytes)}</td>
+        <td>${chunk.audioPurgedAt ? 'removed after transcription' : 'present'}</td>
       </tr>
     `).join('');
   }

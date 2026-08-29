@@ -43,7 +43,7 @@ async function assembleSnipBlob(snip: SnipRecord): Promise<Blob> {
   const blobs: Blob[] = [];
   for (const chunkId of snip.chunkIds || []) {
     const chunk = await sessionStore.getChunk(chunkId);
-    if (chunk?.blob) blobs.push(chunk.blob);
+    if (chunk?.blob && chunk.blob.size > 0) blobs.push(chunk.blob);
   }
   return new Blob(blobs, { type: 'audio/mpeg' });
 }
@@ -96,7 +96,8 @@ async function transcribePendingSnips(
   snips: SnipRecord[],
   apiKey: string,
   already: TranscriptRecord[],
-  onProgress?: (progress: TranscribeProgress) => void
+  onProgress?: (progress: TranscribeProgress) => void,
+  onTranscriptWritten?: () => Promise<void> | void
 ): Promise<{
   completed: number;
   failed: number;
@@ -142,6 +143,9 @@ async function transcribePendingSnips(
       }
       await sessionStore.writeTranscript(snip.id, result.text || '');
       completed += 1;
+      if (onTranscriptWritten) {
+        await onTranscriptWritten();
+      }
     } finally {
       transcribingSnips.delete(snip.id);
     }
@@ -164,6 +168,7 @@ export function ingestGrowingSession(
     apiKey?: string | null;
     includeTrailing?: boolean;
     transcribe?: boolean;
+    onTranscriptWritten?: () => Promise<void> | void;
   } = {}
 ): Promise<LiveIngestResult> {
   return withSessionLock(sessionId, async () => {
@@ -177,7 +182,13 @@ export function ingestGrowingSession(
     const failures: Array<{ snipId: string; error: string }> = [];
 
     if (options.transcribe && options.apiKey) {
-      const outcome = await transcribePendingSnips(snips, options.apiKey, transcripts);
+      const outcome = await transcribePendingSnips(
+        snips,
+        options.apiKey,
+        transcripts,
+        undefined,
+        options.onTranscriptWritten
+      );
       failures.push(...outcome.failures);
       ({ snips, transcripts } = await loadDurableState(sessionId));
     }
@@ -190,7 +201,7 @@ export async function transcribeSession(
   sessionId: string,
   apiKey: string,
   onProgress: (progress: TranscribeProgress) => void,
-  options?: { retryFailedOnly?: boolean }
+  options?: { retryFailedOnly?: boolean; onTranscriptWritten?: () => Promise<void> | void }
 ): Promise<TranscribeOutcome> {
   onProgress({ phase: 'analyzing', completed: 0, total: 0 });
   const snips = await ensureSnips(sessionId);
@@ -203,8 +214,14 @@ export async function transcribeSession(
 
   // RETRY TX / re-transcribe never throws away audio or existing transcripts.
   // Always skip snips that already have text; only missed/failed snips run.
-  void options;
-  const outcome = await transcribePendingSnips(snips, apiKey, transcripts, onProgress);
+  void options?.retryFailedOnly;
+  const outcome = await transcribePendingSnips(
+    snips,
+    apiKey,
+    transcripts,
+    onProgress,
+    options?.onTranscriptWritten
+  );
   return {
     total: snips.length,
     completed: outcome.completed,
