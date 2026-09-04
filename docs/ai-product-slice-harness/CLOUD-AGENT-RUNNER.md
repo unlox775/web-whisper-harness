@@ -98,6 +98,20 @@ Roster: `docs/PHASE-07-02.md`. Five unresolved feedback specs. **Serial:** stall
 
 Implementers must use Cursor Cloud Agents (not Codex). PWA UI specs need iPhone DevTools screenshot proof before marking resolved, then `make build` before push.
 
+#### Phase 07-03 roster (specs + prompts only)
+
+Roster: `docs/PHASE-07-03.md`. Five unresolved feedback specs. **Serial:** session-store archive APIs (1) first. **Parallel after 1:** PWA Export Session (2), playback demo upload (3), volume-analyzer demo upload (4), transcription demo upload (5).
+
+| Spec | Product | Prompt |
+| --- | --- | --- |
+| Session audio archive export/import | `packages/datastore/session-store` | `docs/ai-product-slice-harness/cloud-agents/phase-07-session-audio-archive-export-import.md` |
+| Debug Export Session download | `apps/web-whisper-pwa` | `docs/ai-product-slice-harness/cloud-agents/phase-07-debug-export-session-download.md` |
+| Isolation Demo archive as play source | `packages/lib/playback-engine` | `docs/ai-product-slice-harness/cloud-agents/phase-07-playback-upload-session-archive.md` |
+| Isolation Demo archive as analyze source | `packages/lib/volume-analyzer` | `docs/ai-product-slice-harness/cloud-agents/phase-07-volume-analyzer-upload-session-archive.md` |
+| Isolation Demo archive as transcribe source | `packages/lib/transcription-client` | `docs/ai-product-slice-harness/cloud-agents/phase-07-transcription-upload-session-archive.md` |
+
+Implementers must use Cursor Cloud Agents (not Codex). PWA UI spec (2) needs iPhone DevTools screenshot proof before marking resolved, then `make build` before push. Specs 3–5 consume `parseSessionArchive` and must not reimplement the zip format.
+
 ## Makefile Integration
 
 The `Makefile` targets for Phase 03–07 have been modified to **print the cloud-agent prompt paths** and **refuse to call Codex** (clear error). This prevents accidental Codex invocations and reminds the human to launch Cursor Cloud Agents instead.
