@@ -14,6 +14,12 @@ import {
   readScreenshotMode,
   sessionTranscribedPreview,
 } from '../screenshotMode';
+import {
+  archiveExportErrorMessage,
+  archiveExportHelperText,
+  isArchiveExportError,
+  triggerBlobDownload,
+} from '../exportSession';
 
 function isErrorResult(value: PlaybackHandle | { error: string }): value is { error: string } {
   return 'error' in value;
@@ -81,6 +87,7 @@ export function SessionDetailScreen() {
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
   const [doctorJson, setDoctorJson] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [exporting, setExporting] = useState(false);
   const handleRef = useRef<PlaybackHandle | null>(null);
   const [hasPlayback, setHasPlayback] = useState(demoPlayhead != null);
   const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -340,6 +347,27 @@ export function SessionDetailScreen() {
     URL.revokeObjectURL(url);
   }
 
+  async function downloadSessionArchive() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const result = await sessionStore.exportSessionArchive(sessionId);
+      if (isArchiveExportError(result)) {
+        app.showToast(archiveExportErrorMessage(result.error), 'error');
+        return;
+      }
+      const filename = sessionStore.sessionArchiveFilename(sessionId);
+      triggerBlobDownload(result, filename);
+    } catch (error) {
+      app.showToast(
+        `Export failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+        'error'
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function playOne(kind: 'chunk' | 'snip', id: string) {
     const result = kind === 'chunk' ? await playChunk(id) : await playSnip(id);
     if (isErrorResult(result)) {
@@ -363,6 +391,7 @@ export function SessionDetailScreen() {
   }
 
   const hasAudio = session.chunkCount > 0;
+  const archiveHint = archiveExportHelperText(chunks);
   const keyReady = Boolean(app.settings.keyValid && app.settings.groqApiKey);
   const failedCount = Math.max(failures.length, snips.length - transcripts.length);
   const totalSize = session.sizeBytes || chunks.reduce((sum, c) => sum + c.sizeBytes, 0);
@@ -577,6 +606,22 @@ export function SessionDetailScreen() {
               <p className="kicker" style={{ marginBottom: 12 }}>
                 {snipsTab === 'chunks' ? `CHUNKS (${chunks.length})` : `SNIPS (${snips.length})`} · {format}
               </p>
+              <div className="session-detail-export">
+                <button
+                  type="button"
+                  className="cta-outline"
+                  disabled={exporting}
+                  aria-describedby={archiveHint ? 'session-export-hint' : undefined}
+                  onClick={() => void downloadSessionArchive()}
+                >
+                  {exporting ? 'Exporting…' : 'Export Session'}
+                </button>
+                {archiveHint ? (
+                  <p id="session-export-hint" className="tiny muted session-detail-export-hint">
+                    {archiveHint}
+                  </p>
+                ) : null}
+              </div>
               <div className="pills" style={{ marginBottom: 16 }}>
                 <button
                   className={`pill ${snipsTab === 'chunks' ? 'active' : ''}`}
