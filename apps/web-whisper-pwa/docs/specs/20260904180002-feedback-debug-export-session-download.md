@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T18:00:02Z
 Product: apps/web-whisper-pwa
@@ -82,9 +82,39 @@ Run **`make build`** from the repo root before push. Refresh `docs/` PWA artifac
 
 Mark this spec resolved when:
 
-- [ ] Debug tab has a visible **Export Session** control that downloads the session-store archive
-- [ ] Empty / all-purged behavior is documented and matches the table above
-- [ ] Control is not console-only
-- [ ] iPhone DevTools screenshot of the control
-- [ ] `make build` published `docs/` PWA artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Debug tab has a visible **Export Session** control that downloads the session-store archive
+- [x] Empty / all-purged behavior is documented and matches the table above
+- [x] Control is not console-only
+- [x] iPhone DevTools screenshot of the control
+- [x] `make build` published `docs/` PWA artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-04T20:46:00Z on branch `cursor/debug-export-session-download-3394` (draft PR).
+
+### What shipped
+
+- Session Detail **Debug** tab (`apps/web-whisper-pwa/src/screens/SessionDetailScreen.tsx`) has a full-width **Export Session** button under the CHUNKS/SNIPS kicker, above the Chunks·Snips pills. It is not console-only.
+- Click calls `sessionStore.exportSessionArchive(sessionId)` (optional includes stay default **off**) and downloads `web-whisper-session-<id>-<timestamp>.zip` via `sessionArchiveFilename` + object URL + `<a download>`, then revokes the URL.
+- Empty / all-purged sessions stay **enabled** (metadata-only). Helper copy:
+  - no chunks: `No audio chunks — export is metadata only.`
+  - all purged (`audioPurgedAt` or `sizeBytes <= 0`): `Archive has metadata, no audio bytes.`
+- Store `{ error }` toasts (`session_not_found` / `database_unavailable` / other) and does not crash.
+- Helpers + tests: `apps/web-whisper-pwa/src/exportSession.ts`, `exportSession.test.ts`.
+- `make build` refreshed `docs/` GitHub Pages PWA artifacts only (`index.html`, `pwa-assets/`). Isolation demo trees were not committed.
+
+### Empty / purged choice
+
+Prefer **allow** metadata-only (table above). The zip is still a valid v1 archive; UI copy does not claim playable audio when chunks are missing or purged.
+
+### Untouched
+
+Isolation Demos, session-store zip/manifest internals, retention / `enforceCap`, volume / snips / histogram / durability, Developer Console table JSON export.
+
+### Proof shot (iPhone 12 Pro DevTools, 390×844)
+
+- `documentation/qa/debug-export-session-download.png`
+- `documentation/qa/debug-export-session-download-zip.png` — Chrome download of `web-whisper-session-<id>-<timestamp>.zip` (inspected: `manifest.json` + `chunks/000.mp3`)
+- `documentation/qa/debug-export-session-metadata-only.png` — no-chunks helper
+- Notes: `documentation/qa/debug-export-session-download.md`
