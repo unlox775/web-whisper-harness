@@ -27,6 +27,27 @@ function playbackFailMessage(error: string): string {
 
 type DetailTab = 'transcript' | 'debug';
 
+function readHistogramQuery(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return new URLSearchParams(window.location.search).get('histogram') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function readPlayheadQuery(): number | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = new URLSearchParams(window.location.search).get('playhead');
+    if (raw == null || raw === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function SessionDetailScreen() {
   const app = useApp();
   const screenshotMode = readScreenshotMode();
@@ -42,24 +63,26 @@ export function SessionDetailScreen() {
     screenshotPreview?.transcripts ?? []
   );
   const [volumeProfile, setVolumeProfile] = useState<any>(null);
+  const demoPlayhead = readPlayheadQuery();
   const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [currentTime, setCurrentTime] = useState(demoPlayhead ?? 0);
   const [duration, setDuration] = useState(screenshotPreview?.session.duration ?? 0);
   const [volume, setVolume] = useState(1);
   const [transcribing, setTranscribing] = useState(false);
   const [progress, setProgress] = useState<TranscribeProgress | null>(null);
   const [failures, setFailures] = useState<Array<{ snipId: string; error: string }>>([]);
+  const openHistogram = readHistogramQuery();
   const [detailTab, setDetailTab] = useState<DetailTab>(
-    isSessionSnipsScreenshot(screenshotMode) ? 'debug' : 'transcript'
+    openHistogram || isSessionSnipsScreenshot(screenshotMode) ? 'debug' : 'transcript'
   );
   const [snipsTab, setSnipsTab] = useState<'chunks' | 'snips'>('snips');
-  const [showHistogram, setShowHistogram] = useState(false);
+  const [showHistogram, setShowHistogram] = useState(openHistogram);
   const [showDoctor, setShowDoctor] = useState(false);
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
   const [doctorJson, setDoctorJson] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const handleRef = useRef<PlaybackHandle | null>(null);
-  const [hasPlayback, setHasPlayback] = useState(false);
+  const [hasPlayback, setHasPlayback] = useState(demoPlayhead != null);
   const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
   const selectTokenRef = useRef(0);
 
@@ -77,11 +100,13 @@ export function SessionDetailScreen() {
 
   useEffect(() => {
     if (screenshotPreview) return undefined;
+    setHasPlayback(demoPlayhead != null);
+    if (demoPlayhead == null) setCurrentTime(0);
+    else setCurrentTime(demoPlayhead);
     void load();
     return () => {
       handleRef.current?.stop();
       handleRef.current = null;
-      setHasPlayback(false);
     };
   }, [sessionId]);
 
@@ -680,7 +705,7 @@ export function SessionDetailScreen() {
                 </div>
               )}
 
-              {app.settings.developerModeEnabled ? (
+              {app.settings.developerModeEnabled || openHistogram ? (
                 <>
                   <div className="session-detail-debug-section">
                     <p className="kicker">VOLUME HISTOGRAM</p>
