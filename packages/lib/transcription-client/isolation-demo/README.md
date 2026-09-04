@@ -20,6 +20,8 @@ Proves that transcription-client:
 
 **Fixture by default** (simulated snip with known transcription result: "This is a test transcription from fixture audio"). Optionally, **live mode with real Groq API** (user supplies API key, demo sends real HTTP request).
 
+**Audio sources:** live microphone, optional fixture blob, or **Upload session archive** (zip). Archive bytes come from session-store `parseSessionArchive` and are concatenated into one blob, matching live capture. Transcripts stay in the demo panel.
+
 **Safe default**: Fixture mode (no Groq API key required, no network calls, instant mock transcript).
 
 ## Panel-Based Layout
@@ -35,6 +37,7 @@ Proves that transcription-client:
 ### 2. Control Panel (left third of viewport, below chrome)
 
 **Components:**
+- Audio source radios: live microphone, fixture blob, **Upload session archive** (zip file input; `parseSessionArchive`)
 - API key input field (text input, placeholder "Enter Groq API key", only enabled when "Enable Live Mode" ON)
 - "Validate Key" button (cyan, full-width, only enabled when live mode ON and API key not empty)
 - "Transcribe Audio" button (cyan, full-width, enabled when: fixture mode always, OR live mode + valid key)
@@ -103,7 +106,7 @@ Proves that transcription-client:
 
 ## What This Demo Does NOT Do
 
-- Does not call session-store (transcripts are displayed in-demo only, not persisted)
+- Imports session-store `parseSessionArchive` only (no IndexedDB / `web-whisper-db`). Transcripts stay in the demo panel.
 - Does not decide which snips to transcribe (PWA decides that based on volume profile; this demo only exercises the transcription API)
 - Does not capture or play audio (capture-engine and playback-engine do those)
 - Transcription-client's public interface expects caller to provide audio blob and API key

@@ -142,6 +142,15 @@ body {
   line-height: 1.35;
 }
 
+.audio-status.error {
+  color: #cc0000;
+}
+
+.control-section input[type="file"] {
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
 /* Buttons */
 .btn {
   padding: 0.75rem 1rem;
