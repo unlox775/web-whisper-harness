@@ -215,6 +215,13 @@
       margin-top: 6px;
     }
 
+    .volume-note {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #9e9e9e;
+      line-height: 1.4;
+    }
+
     .state-display {
       padding: 12px;
       border-radius: 4px;
@@ -439,8 +446,9 @@
       </div>
 
       <div class="seek-control">
-        <label>Volume</label>
+        <label for="volume-slider">Volume <span id="volume-value">1.00</span></label>
         <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1">
+        <p class="volume-note" id="volume-note">Loudness uses a Web Audio GainNode. iOS Safari ignores HTMLAudioElement.volume.</p>
       </div>
     </div>
 

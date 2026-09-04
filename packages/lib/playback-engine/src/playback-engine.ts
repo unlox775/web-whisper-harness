@@ -1,6 +1,7 @@
 import type { PlaybackHandle, PlaybackError } from './types.js';
 import { PlaybackHandleImpl } from './playback-handle.js';
 import { fixtureStore } from './fixture-store.js';
+import { concatAudioBlobs } from './wav.js';
 
 type SessionStoreModule = typeof import('../../../datastore/session-store/src/index.js');
 
@@ -32,7 +33,7 @@ export async function playBlobs(
   if (valid.length === 0) {
     return { error: 'invalid_blob' };
   }
-  return startHandle(new Blob(valid, { type: 'audio/mpeg' }));
+  return startHandle(await concatAudioBlobs(valid));
 }
 
 export async function playSession(
@@ -76,7 +77,7 @@ export async function playSession(
         }
         return { error: 'chunks_missing', sessionId, missingChunkIds };
       }
-      return startHandle(new Blob(blobs, { type: 'audio/mpeg' }));
+      return startHandle(await concatAudioBlobs(blobs));
     }
   }
 
@@ -107,7 +108,7 @@ export async function playSession(
   }
 
   const chunkBlobs = chunks.map(chunk => chunk.blob);
-  return startHandle(new Blob(chunkBlobs, { type: 'audio/mpeg' }));
+  return startHandle(await concatAudioBlobs(chunkBlobs));
 }
 
 export async function playChunk(
@@ -175,7 +176,7 @@ export async function playSnip(
         }
         return { error: 'snip_chunks_missing', snipId, missingChunkIds };
       }
-      return startHandle(new Blob(blobs, { type: 'audio/mpeg' }));
+      return startHandle(await concatAudioBlobs(blobs));
     }
   }
 
@@ -205,5 +206,5 @@ export async function playSnip(
   }
 
   const chunkBlobs = chunks.map(chunk => chunk.blob);
-  return startHandle(new Blob(chunkBlobs, { type: 'audio/mpeg' }));
+  return startHandle(await concatAudioBlobs(chunkBlobs));
 }
