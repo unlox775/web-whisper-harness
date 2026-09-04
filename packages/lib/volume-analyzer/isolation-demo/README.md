@@ -19,9 +19,9 @@ Proves that volume-analyzer:
 
 ## Data Mode
 
-**Fixture audio by default** (simulated chunks with known volume patterns: quiet → loud → quiet → loud → quiet). Optionally, **live audio from capture-engine** (in-memory only, not persisted). No real session-store reads (fixture chunks are generated in-demo).
+**Live capture by default** (in-memory capture-engine chunks). Optionally **fixture audio** (simulated chunks with known volume patterns) or **upload session archive** (spec-1 zip parsed with session-store `parseSessionArchive` only — no `web-whisper-db`).
 
-**Safe default**: Fixture audio with known volume pattern (no mic permission, no capture-engine dependency).
+**Safe default for algorithm checks**: Fixture audio with known volume pattern (no mic permission). Archive upload is for replaying a real failed take.
 
 ## Panel-Based Layout
 
@@ -30,8 +30,8 @@ Proves that volume-analyzer:
 ### 1. Top Chrome Panel (fixed header, spans full width)
 
 - **Left**: "Volume Analyzer Isolation Demo" heading (bold)
-- **Center**: Data mode chip: "FIXTURE AUDIO" (default, gray border) or "LIVE FROM CAPTURE (in-memory)" (cyan border, if capture mode enabled)
-- **Right**: "Enable Live Capture" toggle (checkbox or switch; when ON → capture-engine included, live audio used instead of fixture)
+- **Center**: Data mode chip: "LIVE FROM CAPTURE (in-memory)" (cyan), "FIXTURE AUDIO" (gray), or "SESSION ARCHIVE" (amber, after a spec-1 zip upload)
+- **Right**: "Live microphone" toggle (checkbox; when ON → capture-engine included, live audio used instead of fixture)
 
 ### 2. Control Panel (left quarter of viewport, below chrome)
 
@@ -42,7 +42,8 @@ Proves that volume-analyzer:
 - **Min snip length slider** (1–20s, default **5s**)
 - **Max snip length slider** (10–90s, default **60s**)
 - **Quiet-gap duration slider** (0.2–2.5s, default **0.6s**)
-- Fixture pattern dropdown (only visible when "Enable Live Capture" OFF):
+- **Upload session archive** file input (zip). Calls `parseSessionArchive`; maps non-null blobs into the same `ChunkWithBlob[]` live/fixture use. Errors: "Cannot read archive", "Not a supported session archive", "No audio in archive to analyze".
+- Fixture pattern dropdown (only visible when Live microphone OFF and no archive loaded):
   - "Breath-paused speech (run-on)" (default; 2.2s phrases / 1.1s breaths — proves 10s target vs 4–5 word cuts)
   - "Quiet → Loud → Quiet"
   - "All Quiet"
@@ -107,7 +108,7 @@ Proves that volume-analyzer:
 
 ## What This Demo Does NOT Do
 
-- Does not call session-store (fixture chunks are in-memory only)
+- Does not open session-store IndexedDB (`web-whisper-db`). Fixture/live chunks stay in RAM. Archive upload calls parse-only `parseSessionArchive` and keeps blobs in RAM.
 - Does not transcribe snips (transcription-client does that)
 - Does not play audio (playback-engine does that; this demo only computes volume + snips)
 - Volume-analyzer's public interface expects session-store reads (`analyzeVolume(sessionId)` → reads chunks from store)

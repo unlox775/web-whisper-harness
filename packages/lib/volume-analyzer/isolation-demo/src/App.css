@@ -60,6 +60,11 @@ body {
   background: rgba(34, 211, 238, 0.25);
 }
 
+.data-mode-chip.archive {
+  border-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.25);
+}
+
 .db-chip {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.65rem;
@@ -114,12 +119,19 @@ body {
 }
 
 .control-section select,
-.control-section input[type='range'] {
+.control-section input[type='range'],
+.control-section input[type='file'] {
   width: 100%;
   padding: 0.5rem;
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 0.8rem;
+}
+
+.control-section input[type='file'] {
+  padding: 0.35rem;
+  font-size: 0.72rem;
+  background: #fafafa;
 }
 
 .control-section input[type='range'] {
@@ -136,6 +148,22 @@ body {
 .hint {
   font-size: 0.72rem;
   color: #6b7280;
+  line-height: 1.35;
+}
+
+.hint.archive-filename {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  white-space: normal;
+}
+
+.error-banner {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fbbf24;
+  border-radius: 4px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.75rem;
   line-height: 1.35;
 }
 
