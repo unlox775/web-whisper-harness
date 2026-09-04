@@ -84,6 +84,20 @@ When a feedback spec is created (e.g., `packages/lib/capture-engine/docs/specs/2
 2. Launch Cursor Cloud Agent for that spec
 3. Wait for completion, review, merge to main
 
+#### Phase 07-02 roster (specs + prompts only)
+
+Roster: `docs/PHASE-07-02.md`. Five unresolved feedback specs. **Serial:** stall detection (1) before PWA durability (2). **Parallel:** volume loudness (3), snips text (4), histogram playhead (5) with each other (and with 1 if careful).
+
+| Spec | Product | Prompt |
+| --- | --- | --- |
+| Mid-stream stall detection | `packages/lib/capture-engine` | `docs/ai-product-slice-harness/cloud-agents/phase-07-ongoing-audio-stream-stall-detection.md` |
+| Recording durability UX | `apps/web-whisper-pwa` | `docs/ai-product-slice-harness/cloud-agents/phase-07-recording-durability-ux.md` |
+| Playback volume loudness | `packages/lib/playback-engine` | `docs/ai-product-slice-harness/cloud-agents/phase-07-playback-volume-loudness.md` |
+| Snips list transcript text | `apps/web-whisper-pwa` | `docs/ai-product-slice-harness/cloud-agents/phase-07-snips-list-transcript-text.md` |
+| Histogram playhead | `apps/web-whisper-pwa` | `docs/ai-product-slice-harness/cloud-agents/phase-07-histogram-playhead.md` |
+
+Implementers must use Cursor Cloud Agents (not Codex). PWA UI specs need iPhone DevTools screenshot proof before marking resolved, then `make build` before push.
+
 ## Makefile Integration
 
 The `Makefile` targets for Phase 03–07 have been modified to **print the cloud-agent prompt paths** and **refuse to call Codex** (clear error). This prevents accidental Codex invocations and reminds the human to launch Cursor Cloud Agents instead.
