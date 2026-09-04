@@ -38,10 +38,19 @@
 
       <button id="startBtn" class="btn btn-start">Start Capture</button>
       <button id="stopBtn" class="btn btn-stop" disabled>Stop Capture</button>
+      <button id="simulateStallBtn" class="btn btn-stall" disabled>Simulate stall</button>
       <button id="resetBtn" class="btn btn-reset">Reset</button>
+
+      <div id="streamBanner" class="stream-banner idle" role="status">
+        Stream: idle
+      </div>
 
       <div class="meters">
         <h3>Live Meters</h3>
+        <div class="meter-item">
+          <span class="meter-label">Stream:</span>
+          <span id="streamMeter" class="meter-value">idle</span>
+        </div>
         <div class="meter-item">
           <span class="meter-label">Duration:</span>
           <span id="durationMeter" class="meter-value">0.00s</span>

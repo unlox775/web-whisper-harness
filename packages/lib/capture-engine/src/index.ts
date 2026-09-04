@@ -7,4 +7,6 @@ export type {
   ChunkEncodedEvent,
   CaptureErrorEvent,
   CaptureStoppedEvent,
+  AudioStalledEvent,
+  AudioResumedEvent,
 } from './types';

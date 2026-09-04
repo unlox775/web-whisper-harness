@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T12:00:01Z
 Product: packages/lib/capture-engine
@@ -108,10 +108,30 @@ Add `node:test` coverage (same style as other harness packages) for:
 
 Mark this spec resolved when:
 
-- [ ] `audioStalled` / `audioResumed` emit per the contract after audio has started
-- [ ] Mid-stream stall does **not** auto-stop capture
-- [ ] Start watchdog `no_audio_received` + auto-stop still documented and tested
-- [ ] `stallTimeout` configurable, default 5s
-- [ ] Isolation Demo shows stalled / resumed status
-- [ ] Tests cover stall, resume, and start-watchdog isolation
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] `audioStalled` / `audioResumed` emit per the contract after audio has started
+- [x] Mid-stream stall does **not** auto-stop capture
+- [x] Start watchdog `no_audio_received` + auto-stop still documented and tested
+- [x] `stallTimeout` configurable, default 5s
+- [x] Isolation Demo shows stalled / resumed status
+- [x] Tests cover stall, resume, and start-watchdog isolation
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+Shipped in capture-engine only (`packages/lib/capture-engine`). Phase 07 Cursor Cloud Agent. No Codex. No PWA / session-store / playback-engine edits.
+
+### Event contract
+
+- `CaptureOptions.stallTimeout` (seconds, default `5.0`) is the mid-stream gap. `watchdogTimeout` (default `10.0`) remains the start-only ghost timer.
+- After audio has started (`pcmSeen` or `chunkCount > 0`), if no PCM/progress arrives for `stallTimeout`, emit **`audioStalled` once** with `{ sessionId, stalledFor, lastProgressAt` (epoch ms), `chunksEncoded, pcmSeen, reason: 'mid_stream_stall' }`. `getStatus()` stays pollable (`stalled`, `stalledFor`). No periodic re-emit.
+- The next PCM after a stall emits **`audioResumed` once** with `{ sessionId, stalledFor, chunksEncoded }`.
+- Mid-stream stall **does not call `stop()`** and **does not emit** `no_audio_received`.
+- Start watchdog still cancels on first PCM. If it fires with `chunkCount === 0` / never started, emit `captureError` `{ reason: 'no_audio_received' }` and auto-stop (unchanged).
+
+### Isolation Demo
+
+Banner + meter: `Stream: live` (green) vs `Stream: stalled` (amber, distinct from red `no_audio_received`). Event feed logs `audioStalled` / `audioResumed`. **Simulate stall** / **Resume stream** uses `setPcmPaused` (`stallTimeout` 2s in the demo).
+
+### Tests
+
+`npm test` in this package (`node:test` via tsx): stall emit + no auto-stop, resume-once, `setPcmPaused`, mid-stream does not emit `no_audio_received`, start watchdog still auto-stops with `no_audio_received` when zero audio. 5/5 passing.

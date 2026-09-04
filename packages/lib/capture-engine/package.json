@@ -6,7 +6,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "npx --yes tsx --test src/captureEngine.test.ts"
   },
   "keywords": [
     "audio",

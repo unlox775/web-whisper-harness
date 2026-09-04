@@ -8,9 +8,27 @@ import type {
   ChunkEncodedEvent,
   CaptureErrorEvent,
   CaptureStoppedEvent,
+  AudioStalledEvent,
+  AudioResumedEvent,
   EventCallback,
   ChunkMetadata,
 } from './types';
+
+type EncoderLike = {
+  encode(samples: Float32Array): Uint8Array;
+  flush(): Uint8Array;
+  createBlob(data: Uint8Array): Blob;
+};
+
+let createEncoder: (sampleRate: number) => EncoderLike = (sampleRate) =>
+  new MP3Encoder(sampleRate, 128);
+
+/** Test-only: Node lamejs needs browser globals; tests inject a stub encoder. */
+export function setEncoderFactoryForTests(
+  factory: ((sampleRate: number) => EncoderLike) | null
+): void {
+  createEncoder = factory ?? ((sampleRate) => new MP3Encoder(sampleRate, 128));
+}
 
 interface InternalChunk {
   seq: number;
@@ -26,7 +44,7 @@ class CaptureSession {
   private scriptProcessor: ScriptProcessorNode | null = null;
   private silentGain: GainNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | OscillatorNode | null = null;
-  private encoder: MP3Encoder | null = null;
+  private encoder: EncoderLike | null = null;
   
   private pcmBuffer: Float32Array[] = [];
   private totalSamples: number = 0;
@@ -40,6 +58,12 @@ class CaptureSession {
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private watchdogStartTime: number = 0;
   private watchdogCancelled: boolean = false;
+
+  private pcmSeen: boolean = false;
+  private lastProgressAt: number = 0;
+  private stalled: boolean = false;
+  private pcmPaused: boolean = false;
+  private stallCheckTimer: ReturnType<typeof setInterval> | null = null;
   
   private eventHandlers: Map<string, Set<EventCallback>> = new Map();
   private inMemoryChunks: InternalChunk[] = [];
@@ -52,6 +76,7 @@ class CaptureSession {
       audioSource: 'live',
       chunkTargetDuration: 4.0,
       watchdogTimeout: 10.0,
+      stallTimeout: 5.0,
       inMemory: false,
       ...options,
     };
@@ -65,7 +90,7 @@ class CaptureSession {
     try {
       this.audioContext = new AudioContext();
       this.sampleRate = this.audioContext.sampleRate;
-      this.encoder = new MP3Encoder(this.sampleRate, 128);
+      this.encoder = createEncoder(this.sampleRate);
 
       if (this.options.audioSource === 'live') {
         await this.setupLiveMicrophone();
@@ -75,6 +100,7 @@ class CaptureSession {
 
       this.isActive = true;
       this.startWatchdog();
+      this.startStallMonitor();
 
       return this.createHandle();
     } catch (error: any) {
@@ -119,7 +145,7 @@ class CaptureSession {
   }
 
   private handleAudioProcess(event: AudioProcessingEvent): void {
-    if (!this.isActive) return;
+    if (!this.isActive || this.pcmPaused) return;
 
     const inputBuffer = event.inputBuffer;
     const channelData = inputBuffer.getChannelData(0);
@@ -127,6 +153,7 @@ class CaptureSession {
     
     this.pcmBuffer.push(samples);
     this.totalSamples += samples.length;
+    this.noteProgress();
 
     if (this.watchdogTimer && !this.watchdogCancelled) {
       this.cancelWatchdog();
@@ -298,6 +325,68 @@ class CaptureSession {
     void this.stop();
   }
 
+  /**
+   * Mid-stream stall monitor. Emits audioStalled once when PCM/progress has
+   * been seen and then stops for stallTimeout. Never calls stop().
+   * audioStalled is emitted once per stall interval; getStatus().stalled /
+   * stalledFor stay pollable until PCM returns (audioResumed once).
+   */
+  private startStallMonitor(): void {
+    this.stopStallMonitor();
+    const stallMs = this.options.stallTimeout! * 1000;
+    const intervalMs = Math.max(25, Math.min(250, stallMs / 4));
+    this.stallCheckTimer = setInterval(() => this.checkStall(), intervalMs);
+  }
+
+  private stopStallMonitor(): void {
+    if (this.stallCheckTimer) {
+      clearInterval(this.stallCheckTimer);
+      this.stallCheckTimer = null;
+    }
+  }
+
+  private audioHasStarted(): boolean {
+    return this.pcmSeen || this.chunkCount > 0;
+  }
+
+  private noteProgress(): void {
+    if (this.stalled) {
+      const stalledFor = this.lastProgressAt > 0
+        ? (Date.now() - this.lastProgressAt) / 1000
+        : 0;
+      this.stalled = false;
+      this.emit('audioResumed', {
+        sessionId: this.sessionId,
+        stalledFor,
+        chunksEncoded: this.chunkCount,
+      } as AudioResumedEvent);
+    }
+    this.pcmSeen = true;
+    this.lastProgressAt = Date.now();
+  }
+
+  private checkStall(): void {
+    if (!this.isActive || this.stalled || !this.audioHasStarted()) return;
+    if (this.lastProgressAt <= 0) return;
+
+    const stalledFor = (Date.now() - this.lastProgressAt) / 1000;
+    if (stalledFor < this.options.stallTimeout!) return;
+
+    this.stalled = true;
+    this.emit('audioStalled', {
+      sessionId: this.sessionId,
+      stalledFor,
+      lastProgressAt: this.lastProgressAt,
+      chunksEncoded: this.chunkCount,
+      pcmSeen: this.pcmSeen,
+      reason: 'mid_stream_stall',
+    } as AudioStalledEvent);
+  }
+
+  setPcmPaused(paused: boolean): void {
+    this.pcmPaused = paused;
+  }
+
   async stop(): Promise<CaptureSummary> {
     if (this.stopPromise) {
       return this.stopPromise;
@@ -323,6 +412,9 @@ class CaptureSession {
   private async performStop(): Promise<CaptureSummary> {
     this.isActive = false;
     this.cancelWatchdog();
+    this.stopStallMonitor();
+    this.stalled = false;
+    this.pcmPaused = false;
 
     const remainingSamples = this.getRemainingBufferSamples();
     if (remainingSamples > 0) {
@@ -432,6 +524,10 @@ class CaptureSession {
       watchdogRemaining = Math.max(0, this.options.watchdogTimeout! - elapsed);
     }
 
+    const stalledFor = this.stalled && this.lastProgressAt > 0
+      ? (Date.now() - this.lastProgressAt) / 1000
+      : 0;
+
     return {
       isActive: this.isActive,
       chunksEncoded: this.chunkCount,
@@ -439,6 +535,8 @@ class CaptureSession {
       watchdogActive: this.watchdogTimer !== null && !this.watchdogCancelled,
       watchdogRemaining,
       bufferSamples: this.getRemainingBufferSamples(),
+      stalled: this.stalled,
+      stalledFor,
     };
   }
 
@@ -476,6 +574,7 @@ class CaptureSession {
       on: (eventName, callback) => this.on(eventName, callback),
       off: (eventName, callback) => this.off(eventName, callback),
       getStatus: () => this.getStatus(),
+      setPcmPaused: (paused) => this.setPcmPaused(paused),
     };
   }
 
