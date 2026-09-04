@@ -15,7 +15,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "test": "npx --yes tsx --test src/snips.test.ts isolation-demo/src/archiveSource.test.ts"
+    "test": "npx --yes tsx --test src/snips.test.ts isolation-demo/src/archiveSource.test.ts isolation-demo/src/histogramViewport.test.ts isolation-demo/src/snipPlayback.test.ts"
   },
   "keywords": [
     "audio",

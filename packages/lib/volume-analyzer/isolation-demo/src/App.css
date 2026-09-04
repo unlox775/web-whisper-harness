@@ -233,6 +233,47 @@ button:disabled {
   flex: 1;
   position: relative;
   min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.histogram-viewport {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.histogram-canvas {
+  flex: 1;
+  width: 100%;
+  min-height: 220px;
+  cursor: pointer;
+}
+
+.histogram-hscroll {
+  flex: 0 0 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-top: 1px solid #e5e7eb;
+  background: #f3f4f6;
+}
+
+.histogram-hscroll-inner {
+  height: 1px;
+}
+
+.playhead-readout {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #111827;
+  margin: -0.35rem 0 0.5rem;
+}
+
+.playhead-readout.muted {
+  color: #9ca3af;
+  font-weight: 500;
 }
 
 .histogram-placeholder {
@@ -288,10 +329,53 @@ canvas {
   border-left: 4px solid #667eea;
 }
 
+.snip-item.active {
+  background: #eef2ff;
+  border-left-color: #111827;
+}
+
+.snip-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
 .snip-id {
   font-weight: 600;
   color: #667eea;
-  margin-bottom: 0.4rem;
+}
+
+.snip-play-controls {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.snip-play-btn,
+.snip-stop-btn {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.7rem;
+  border-radius: 4px;
+}
+
+.snip-play-btn {
+  background: #667eea;
+  color: white;
+}
+
+.snip-play-btn:hover:not(:disabled) {
+  background: #5568d3;
+}
+
+.snip-stop-btn {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.snip-stop-btn:hover:not(:disabled) {
+  background: #d1d5db;
 }
 
 .snip-detail {

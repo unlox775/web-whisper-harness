@@ -42,6 +42,7 @@ Proves that volume-analyzer:
 - **Min snip length slider** (1–20s, default **5s**)
 - **Max snip length slider** (10–90s, default **60s**)
 - **Quiet-gap duration slider** (0.2–2.5s, default **0.6s**)
+- **Window slider** (seconds visible across the histogram; default fit-all for short sessions, 30s for long ones) + **Fit all**
 - **Upload session archive** file input (zip). Calls `parseSessionArchive`; maps non-null blobs into the same `ChunkWithBlob[]` live/fixture use. Errors: "Cannot read archive", "Not a supported session archive", "No audio in archive to analyze".
 - Fixture pattern dropdown (only visible when Live microphone OFF and no archive loaded):
   - "Breath-paused speech (run-on)" (default; 2.2s phrases / 1.1s breaths — proves 10s target vs 4–5 word cuts)
@@ -67,6 +68,8 @@ Proves that volume-analyzer:
   - Loud chunks: bars near top (e.g., -10dB to -20dB), green color
   - Silence threshold line: horizontal dashed line at current threshold (e.g., -40dB), updates when slider moves
   - Snip boundaries: vertical cyan lines overlaid on histogram (mark start/end of each snip), appear after "Propose Snips" clicked
+- When zoomed in: horizontal scrollbar under the canvas to pan the session timeline; noise-floor line and snip markers stay aligned to session time
+- Session-relative playhead (black) while a snip is playing or paused
 
 **Behaviors:**
 - When "Compute Volume" clicked: bars populate (one per chunk, heights = peak dB values)
@@ -82,6 +85,7 @@ Proves that volume-analyzer:
   - Column 2: Start chunk index → End chunk index (e.g., "Chunks 0–3", "Chunks 5–7")
   - Column 3: Start time → End time (e.g., "0.0s – 12.5s", "20.0s – 28.3s")
   - Column 4: Duration (e.g., "12.5s", "8.3s")
+  - Play / Pause / Stop: assemble the snip range from in-memory chunk blobs and play it (`HTMLAudioElement`). Playhead is session-relative (`snip.startTime + currentTime`). Pause freezes the playhead; Stop / ended clears it. Clicking a snip band on the histogram also plays that snip.
 
 **Behaviors:**
 - When "Propose Snips" clicked → snip list populates (one row per snip, based on silence detection)
@@ -110,7 +114,7 @@ Proves that volume-analyzer:
 
 - Does not open session-store IndexedDB (`web-whisper-db`). Fixture/live chunks stay in RAM. Archive upload calls parse-only `parseSessionArchive` and keeps blobs in RAM.
 - Does not transcribe snips (transcription-client does that)
-- Does not play audio (playback-engine does that; this demo only computes volume + snips)
+- Does not use playback-engine (demo-local `HTMLAudioElement` + WAV assemble from in-memory blobs only)
 - Volume-analyzer's public interface expects session-store reads (`analyzeVolume(sessionId)` → reads chunks from store)
 - This demo exercises the CORE LOGIC (volume computation, silence detection, snip proposal) without the storage integration
 - Storage integration is proven in session-store's Isolation Demo or the final PWA
