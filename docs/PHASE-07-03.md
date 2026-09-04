@@ -85,3 +85,7 @@ One Cursor Cloud Agent per spec. Paste the matching `docs/ai-product-slice-harne
 - Product behavior code
 - Marking any of the five specs resolved
 - Calling Codex
+
+## Follow-on
+
+Histogram zoom / scroll / snip play on the volume-analyzer Isolation Demo is a later diagnosis-UX roster: `docs/PHASE-07-04.md`.

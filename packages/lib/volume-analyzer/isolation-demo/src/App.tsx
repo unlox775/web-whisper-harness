@@ -13,7 +13,7 @@ import {
   type Snip,
 } from './volumeAnalyzer';
 import VolumeHistogram from './VolumeHistogram';
-import SnipList from './SnipList';
+import SnipList, { type SnipPlaybackStatus } from './SnipList';
 import {
   VOLUME_ANALYZER_DEMO_DB,
   loadTunerSettings,
@@ -24,6 +24,16 @@ import {
   mapArchiveChunksToAnalyze,
   messageForArchiveParseError,
 } from './archiveSource';
+import {
+  clampViewStart,
+  clampWindowSeconds,
+  defaultWindowSeconds,
+  MIN_WINDOW_SECONDS,
+  playheadSessionTime,
+  sessionDurationFromProfile,
+  viewStartToShowTime,
+} from './histogramViewport';
+import { assembleSnipWavBlob, SNIP_PLAY_ERROR } from './snipPlayback';
 
 // Storage: live/fixture/archive chunks in RAM; tuner settings in isolated
 // IndexedDB `web-whisper-volume-analyzer-demo-db` (see demoStore.ts). Must
@@ -59,6 +69,25 @@ function App() {
 
   const [isComputing, setIsComputing] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
+
+  const [windowSeconds, setWindowSeconds] = useState(MIN_WINDOW_SECONDS);
+  const [viewStart, setViewStart] = useState(0);
+  const [zoomUserSet, setZoomUserSet] = useState(false);
+
+  const [playheadTime, setPlayheadTime] = useState<number | null>(null);
+  const [playbackSnipId, setPlaybackSnipId] = useState<number | null>(null);
+  const [playbackStatus, setPlaybackStatus] = useState<SnipPlaybackStatus>('idle');
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const playingSnipRef = useRef<Snip | null>(null);
+
+  const totalDuration = useMemo(
+    () => (volumeProfile ? sessionDurationFromProfile(volumeProfile) : 0),
+    [volumeProfile]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -117,11 +146,202 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      const audio = audioRef.current;
+      if (audio) {
+        audio.pause();
+      }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+      }
+    };
+  }, []);
+
+  const hadProfileRef = useRef(false);
+  useEffect(() => {
+    if (!volumeProfile) {
+      hadProfileRef.current = false;
+      setWindowSeconds(MIN_WINDOW_SECONDS);
+      setViewStart(0);
+      return;
+    }
+    const firstProfile = !hadProfileRef.current;
+    hadProfileRef.current = true;
+    if (firstProfile && !zoomUserSet) {
+      const next = defaultWindowSeconds(totalDuration);
+      setWindowSeconds(next);
+      setViewStart(0);
+      return;
+    }
+    setWindowSeconds((current) => {
+      const nextWindow = clampWindowSeconds(current, totalDuration);
+      setViewStart((start) => clampViewStart(start, totalDuration, nextWindow));
+      return nextWindow;
+    });
+  }, [volumeProfile, totalDuration, zoomUserSet]);
+
+  const stopRaf = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }, []);
+
+  const releaseAudio = useCallback(() => {
+    stopRaf();
+    playingSnipRef.current = null;
+    const audio = audioRef.current;
+    audioRef.current = null;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  }, [stopRaf]);
+
+  const handleStopPlayback = useCallback(() => {
+    releaseAudio();
+    setPlayheadTime(null);
+    setPlaybackSnipId(null);
+    setPlaybackStatus('idle');
+  }, [releaseAudio]);
+
+  const startPlayheadLoop = useCallback(() => {
+    stopRaf();
+    const tick = () => {
+      const audio = audioRef.current;
+      const snip = playingSnipRef.current;
+      if (!audio || !snip || audio.paused) {
+        rafRef.current = null;
+        return;
+      }
+      setPlayheadTime(playheadSessionTime(snip.startTime, audio.currentTime));
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }, [stopRaf]);
+
+  const handlePausePlayback = useCallback(() => {
+    const audio = audioRef.current;
+    const snip = playingSnipRef.current;
+    stopRaf();
+    if (audio && !audio.paused) {
+      audio.pause();
+    }
+    if (audio && snip) {
+      setPlayheadTime(playheadSessionTime(snip.startTime, audio.currentTime));
+    }
+    setPlaybackStatus('paused');
+  }, [stopRaf]);
+
+  const attachAudioListeners = useCallback(
+    (audio: HTMLAudioElement) => {
+      const onEnded = () => {
+        stopRaf();
+        playingSnipRef.current = null;
+        setPlayheadTime(null);
+        setPlaybackSnipId(null);
+        setPlaybackStatus('idle');
+      };
+      const onPause = () => {
+        if (audio.ended) return;
+        const current = playingSnipRef.current;
+        if (!current) return;
+        setPlayheadTime(playheadSessionTime(current.startTime, audio.currentTime));
+      };
+      audio.addEventListener('ended', onEnded);
+      audio.addEventListener('pause', onPause);
+      audio.addEventListener('timeupdate', () => {
+        const current = playingSnipRef.current;
+        if (!current || audio.ended) return;
+        setPlayheadTime(playheadSessionTime(current.startTime, audio.currentTime));
+      });
+    },
+    [stopRaf]
+  );
+
+  const handlePlaySnip = useCallback(
+    async (snip: Snip) => {
+      if (!volumeProfile) return;
+      const existing = audioRef.current;
+      if (
+        existing &&
+        playingSnipRef.current?.snipId === snip.snipId &&
+        playbackStatus === 'paused'
+      ) {
+        try {
+          await existing.play();
+          setPlaybackStatus('playing');
+          startPlayheadLoop();
+        } catch {
+          setPlaybackError(SNIP_PLAY_ERROR);
+          handleStopPlayback();
+        }
+        return;
+      }
+
+      handleStopPlayback();
+      setPlaybackError(null);
+      setPlaybackSnipId(snip.snipId);
+      setPlaybackStatus('loading');
+      playingSnipRef.current = snip;
+      setPlayheadTime(snip.startTime);
+      setViewStart((start) => {
+        const shown = viewStartToShowTime(snip.startTime, totalDuration, windowSeconds);
+        const alreadyVisible =
+          snip.startTime >= start && snip.startTime <= start + windowSeconds;
+        return alreadyVisible ? start : shown;
+      });
+
+      try {
+        const blob = await assembleSnipWavBlob(chunks, volumeProfile, snip);
+        if (!blob) {
+          setPlaybackError(SNIP_PLAY_ERROR);
+          handleStopPlayback();
+          return;
+        }
+        const url = URL.createObjectURL(blob);
+        objectUrlRef.current = url;
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        attachAudioListeners(audio);
+        await audio.play();
+        setPlaybackStatus('playing');
+        startPlayheadLoop();
+      } catch {
+        setPlaybackError(SNIP_PLAY_ERROR);
+        handleStopPlayback();
+      }
+    },
+    [
+      volumeProfile,
+      chunks,
+      playbackStatus,
+      totalDuration,
+      windowSeconds,
+      handleStopPlayback,
+      startPlayheadLoop,
+      attachAudioListeners,
+    ]
+  );
+
   const clearAnalysis = useCallback(() => {
+    handleStopPlayback();
     setVolumeProfile(null);
     setSnips(null);
     setComputedFloorDb(null);
-  }, []);
+    setViewStart(0);
+    setZoomUserSet(false);
+    setPlaybackError(null);
+  }, [handleStopPlayback]);
 
   const stopCaptureIfRunning = useCallback(async () => {
     const handle = captureHandleRef.current;
@@ -320,8 +540,17 @@ function App() {
     }
   }, [volumeProfile, chunks, recomputeSnips]);
 
+  useEffect(() => {
+    if (playbackSnipId === null || !snips) return;
+    const stillThere = snips.some((snip) => snip.snipId === playbackSnipId);
+    if (!stillThere) {
+      handleStopPlayback();
+    }
+  }, [snips, playbackSnipId, handleStopPlayback]);
+
   const handleReset = () => {
     void stopCaptureIfRunning();
+    handleStopPlayback();
     setVolumeProfile(null);
     setSnips(null);
     setComputedFloorDb(null);
@@ -329,10 +558,32 @@ function App() {
     setMinSnipDuration(DEFAULT_SNIP_OPTIONS.minSnipDuration);
     setMaxSnipDuration(DEFAULT_SNIP_OPTIONS.maxSnipDuration);
     setMinSilenceGapDuration(DEFAULT_SNIP_OPTIONS.minSilenceGapDuration);
+    setViewStart(0);
+    setZoomUserSet(false);
+    setPlaybackError(null);
     if (dataMode === 'live') {
       setChunks([]);
       setCaptureStatus('Idle — tap Start Capture and speak');
     }
+  };
+
+  const handleWindowChange = (next: number) => {
+    setZoomUserSet(true);
+    const clamped = clampWindowSeconds(next, totalDuration || next);
+    setWindowSeconds(clamped);
+    setViewStart((start) => clampViewStart(start, totalDuration, clamped));
+  };
+
+  const handleFitAll = () => {
+    setZoomUserSet(true);
+    const next = Math.max(MIN_WINDOW_SECONDS, totalDuration || MIN_WINDOW_SECONDS);
+    setWindowSeconds(next);
+    setViewStart(0);
+  };
+
+  const handleViewStartChange = (start: number) => {
+    setZoomUserSet(true);
+    setViewStart(clampViewStart(start, totalDuration, windowSeconds));
   };
 
   const effectiveThreshold = autoNoiseFloor ? (computedFloorDb ?? quietThresholdDb) : quietThresholdDb;
@@ -421,6 +672,7 @@ function App() {
                 value={selectedPattern}
                 onChange={(e) => {
                   setSelectedPattern(e.target.value);
+                  handleStopPlayback();
                   setVolumeProfile(null);
                   setSnips(null);
                   setComputedFloorDb(null);
@@ -538,6 +790,42 @@ function App() {
             <div className="threshold-value">{minSilenceGapDuration.toFixed(1)} s</div>
           </div>
 
+          <div className="control-section">
+            <label htmlFor="histogram-window">
+              Window:{' '}
+              {volumeProfile && windowSeconds >= totalDuration - 0.001
+                ? 'all'
+                : `${windowSeconds.toFixed(0)} seconds`}
+            </label>
+            <input
+              type="range"
+              id="histogram-window"
+              min={MIN_WINDOW_SECONDS}
+              max={Math.max(MIN_WINDOW_SECONDS, Math.ceil(totalDuration || MIN_WINDOW_SECONDS))}
+              step="1"
+              value={Math.round(windowSeconds)}
+              disabled={!volumeProfile}
+              onChange={(e) => handleWindowChange(Number(e.target.value))}
+            />
+            <div className="threshold-value">
+              {volumeProfile
+                ? `${windowSeconds.toFixed(0)}s visible · ${totalDuration.toFixed(1)}s total`
+                : 'Compute volume to zoom'}
+            </div>
+            <button
+              type="button"
+              className="linkish"
+              onClick={handleFitAll}
+              disabled={!volumeProfile || windowSeconds >= totalDuration - 0.001}
+            >
+              Fit all
+            </button>
+            <p className="hint">
+              Seconds visible across the histogram width. Zoom in, then pan the scrollbar under the
+              waveform. Slider recomputes do not reset the pan.
+            </p>
+          </div>
+
           <p className="hint">
             Target snip {DEFAULT_SNIP_OPTIONS.targetSnipDuration}s (original). Sliders recompute snips
             live after volume is computed. Defaults copied from unlox775/web-whisper.
@@ -550,12 +838,29 @@ function App() {
 
         <section className="histogram-panel">
           <h2>Waveform + snip overlay (100ms peak dB)</h2>
+          {playbackStatus !== 'idle' && playheadTime !== null ? (
+            <p className="playhead-readout">
+              Playhead {playheadTime.toFixed(2)}s
+              {playbackStatus === 'paused' ? ' (paused)' : ''}
+              {playbackSnipId !== null ? ` · snip ${playbackSnipId}` : ''}
+            </p>
+          ) : (
+            <p className="playhead-readout muted">Playhead idle — play a snip to inspect the cut</p>
+          )}
+          {playbackError ? <p className="error-banner">{playbackError}</p> : null}
           <div className="histogram-container">
             {volumeProfile ? (
               <VolumeHistogram
                 volumeProfile={volumeProfile}
                 threshold={effectiveThreshold}
                 snips={snips}
+                viewStart={viewStart}
+                windowSeconds={windowSeconds}
+                playheadTime={playheadTime}
+                onViewStartChange={handleViewStartChange}
+                onSnipActivate={(snip) => {
+                  void handlePlaySnip(snip);
+                }}
               />
             ) : (
               <div className="histogram-placeholder">
@@ -574,7 +879,16 @@ function App() {
             </p>
           )}
           {snips !== null ? (
-            <SnipList snips={snips} />
+            <SnipList
+              snips={snips}
+              playbackSnipId={playbackSnipId}
+              playbackStatus={playbackStatus}
+              onPlay={(snip) => {
+                void handlePlaySnip(snip);
+              }}
+              onPause={handlePausePlayback}
+              onStop={handleStopPlayback}
+            />
           ) : (
             <div className="snip-placeholder">
               Click &quot;Compute Volume&quot; — snips propose automatically
