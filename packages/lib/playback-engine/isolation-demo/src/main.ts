@@ -37,6 +37,7 @@ const btnRecordStop = document.getElementById('btn-record-stop') as HTMLButtonEl
 const seekSlider = document.getElementById('seek-slider') as HTMLInputElement;
 const volumeSlider = document.getElementById('volume-slider') as HTMLInputElement;
 const volumeValue = document.getElementById('volume-value') as HTMLSpanElement;
+const volumeNote = document.getElementById('volume-note') as HTMLParagraphElement;
 const stateDisplay = document.getElementById('state-display') as HTMLDivElement;
 const timeDisplay = document.getElementById('time-display') as HTMLDivElement;
 const eventFeed = document.getElementById('event-feed') as HTMLDivElement;
@@ -279,10 +280,25 @@ function updateVolumeLabel(volume: number): void {
   }
 }
 
+function refreshVolumePathNote(): void {
+  if (!volumeNote) return;
+  const audio = document.querySelector('audio');
+  const path = audio?.dataset.volumePath;
+  const applied = Number(audio?.dataset.playbackVolume);
+  const shown = Number.isFinite(applied) ? applied.toFixed(2) : readSliderVolume().toFixed(2);
+  if (path === 'gain-node') {
+    volumeNote.textContent =
+      `Loudness path: GainNode (applied ${shown}). iOS Safari ignores HTMLAudioElement.volume.`;
+  } else if (path === 'element-volume') {
+    volumeNote.textContent = `Loudness path: element.volume fallback (applied ${shown}).`;
+  }
+}
+
 function applySliderVolume(handle: PlaybackHandle): void {
   const volume = readSliderVolume();
   updateVolumeLabel(volume);
   handle.setVolume(volume);
+  refreshVolumePathNote();
 }
 
 function handleVolumeChange(event: Event) {
@@ -290,6 +306,7 @@ function handleVolumeChange(event: Event) {
   updateVolumeLabel(Number.isFinite(volume) ? volume : 1);
   if (currentHandle) {
     currentHandle.setVolume(volume);
+    refreshVolumePathNote();
   }
 }
 
