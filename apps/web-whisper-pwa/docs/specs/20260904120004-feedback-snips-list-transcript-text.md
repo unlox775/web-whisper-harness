@@ -1,6 +1,8 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T12:00:04Z
+Updated: 2026-09-04T15:56:00Z
+Resolved: 2026-09-04T15:56:00Z
 Product: apps/web-whisper-pwa
 
 # Feedback: Snips list shows transcript text per snip
@@ -52,9 +54,32 @@ Screenshot the snips list with at least one row showing preview text (iPhone Dev
 
 Mark this spec resolved when:
 
-- [ ] Each snip with transcript text shows a compact, wrapping preview
-- [ ] Failed snips still show error; pending show nothing or a placeholder
-- [ ] Existing `transcripts` state is the only data source
-- [ ] iPhone screenshot proof of a snip row with text
-- [ ] `make build` published `docs/` PWA artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Each snip with transcript text shows a compact, wrapping preview
+- [x] Failed snips still show error; pending show nothing or a placeholder
+- [x] Existing `transcripts` state is the only data source
+- [x] iPhone screenshot proof of a snip row with text
+- [x] `make build` published `docs/` PWA artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-04T15:56:00Z on branch `cursor/snips-list-transcript-text-02c6` (draft PR).
+
+### What shipped
+
+- `previewSnipTranscriptText` in `apps/web-whisper-pwa/src/transcriptText.ts` flattens `TranscriptRecord.text` and truncates at 220 characters with an ellipsis.
+- `SessionDetailScreen` Debug → Snips renders that preview in muted 12px wrapping type under the `#N duration range` line. **Transcribed** chip, per-snip **RETRY**, download, and `failure.error` are unchanged.
+- Pending snips (no transcript, no failure) show italic `Pending…`. Failed snips keep the error line and do not invent text.
+- CSS: `.session-detail-snip-preview` uses `overflow-wrap: anywhere`, `word-break: break-word`, and a 4-line clamp so ~390px rows do not overflow.
+- Data source is the existing in-memory `transcripts` state only. Copy-first Transcript tab is unchanged.
+- QA helper: `?screenshot=session-snips` opens Debug → Snips with fixture transcripts.
+- `make build` refreshed `docs/` GitHub Pages PWA artifacts.
+
+### Untouched
+
+Wake lock, volume, histogram playhead, capture-engine, playback-engine, session-store.
+
+### Proof shot (iPhone 12 Pro DevTools, 390×844)
+
+- `documentation/qa/session-detail-snips-transcript-text.png`
+- Notes: `documentation/qa/session-detail-snips-transcript-text.md`
