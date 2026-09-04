@@ -46,6 +46,17 @@ import {
   hasValidTranscriptText,
   RETENTION_APPROACH_RATIO
 } from './retention.js';
+import {
+  exportSessionArchive,
+  parseSessionArchive,
+  importSessionArchive,
+  sessionArchiveFilename,
+  extensionForMime,
+  SESSION_ARCHIVE_KIND,
+  SESSION_ARCHIVE_FORMAT_VERSION,
+  SESSION_ARCHIVE_MIME,
+  SESSION_ARCHIVE_MIME_ALIASES
+} from './archive.js';
 
 /**
  * Initialize session-store with database name
@@ -107,4 +118,17 @@ export {
   isChunkAudioPurged,
   hasValidTranscriptText,
   RETENTION_APPROACH_RATIO
+};
+
+// Session audio archive (zip export / parse / import)
+export {
+  exportSessionArchive,
+  parseSessionArchive,
+  importSessionArchive,
+  sessionArchiveFilename,
+  extensionForMime,
+  SESSION_ARCHIVE_KIND,
+  SESSION_ARCHIVE_FORMAT_VERSION,
+  SESSION_ARCHIVE_MIME,
+  SESSION_ARCHIVE_MIME_ALIASES
 };

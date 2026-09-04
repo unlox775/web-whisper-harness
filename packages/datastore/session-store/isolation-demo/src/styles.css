@@ -253,6 +253,16 @@ label {
   margin-bottom: 16px;
 }
 
+.details-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.details-actions .btn {
+  width: auto;
+}
+
 .details-tabs {
   display: flex;
   gap: 8px;

@@ -8,7 +8,7 @@
     ".": "./src/index.js"
   },
   "scripts": {
-    "test": "node --test src/storage.retention.test.js"
+    "test": "node --test src/storage.retention.test.js src/archive.test.js"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.0.0"
