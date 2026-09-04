@@ -7,6 +7,7 @@ import { DeveloperConsole } from './screens/DeveloperConsole';
 import {
   isHomeAfterStopScreenshot,
   isRecordScreenshot,
+  isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
   readScreenshotMode,
 } from './screenshotMode';
@@ -16,7 +17,8 @@ function Shell() {
   const screenshot = readScreenshotMode();
   const recording = app.screen === 'recording' || isRecordScreenshot(screenshot);
   const homePreview = isHomeAfterStopScreenshot(screenshot);
-  const sessionPreview = isSessionTranscribedScreenshot(screenshot);
+  const sessionPreview =
+    isSessionTranscribedScreenshot(screenshot) || isSessionSnipsScreenshot(screenshot);
 
   if (!app.ready) {
     return (
