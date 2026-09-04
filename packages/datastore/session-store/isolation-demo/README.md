@@ -11,6 +11,7 @@ Proves that session-store:
 - Deletes sessions with cascade (session + all chunks + volume profile + snips + transcripts)
 - Enforces retention policy (deletes oldest sessions when storage quota exceeded)
 - Calculates storage stats accurately (used bytes, cap bytes, session count, chunk count)
+- Exports / imports a versioned session zip (`exportSessionArchive` / `importSessionArchive`) on the sandbox DB only (`web-whisper-isolation-demo-session-store`, never `web-whisper-db`)
 
 ## Runtime
 
@@ -59,6 +60,10 @@ Proves that session-store:
   - Snip ID input: "Snip ID for transcript" (text input)
   - Transcript text input: "Transcript text" (large text area, manual entry)
   - "Write Transcript" button (cyan)
+- **Session archive:**
+  - Session ID input (pre-filled from last created / Details)
+  - "Export Selected Session" downloads `web-whisper-session-<id>-<timestamp>.zip` (`formatVersion` 1; optional snips/transcripts/volume-profile stay off)
+  - "Import archive" file input writes a **new-id** session into the sandbox DB and refreshes the list. Bad zip / wrong `formatVersion` shows a named error.
 
 **Behaviors:**
 - When "Create Session" clicked → new session created in sandbox DB, session ID displayed ("Last created: ses_abc123"), session list panel updates (new row appears)

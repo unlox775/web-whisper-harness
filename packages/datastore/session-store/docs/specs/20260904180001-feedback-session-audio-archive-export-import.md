@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T18:00:01Z
+Resolved: 2026-09-04T20:00:00Z
 Product: packages/datastore/session-store
 
 # Feedback: Session audio archive export/import
@@ -155,10 +156,43 @@ Package README (and Isolation Demo README if needed): format, MIME, filename, `f
 
 Mark this spec resolved when:
 
-- [ ] Versioned zip format documented (MIME, filename, `formatVersion`, manifest + `chunks/`)
-- [ ] `exportSessionArchive` and `parseSessionArchive` exported and tested
-- [ ] `importSessionArchive` implemented **or** explicitly deferred in Resolution with parse-only sufficient for demos — prefer implementing import for this package’s Isolation Demo
-- [ ] Purged chunks listed, bytes skipped
-- [ ] Optional includes documented, default off
-- [ ] Isolation Demo: Export selected session + Import archive
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Versioned zip format documented (MIME, filename, `formatVersion`, manifest + `chunks/`)
+- [x] `exportSessionArchive` and `parseSessionArchive` exported and tested
+- [x] `importSessionArchive` implemented **or** explicitly deferred in Resolution with parse-only sufficient for demos — prefer implementing import for this package’s Isolation Demo
+- [x] Purged chunks listed, bytes skipped
+- [x] Optional includes documented, default off
+- [x] Isolation Demo: Export selected session + Import archive
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-04T20:00:00Z  
+**Phase:** Phase 07 — session audio archive export/import  
+**Runner:** Cursor Cloud Agent (not Codex)
+
+### What shipped
+
+**Format (v1)** — store-only ZIP (`src/zip.js`), MIME `application/zip` (import also accepts `application/x-zip-compressed`). Filename `web-whisper-session-<id>-<timestamp>.zip` where `<timestamp>` is Unix epoch milliseconds (`sessionArchiveFilename`). `kind` is `web-whisper-session-archive`. `formatVersion` is integer `1`; unknown versions fail with `unsupported_format_version`.
+
+Zip layout: `manifest.json` + `chunks/NNN.<ext>` only when audio is present. `NNN` is zero-padded `seq`. Extensions: `audio/mpeg` → `mp3`, `audio/webm` → `webm`, `audio/mp4|aac|x-m4a` → `m4a`, `audio/ogg|opus` → `ogg`, `audio/wav|wave|x-wav` → `wav`, else `bin`. Purged / empty blobs are listed in `chunks[]` with `file: null` and no zip entry. A metadata-only zip (zero chunks, or all purged) is valid.
+
+**APIs** (`src/archive.js`, exported from `src/index.js`) — errors are `{ error }` objects (match the rest of this package; they do not throw):
+
+- `exportSessionArchive(sessionId, options?)` → `Blob` (`type: application/zip`) or `{ error: 'session_not_found' | 'database_unavailable' }`. Options `{ includeSnips, includeTranscripts, includeVolumeProfile, notes }` — optional includes **default `false`**.
+- `parseSessionArchive(blob)` — **no IndexedDB writes**. Returns `{ formatVersion, exportedAt, session, notes?, chunks: [{ meta, blob | null }], snips?, transcripts?, volumeProfile? }`. Named errors: `not_a_zip`, `missing_manifest`, `corrupt_json`, `invalid_manifest`, `kind_mismatch`, `unsupported_format_version`.
+- `importSessionArchive(blob, options?)` — writes into the **current** `init()` database. **Default: new IDs** (`generateId('ses')` / `generateId('chunk')`; chunk `sessionId` rewritten). `preserveIds: true` keeps archive IDs if they do not collide; collision returns `{ error: 'id_collision' }` unless `overwrite: true` (default off). Optional JSON files are imported when present.
+
+**Isolation Demo** (`isolation-demo/`) — Export Selected Session + Import archive file input. Sandbox DB `web-whisper-isolation-demo-session-store` only; never opens `web-whisper-db`. Optional-include checkboxes stay hidden (defaults off). Bad zip / wrong `formatVersion` shows a named error.
+
+**Tests** — `src/archive.test.js` (`node:test` + `fake-indexeddb`): export→parse round-trip (fields + bytes), purged listed / bytes skipped, metadata-only session, bad zip / missing manifest / wrong `formatVersion` / kind mismatch / corrupt JSON, import new IDs with original still present, optional includes default off.
+
+### Out of scope (honored)
+
+- No PWA Export Session UI (spec `20260904180002`)
+- No playback-engine / volume-analyzer / transcription-client Isolation Demo edits
+- No retention / purge policy changes
+- Optional snips / transcripts / volume-profile not required in every archive
+
+### Automated proof
+
+`npm test --prefix packages/datastore/session-store`

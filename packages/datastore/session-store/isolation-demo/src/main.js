@@ -66,6 +66,7 @@ function setupEventListeners() {
       document.getElementById('chunk-session-id').value = result.id;
       document.getElementById('volume-session-id').value = result.id;
       document.getElementById('snip-session-id').value = result.id;
+      document.getElementById('archive-session-id').value = result.id;
       showToast(`Session created: ${result.id}`, 'success');
       await refreshUI();
     }
@@ -97,6 +98,7 @@ function setupEventListeners() {
     document.getElementById('chunk-session-id').value = result.id;
     document.getElementById('volume-session-id').value = result.id;
     document.getElementById('snip-session-id').value = result.id;
+    document.getElementById('archive-session-id').value = result.id;
     showToast(`Session created: ${result.id}`, 'success');
     await refreshUI();
     return result.id;
@@ -377,6 +379,41 @@ function setupEventListeners() {
     currentDetailsSessionId = null;
   });
 
+  document.getElementById('export-archive-btn').addEventListener('click', async () => {
+    const sessionId = document.getElementById('archive-session-id').value.trim()
+      || currentDetailsSessionId
+      || lastCreatedSessionId;
+    await exportSelectedSession(sessionId);
+  });
+
+  document.getElementById('export-details-archive-btn').addEventListener('click', async () => {
+    await exportSelectedSession(currentDetailsSessionId);
+  });
+
+  document.getElementById('import-archive-input').addEventListener('change', async (event) => {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    const statusEl = document.getElementById('archive-status');
+    statusEl.textContent = `Importing ${file.name} into sandbox DB…`;
+    const result = await sessionStore.importSessionArchive(file);
+    if (result.error) {
+      const message = archiveErrorMessage(result.error);
+      statusEl.textContent = message;
+      showToast(message, 'error');
+      return;
+    }
+    lastCreatedSessionId = result.sessionId;
+    document.getElementById('last-session-id').textContent = `Last created: ${result.sessionId}`;
+    document.getElementById('chunk-session-id').value = result.sessionId;
+    document.getElementById('volume-session-id').value = result.sessionId;
+    document.getElementById('snip-session-id').value = result.sessionId;
+    document.getElementById('archive-session-id').value = result.sessionId;
+    statusEl.textContent = `Imported ${result.sessionId} (${result.chunkIds.length} chunk(s)) into sandbox DB (not web-whisper-db).`;
+    showToast(`Imported session ${result.sessionId}`, 'success');
+    await refreshUI();
+  });
+
   // Tab switching
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -485,6 +522,7 @@ async function refreshStorageStats() {
 window.showDetails = async function(sessionId) {
   currentDetailsSessionId = sessionId;
   document.getElementById('details-session-id').textContent = sessionId;
+  document.getElementById('archive-session-id').value = sessionId;
   document.getElementById('session-details').style.display = 'block';
   await loadSessionDetails(sessionId);
 };
@@ -592,6 +630,47 @@ window.deleteSessionClick = async function(sessionId) {
     await refreshUI();
   }
 };
+
+function archiveErrorMessage(code) {
+  if (code === 'unsupported_format_version') {
+    return 'Import failed: unsupported formatVersion (this demo reads v1 only).';
+  }
+  if (code === 'kind_mismatch' || code === 'missing_manifest' || code === 'not_a_zip') {
+    return `Import failed: ${code}. Choose a web-whisper session zip.`;
+  }
+  if (code === 'session_not_found') {
+    return 'Export failed: session not found. Open Details or enter a session ID.';
+  }
+  return `Archive error: ${code}`;
+}
+
+async function exportSelectedSession(sessionId) {
+  const statusEl = document.getElementById('archive-status');
+  if (!sessionId) {
+    const message = 'Select a session (Details) or enter a session ID to export.';
+    statusEl.textContent = message;
+    showToast(message, 'error');
+    return;
+  }
+  const blob = await sessionStore.exportSessionArchive(sessionId);
+  if (blob.error) {
+    const message = archiveErrorMessage(blob.error);
+    statusEl.textContent = message;
+    showToast(message, 'error');
+    return;
+  }
+  const filename = sessionStore.sessionArchiveFilename(sessionId, Date.now());
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  statusEl.textContent = `Exported ${filename} from sandbox DB (not web-whisper-db).`;
+  showToast(`Exported ${filename}`, 'success');
+}
 
 // Utility functions
 function formatBytes(bytes) {

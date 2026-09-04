@@ -46,6 +46,25 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 - `getStorageStats()` → returns `{usedBytes, capBytes, sessionCount, chunkCount}`
 - `enforceRetentionPolicy(capBytes)` → purges audio (and volume/waveform data) for snips that already have a successful transcript when over/approaching the cap; keeps sessions and transcript text. Oldest fully-transcribed audio first. Untranscribed audio is never deleted.
 
+### Session audio archive (formatVersion 1)
+
+Portable **zip** of one session (manifest + remaining audio chunks). MIME `application/zip` (import also accepts `application/x-zip-compressed`). Filename: `web-whisper-session-<id>-<timestamp>.zip` where `<timestamp>` is Unix epoch milliseconds.
+
+Zip contents:
+
+- `manifest.json` — `formatVersion` (`1`), `exportedAt` (ISO-8601), `kind: "web-whisper-session-archive"`, session row fields (`id`, `createdAt`, `updatedAt`, `duration`, `chunkCount`, `sizeBytes`, `hasVolumeProfile`, `hasSnips`, `hasTranscript`, `status`), optional `notes`, and `chunks[]` metadata (`id`, `seq`, `startTime`, `endTime`, `duration`, `mime`, `sizeBytes`, `audioPurgedAt`, `file`)
+- `chunks/NNN.<ext>` — audio bytes only when the chunk is still present (`NNN` is zero-padded `seq`; `audio/mpeg` → `mp3`, `audio/webm` → `webm`, else `bin`)
+- Purged / empty chunks stay in `manifest.json` with `file: null` and no zip entry
+- Optional (export flags, **default OFF**): `includeSnips` → `snips.json`, `includeTranscripts` → `transcripts.json`, `includeVolumeProfile` → `volume-profile.json`
+
+APIs (errors are `{ error }` objects, same as the rest of this package):
+
+- `exportSessionArchive(sessionId, options?)` → `Blob` or `{ error: 'session_not_found' | 'database_unavailable' }`. Options: `{ includeSnips?, includeTranscripts?, includeVolumeProfile?, notes? }` — all optional includes default `false`.
+- `parseSessionArchive(blob)` → parse-only (no IndexedDB writes). Returns `{ formatVersion, exportedAt, session, notes?, chunks: [{ meta, blob | null }], snips?, transcripts?, volumeProfile? }` or a named error: `not_a_zip`, `missing_manifest`, `corrupt_json`, `invalid_manifest`, `kind_mismatch`, `unsupported_format_version`. Unknown future `formatVersion` fails; it is not guessed.
+- `importSessionArchive(blob, options?)` → writes into the **current** DB (`init()` name: PWA `web-whisper-db` or Isolation Demo `web-whisper-isolation-demo-session-store`). **Default: new IDs** (`generateId('ses')` / `generateId('chunk')`, `sessionId` rewritten on chunks). `options.preserveIds === true` keeps archive IDs if they do not collide; collision returns `{ error: 'id_collision' }` unless `overwrite === true` (default off). Optional JSON files are imported when present.
+
+`sessionArchiveFilename(sessionId, timestampMs?)` builds the documented download name.
+
 ## Isolation Demo
 
 See `isolation-demo/README.md` for the package-local runnable demo. The demo operates on a sandbox IndexedDB instance (not production data). It allows operator to: create sessions, write chunks (optionally via capture-engine in-memory → flush to store), write volume profiles + snips, write transcripts, read sessions, list sessions, delete sessions, enforce retention policy. It proves: schema works, writes work, reads work, retention policy works, storage cap is enforced.
