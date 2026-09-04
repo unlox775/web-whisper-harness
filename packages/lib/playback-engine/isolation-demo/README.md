@@ -8,9 +8,20 @@ Proves that playback-engine:
 - Plays sessions (concatenates all chunks, plays full session audio)
 - Plays chunks (plays single chunk audio)
 - Plays snips (concatenates chunk range for snip, plays snip audio)
-- Supports playback controls (play, pause, resume, seek, stop)
+- Supports playback controls (play, pause, resume, seek, stop, volume)
 - Tracks playback state (current time, duration, playing/paused/stopped status)
 - Emits playback events (playing, paused, ended, error)
+- Volume slider audibly changes loudness via `PlaybackHandle.setVolume` (Web Audio GainNode)
+
+## iOS volume quirk
+
+**iOS Safari ignores `HTMLAudioElement.volume`.** The property updates, but audible output stays at 1.0. Desktop Chrome usually honors `element.volume`.
+
+This package routes playback through:
+
+`HTMLAudioElement` → `AudioContext.createMediaElementSource` → `GainNode` → `destination`
+
+`setVolume(0..1)` writes `gain.value` (clamped). The Isolation Demo Volume slider must change audible level, not just move the range input. Confirm on iPhone Safari when possible; Chrome plus this note is the fallback.
 
 ## Runtime
 
@@ -68,6 +79,7 @@ Proves that playback-engine:
 - "Resume" button (cyan, full-width, enabled when playback paused)
 - "Stop" button (red, full-width, enabled when playback active or paused)
 - Seek slider: "Seek to time: 0.0s ← → 11.6s" (horizontal slider, enabled when playback active or paused; max value = current target duration)
+- Volume slider: 0..1, step 0.01, default 1.0; calls `handle.setVolume` (GainNode). Drag toward 0 → quieter; toward 1 → louder. Pause, change slider, resume → new level applies.
 - Current playback state: "State: Idle" (gray) / "Playing" (green) / "Paused" (yellow) / "Stopped" (red)
 - Current time / duration: "Time: 0.0s / 11.6s" (updates in real-time during playback)
 

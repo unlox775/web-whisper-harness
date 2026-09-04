@@ -36,6 +36,7 @@ const btnRecord = document.getElementById('btn-record') as HTMLButtonElement;
 const btnRecordStop = document.getElementById('btn-record-stop') as HTMLButtonElement;
 const seekSlider = document.getElementById('seek-slider') as HTMLInputElement;
 const volumeSlider = document.getElementById('volume-slider') as HTMLInputElement;
+const volumeValue = document.getElementById('volume-value') as HTMLSpanElement;
 const stateDisplay = document.getElementById('state-display') as HTMLDivElement;
 const timeDisplay = document.getElementById('time-display') as HTMLDivElement;
 const eventFeed = document.getElementById('event-feed') as HTMLDivElement;
@@ -54,6 +55,7 @@ function isLiveSource() {
 async function initialize() {
   await fixtureStore.initialize();
   setupEventListeners();
+  updateVolumeLabel(readSliderVolume());
   updateSourceMode();
 }
 
@@ -225,6 +227,7 @@ async function handlePlay() {
     }
 
     currentHandle = result;
+    applySliderVolume(currentHandle);
     setupHandleListeners(currentHandle);
     updateButtons('playing');
     updateSeekSlider();
@@ -265,9 +268,27 @@ function handleSeek(event: Event) {
   }
 }
 
+function readSliderVolume(): number {
+  const volume = parseFloat(volumeSlider.value);
+  return Number.isFinite(volume) ? volume : 1;
+}
+
+function updateVolumeLabel(volume: number): void {
+  if (volumeValue) {
+    volumeValue.textContent = volume.toFixed(2);
+  }
+}
+
+function applySliderVolume(handle: PlaybackHandle): void {
+  const volume = readSliderVolume();
+  updateVolumeLabel(volume);
+  handle.setVolume(volume);
+}
+
 function handleVolumeChange(event: Event) {
+  const volume = parseFloat((event.target as HTMLInputElement).value);
+  updateVolumeLabel(Number.isFinite(volume) ? volume : 1);
   if (currentHandle) {
-    const volume = parseFloat((event.target as HTMLInputElement).value);
     currentHandle.setVolume(volume);
   }
 }
