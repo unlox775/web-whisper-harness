@@ -100,10 +100,16 @@ Isolation Demo third source: **Upload session archive**.
 
 ### How It Was Tested
 
-- Isolation Demo: upload a v1 zip with audio → chip `ARCHIVE UPLOAD`, Play starts via `playBlobs`
-- Fixture Session / live source radios still switch and keep their existing play paths
-- Bad zip, `formatVersion: 99`, and metadata-only (all `blob: null`) show the mapped error strings
-- No IndexedDB `web-whisper-db` open on the archive path
+Isolation Demo at `packages/lib/playback-engine/isolation-demo` (`npm start`, desktop Chrome):
+
+1. **Fixture still works** — Fixture radio → Session Play. Time advanced (`0.3s / 11.6s`); chip stayed `FIXTURE MODE (mock audio)`.
+2. **Archive upload plays** — uploaded `web-whisper-session-ses_demo_archive-playable.zip` (v1, two WAV chunks). Chip `ARCHIVE UPLOAD`; left panel `ses_demo_archive`, `2 playable / 2 listed`; status `2 playable chunk(s) of 2 listed, 1.5s in RAM (session concat)`; Play → `ended()` at 1.5s via `playBlobs`.
+3. **Errors** (status line + red event feed):
+   - `not-a-session-archive.txt` → Bad zip / cannot read archive
+   - `formatVersion: 99` zip → Unsupported archive version
+   - metadata-only zip (2 purged chunks) → No playable audio in archive (purged or metadata-only); Play repeats the same error
+   - zip without `manifest.json` → Not a Web Whisper session archive
+4. Live / Fixture radios still switch. Archive path does not call `init()` / does not open `web-whisper-db`. `parseSessionArchive` is the only parser.
 
 ### Files Modified
 
