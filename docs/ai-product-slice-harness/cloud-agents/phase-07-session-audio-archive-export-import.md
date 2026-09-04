@@ -2,7 +2,7 @@
 
 **Package**: packages/datastore/session-store  
 **Spec**: packages/datastore/session-store/docs/specs/20260904180001-feedback-session-audio-archive-export-import.md  
-**Status**: unresolved  
+**Status**: resolved  
 **Runner**: Cursor Cloud Agent (not Codex)
 
 ## Model / runner notes (read first)
