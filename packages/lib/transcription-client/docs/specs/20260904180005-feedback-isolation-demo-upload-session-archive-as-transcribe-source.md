@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T18:00:05Z
 Product: packages/lib/transcription-client
@@ -78,8 +78,31 @@ Import session-store for `parseSessionArchive` only. Do not change the Groq clie
 
 Mark this spec resolved when:
 
-- [ ] Isolation Demo can upload a spec-1 zip and use chunk audio as transcribe input (concatenated, matching today’s model)
-- [ ] Live mic and fixture blob sources still work
-- [ ] Bad archive / no audio show clear errors
-- [ ] `parseSessionArchive` is the only parser
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Isolation Demo can upload a spec-1 zip and use chunk audio as transcribe input (concatenated, matching today’s model)
+- [x] Live mic and fixture blob sources still work
+- [x] Bad archive / no audio show clear errors
+- [x] `parseSessionArchive` is the only parser
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-04T20:40:00Z  
+**Phase:** Phase 07 — Isolation Demo upload session archive as transcribe source  
+**Runner:** Cursor Cloud Agent (not Codex)
+
+### What shipped
+
+Isolation Demo (`isolation-demo/`) adds **Upload session archive** next to live microphone and fixture blob.
+
+- File input accepts a session-store zip. Demo glue (`archiveSource.js`) calls session-store `parseSessionArchive` only — no zip/manifest reimplementation, no `web-whisper-db` / IndexedDB writes.
+- Non-null chunk blobs are collected in `seq` order and concatenated with `new Blob(blobs, { type: mime })` (`audio/mpeg` typical), matching live `audioBlobForTranscribe()`.
+- **Transcribe Audio** uses that blob in fixture mock or live Groq (`currentMode` / API key path unchanged). Output stays in the transcript panel.
+- Mode chip shows `SESSION ARCHIVE` (fixture: `SESSION ARCHIVE (mock transcript)`; live Groq: `LIVE GROQ + SESSION ARCHIVE`).
+- Errors: bad zip / unreadable → **Cannot read archive**; wrong `formatVersion` / kind / missing or invalid manifest → **Unsupported or invalid archive**; purged / metadata-only → **No audio in archive to transcribe**. Groq / fixture errors still use the transcript-panel path.
+- Per-chunk dropdown was not added; concatenated whole-session remains the only transcribe input.
+
+**Not changed:** Groq client (`src/transcribeAudio.js`), session-store, PWA, playback-engine, volume-analyzer.
+
+### Automated proof
+
+`node --test packages/lib/transcription-client/isolation-demo/archiveSource.test.js`

@@ -4,7 +4,8 @@
   "description": "Isolation demo for transcription-client",
   "type": "module",
   "scripts": {
-    "start": "npx http-server . -p 3002 -o"
+    "start": "npx http-server . -p 3002 -o",
+    "test": "node --test archiveSource.test.js"
   },
   "devDependencies": {
     "http-server": "^14.1.1"

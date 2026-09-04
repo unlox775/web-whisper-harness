@@ -16,6 +16,7 @@ This isolation demo proves that transcription-client works correctly:
 
 - **Fixture Mode (default)**: Returns mock transcripts without making real API calls
 - **Live Mode (optional)**: Makes real requests to Groq Whisper API with your API key
+- **Audio sources**: live microphone, optional fixture blob, or **Upload session archive** (zip from session-store export)
 
 ## Using the Demo
 
@@ -29,6 +30,14 @@ This isolation demo proves that transcription-client works correctly:
    - **"Simulate Invalid Audio"** → see invalid audio error handling
 4. Click **"Reset"** to clear output
 
+### Upload session archive
+
+1. Choose **Upload session archive** as the audio source
+2. Pick a `web-whisper-session-*.zip` exported from session-store (spec `20260904180001`)
+3. The demo calls `parseSessionArchive` and concatenates non-null chunk blobs (same one-shot blob as live mic)
+4. Click **Transcribe Audio** — fixture mock or live Groq, depending on the toggle. Transcripts stay in the panel (not written to IndexedDB)
+5. Bad zip → **Cannot read archive**. Wrong `formatVersion` / not a session archive → **Unsupported or invalid archive**. Purged / metadata-only → **No audio in archive to transcribe**
+
 ### Live Mode (Groq API Key Required)
 
 1. Toggle **"Enable Live Mode"** ON
@@ -41,6 +50,7 @@ This isolation demo proves that transcription-client works correctly:
 
 ✓ API key validation (live mode)  
 ✓ Audio transcription (fixture + live modes)  
+✓ Session archive zip as transcribe source (`parseSessionArchive`, concatenated chunks)  
 ✓ Error handling (network failure, rate limit, invalid key, invalid audio)  
 ✓ Retry logic with exponential backoff  
 ✓ Structured error results (no thrown exceptions)  

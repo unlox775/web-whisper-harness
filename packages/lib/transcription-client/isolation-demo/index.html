@@ -36,12 +36,26 @@
           <input type="radio" name="audioSource" value="fixture">
           Fixture blob (optional)
         </label>
+        <label class="radio-row">
+          <input type="radio" name="audioSource" value="archive">
+          Upload session archive
+        </label>
       </div>
 
       <div id="liveCaptureSection" class="control-section">
         <button id="recordBtn" class="btn btn-primary" type="button">Start Capture</button>
         <button id="recordStopBtn" class="btn btn-secondary" type="button" disabled>Stop Capture</button>
         <p id="audioStatus" class="audio-status">No live audio yet. Record, then Transcribe.</p>
+      </div>
+
+      <div id="archiveSection" class="control-section" style="display: none;">
+        <label for="archiveFileInput">Session archive zip</label>
+        <input
+          type="file"
+          id="archiveFileInput"
+          accept=".zip,application/zip,application/x-zip-compressed"
+        >
+        <p id="archiveStatus" class="audio-status">Choose a session archive zip, then Transcribe.</p>
       </div>
       <div class="control-section">
         <label for="apiKeyInput">Groq API Key</label>

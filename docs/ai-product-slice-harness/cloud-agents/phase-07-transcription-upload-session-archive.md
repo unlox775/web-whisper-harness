@@ -2,7 +2,7 @@
 
 **Package**: packages/lib/transcription-client  
 **Spec**: packages/lib/transcription-client/docs/specs/20260904180005-feedback-isolation-demo-upload-session-archive-as-transcribe-source.md  
-**Status**: unresolved  
+**Status**: resolved  
 **Depends on**: session-store `parseSessionArchive` (spec `20260904180001`)  
 **Runner**: Cursor Cloud Agent (not Codex)
 

@@ -2,20 +2,24 @@
  * Transcription Client Isolation Demo
  *
  * Live mic (capture-engine, in-memory) is the primary audio path.
- * Fixture blob remains optional. API key stays in the input and is not
- * written to PWA localStorage (`groq_api_key`). Reserved unused prefix:
- * `ww-iso-transcription-client:`.
+ * Fixture blob remains optional. Session archive zip is parsed with
+ * session-store parseSessionArchive and concatenated like live chunks.
+ * API key stays in the input and is not written to PWA localStorage
+ * (`groq_api_key`). Reserved unused prefix: `ww-iso-transcription-client:`.
  */
 
 import { validateKey, transcribeAudio } from '../src/index.js';
 import { createFixtureAudioBlob } from '../src/fixture.js';
 import { startCapture, CaptureError } from '@web-whisper/capture-engine';
+import { parseSessionArchive } from '@web-whisper/session-store';
+import { loadSessionArchiveForTranscribe } from './archiveSource.js';
 import '../../../isolation-demo-shared/compact-mobile.css';
 
 let currentMode = 'fixture';
 let audioSource = 'live';
 let fixtureAudioBlob = null;
 let liveBlobs = [];
+let archiveBlob = null;
 let captureHandle = null;
 let meterTimer = null;
 let isValidKey = false;
@@ -39,6 +43,9 @@ const recordBtn = document.getElementById('recordBtn');
 const recordStopBtn = document.getElementById('recordStopBtn');
 const audioStatus = document.getElementById('audioStatus');
 const liveCaptureSection = document.getElementById('liveCaptureSection');
+const archiveSection = document.getElementById('archiveSection');
+const archiveFileInput = document.getElementById('archiveFileInput');
+const archiveStatus = document.getElementById('archiveStatus');
 const audioSourceRadios = document.querySelectorAll('input[name="audioSource"]');
 
 function init() {
@@ -65,6 +72,13 @@ function setupEventListeners() {
       updateUIForMode();
     });
   });
+  archiveFileInput.addEventListener('change', handleArchiveUpload);
+}
+
+function sourceChipLabel() {
+  if (audioSource === 'live') return 'LIVE MIC';
+  if (audioSource === 'archive') return 'SESSION ARCHIVE';
+  return 'FIXTURE BLOB';
 }
 
 function handleModeToggle(event) {
@@ -74,9 +88,44 @@ function handleModeToggle(event) {
 
 function updateAudioSourceUI() {
   liveCaptureSection.style.display = audioSource === 'live' ? 'flex' : 'none';
+  archiveSection.style.display = audioSource === 'archive' ? 'flex' : 'none';
   if (audioSource === 'live') {
     updateLiveAudioStatus();
   }
+}
+
+function resetArchiveStatus(message = 'Choose a session archive zip, then Transcribe.') {
+  archiveStatus.textContent = message;
+  archiveStatus.classList.remove('error');
+}
+
+function showArchiveError(message) {
+  archiveStatus.textContent = message;
+  archiveStatus.classList.add('error');
+}
+
+async function handleArchiveUpload(event) {
+  const file = event.target.files && event.target.files[0];
+  archiveBlob = null;
+  if (!file) {
+    resetArchiveStatus();
+    return;
+  }
+
+  archiveStatus.textContent = 'Reading archive…';
+  archiveStatus.classList.remove('error');
+
+  const result = await loadSessionArchiveForTranscribe(file, parseSessionArchive);
+  if (result.error) {
+    showArchiveError(result.error);
+    return;
+  }
+
+  archiveBlob = result.blob;
+  const sessionLabel = result.sessionId ? `Session ${result.sessionId}` : 'Session archive';
+  resetArchiveStatus(
+    `${sessionLabel}: ${result.chunkCount} audio chunk(s) concatenated (not persisted)`
+  );
 }
 
 function updateLiveAudioStatus() {
@@ -89,17 +138,20 @@ function updateLiveAudioStatus() {
 
 function updateUIForMode() {
   if (currentMode === 'live') {
-    modeChip.textContent = 'LIVE GROQ + ' + (audioSource === 'live' ? 'LIVE MIC' : 'FIXTURE BLOB');
+    modeChip.textContent = 'LIVE GROQ + ' + sourceChipLabel();
     modeChip.className = 'mode-chip mode-live';
     apiKeyInput.disabled = false;
     validateKeyBtn.disabled = false;
     transcribeBtn.disabled = !isValidKey;
     errorSimSection.style.display = 'none';
   } else {
-    modeChip.textContent =
-      audioSource === 'live'
-        ? 'LIVE MIC (mock transcript until Groq is on)'
-        : 'FIXTURE MODE (mock transcript)';
+    if (audioSource === 'live') {
+      modeChip.textContent = 'LIVE MIC (mock transcript until Groq is on)';
+    } else if (audioSource === 'archive') {
+      modeChip.textContent = 'SESSION ARCHIVE (mock transcript)';
+    } else {
+      modeChip.textContent = 'FIXTURE MODE (mock transcript)';
+    }
     modeChip.className = 'mode-chip mode-fixture';
     apiKeyInput.disabled = true;
     validateKeyBtn.disabled = true;
@@ -170,7 +222,19 @@ function audioBlobForTranscribe() {
     if (liveBlobs.length === 0) return null;
     return new Blob(liveBlobs, { type: 'audio/mpeg' });
   }
+  if (audioSource === 'archive') {
+    return archiveBlob;
+  }
   return fixtureAudioBlob;
+}
+
+function missingAudioMessage() {
+  if (audioSource === 'archive') {
+    return archiveStatus.classList.contains('error')
+      ? archiveStatus.textContent
+      : 'Upload a session archive zip first.';
+  }
+  return 'No live audio yet. Start Capture, speak, then Stop Capture.';
 }
 
 async function handleValidateKey() {
@@ -222,7 +286,7 @@ function updateValidationStatus(valid, reason = '') {
 async function handleTranscribe(simulateError = null) {
   const blob = audioBlobForTranscribe();
   if (!blob) {
-    transcriptOutput.textContent = 'No live audio yet. Start Capture, speak, then Stop Capture.';
+    transcriptOutput.textContent = missingAudioMessage();
     transcriptOutput.className = 'transcript-output error';
     return;
   }
@@ -275,6 +339,9 @@ function handleReset() {
     captureHandle = null;
   }
   liveBlobs = [];
+  archiveBlob = null;
+  archiveFileInput.value = '';
+  resetArchiveStatus();
   updateLiveAudioStatus();
 
   transcriptOutput.textContent = "Click 'Transcribe Audio' to generate transcript";
