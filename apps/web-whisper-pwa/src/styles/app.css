@@ -1111,6 +1111,14 @@ a.isolation-demos-head-link {
   margin: 0;
 }
 
+.session-detail-export {
+  margin: 0 0 16px;
+}
+
+.session-detail-export-hint {
+  margin: 8px 0 0;
+}
+
 .session-detail-debug-list {
   max-height: 360px;
   overflow: auto;
