@@ -73,6 +73,7 @@ class FakeAudio {
   isConnected = false;
   parentNode: { removeChild: (node: FakeAudio) => void } | null = null;
   style: Record<string, string> = {};
+  dataset: Record<string, string> = {};
   private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
   setAttribute() {}

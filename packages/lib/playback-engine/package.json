@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "npx --yes tsx --test src/playback-volume.test.ts src/playback-handle.volume.test.ts"
+    "test": "npx --yes tsx --test src/playback-volume.test.ts src/playback-handle.volume.test.ts src/wav.test.ts"
   },
   "dependencies": {},
   "devDependencies": {

@@ -78,6 +78,8 @@ export class PlaybackHandleImpl extends EventEmitter implements PlaybackHandle {
       element: this.audio,
       graphReady: this.graphReady,
     });
+    this.audio.dataset.playbackVolume = String(this.volume);
+    this.audio.dataset.volumePath = this.graphReady ? 'gain-node' : 'element-volume';
   }
 
   private async resumeAudioContext(): Promise<void> {
@@ -225,6 +227,8 @@ export class PlaybackHandleImpl extends EventEmitter implements PlaybackHandle {
       element: this.audio,
       graphReady: this.graphReady,
     });
+    this.audio.dataset.playbackVolume = String(this.volume);
+    this.audio.dataset.volumePath = this.graphReady ? 'gain-node' : 'element-volume';
   }
 
   stop(): void {

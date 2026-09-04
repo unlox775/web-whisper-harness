@@ -1,26 +1,8 @@
 import type { SessionData, ChunkData, SnipData } from './types.js';
+import { encodeSineWavBlob } from './wav.js';
 
-// Generate simple audio blobs with different tones for distinguishability
 function generateAudioBlob(durationSeconds: number, frequency: number): Blob {
-  // For now, return a minimal MP3 header as a placeholder
-  // In production, this would use Web Audio API or pre-encoded MP3s
-  // The actual audio content isn't critical for the core logic validation
-  const sampleRate = 44100;
-  const numSamples = Math.floor(durationSeconds * sampleRate);
-  const header = new Uint8Array([
-    0xFF, 0xFB, 0x90, 0x00, // MP3 frame header (MPEG-1 Layer 3, 128kbps, 44100Hz)
-  ]);
-  
-  // Create a simple audio buffer (this is a mock; real implementation would encode properly)
-  const dataSize = Math.floor(durationSeconds * 16000); // Approximate size at 128kbps
-  const data = new Uint8Array(dataSize);
-  
-  // Fill with some pattern to simulate audio data
-  for (let i = 0; i < data.length; i++) {
-    data[i] = (Math.sin(2 * Math.PI * frequency * i / sampleRate) * 127 + 128) & 0xFF;
-  }
-  
-  return new Blob([header, data], { type: 'audio/mpeg' });
+  return encodeSineWavBlob(durationSeconds, frequency);
 }
 
 class FixtureStore {
