@@ -5,6 +5,7 @@ import {
 } from '../orchestration';
 import { formatDuration } from '../format';
 import { useApp } from '../context';
+import { playThreeBeepPattern, scheduleNoAudioBeeps } from '../noAudioAlert';
 import {
   isRecordScreenshot,
   readScreenshotMode,
@@ -117,12 +118,29 @@ export function RecordingScreen() {
   const hasTranscript = liveTranscript.trim().length > 0;
   const showOverlay = Boolean(preview) || Boolean(app.settings.groqApiKey && app.settings.keyValid);
   const showDeveloperHud = preview ? preview.showDeveloperHud : app.settings.developerModeEnabled;
+  const showNoAudio = Boolean(preview?.noAudioAlert) || (!preview && app.noAudioAlert);
+
+  useEffect(() => {
+    if (preview) return undefined;
+    return scheduleNoAudioBeeps({
+      alertActive: showNoAudio,
+      startedAt: app.noAudioAlertStartedAt,
+      play: () => {
+        playThreeBeepPattern();
+      },
+    });
+  }, [app.noAudioAlertStartedAt, preview, showNoAudio]);
 
   return (
-    <main className="recording">
+    <main className={`recording${showNoAudio ? ' no-audio' : ''}`}>
+      {showNoAudio ? (
+        <div className="no-audio-banner" role="status" data-testid="no-audio-banner">
+          No audio
+        </div>
+      ) : null}
       <div className="rec-hud">
         <div className="rec-indicator">
-          <span className="pulse" aria-hidden="true" />
+          <span className={`pulse${showNoAudio ? ' no-audio' : ''}`} aria-hidden="true" />
           <span>Recording</span>
         </div>
         <div className="duration">{formatDuration(seconds)}</div>

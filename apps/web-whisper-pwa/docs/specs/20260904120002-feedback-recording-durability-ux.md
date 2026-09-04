@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T12:00:02Z
 Product: apps/web-whisper-pwa
@@ -100,12 +100,49 @@ Screenshot the pulse / “No audio” state on iPhone (Safari DevTools device mo
 
 Mark this spec resolved when:
 
-- [ ] Screen wake lock acquired while recording, released on stop/abort, reacquired on visibility visible
-- [ ] Recording screen pulses / shows “No audio” on stall or start-with-no-audio
-- [ ] Alert clears on `audioResumed` / audio arriving
-- [ ] 3-beep pattern plays at ~5s and repeats ~every 5s while stalled
-- [ ] Mid-stream stall does **not** navigate Home or stop capture
-- [ ] `no_audio_received` no longer auto-stops (alert instead); choice documented
-- [ ] iPhone DevTools (or device) screenshot of the pulse state
-- [ ] `make build` published `docs/` PWA artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Screen wake lock acquired while recording, released on stop/abort, reacquired on visibility visible
+- [x] Recording screen pulses / shows “No audio” on stall or start-with-no-audio
+- [x] Alert clears on `audioResumed` / audio arriving
+- [x] 3-beep pattern plays at ~5s and repeats ~every 5s while stalled
+- [x] Mid-stream stall does **not** navigate Home or stop capture
+- [x] `no_audio_received` no longer auto-stops (alert instead); choice documented
+- [x] iPhone DevTools (or device) screenshot of the pulse state
+- [x] `make build` published `docs/` PWA artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-04 on branch `cursor/recording-durability-ux-12f2` (draft PR).
+
+### No auto-stop (Dave: keep recording)
+
+The PWA **does not** call `finishCapture` or `stop()` for:
+
+- mid-stream `audioStalled`
+- start-of-recording clock ticking with `chunksEncoded === 0`
+- capture-engine `captureError` reason `no_audio_received`
+
+Those cases enter the no-audio pulse / “No audio” banner / 3-beep alert and **stay on the recording screen**. The user stops manually.
+
+There is **no** longer-than-10s “never any audio” PWA timeout. Engine start-watchdog may still emit `no_audio_received` (and may stop the handle internally); the PWA treats that as an alert, not a Home bounce.
+
+`encoding_failed` still stops and returns Home. `store_write_failed` stays a toast.
+
+### What shipped
+
+1. **Wake lock** (`src/wakeLock.ts`) — Screen Wake Lock API ported from original `unlox775/web-whisper` `src/modules/capture/wake-lock.ts`. Acquired on `startRecording`, released on `finishCapture` / unmount, re-requested on `visibilitychange` → `visible`. Missing API: no throw, quiet `console.debug`.
+2. **Stall events** — `context.tsx` subscribes to `audioStalled` / `audioResumed` on the live handle and polls `getStatus()` for `chunksEncoded === 0` or `stalled`.
+3. **Visual alert** — Recording chrome slow-pulses; banner copy **“No audio”**. Clears on `audioResumed` or first `chunkEncoded`.
+4. **3-beep** — Web Audio `OscillatorNode` (880 Hz, gain 0.42). `AudioContext` created/resumed from the Start Recording gesture. First pattern at ~5s of alert (immediately if the stall is already ≥5s), then every ~5s. Does not use playback-engine `setVolume`.
+5. **`no_audio_received` policy** — `actionForCaptureError('no_audio_received') === 'alert'`. No `finishCapture('home')`.
+6. QA helper: `?screenshot=record-no-audio`
+7. `make build` refreshed `docs/` GitHub Pages PWA artifacts.
+
+### Untouched
+
+capture-engine internals, playback volume, snips list transcript text, histogram playhead, session-store.
+
+### Proof shot (iPhone DevTools, ~390px)
+
+- `documentation/qa/recording-no-audio-pulse.png`
+- Notes: `documentation/qa/recording-no-audio-pulse.md`

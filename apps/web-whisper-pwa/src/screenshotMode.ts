@@ -1,9 +1,20 @@
 import type { SessionRecord, SnipRecord, TranscriptRecord } from './types';
 
-export type RecordScreenshotMode = 'record' | 'record-hud' | 'record-dev' | 'record-durable';
+export type RecordScreenshotMode =
+  | 'record'
+  | 'record-hud'
+  | 'record-dev'
+  | 'record-durable'
+  | 'record-no-audio';
 export type IsolationScreenshotMode = 'isolation-settings';
 
-const RECORD_MODES = new Set<string>(['record', 'record-hud', 'record-dev', 'record-durable']);
+const RECORD_MODES = new Set<string>([
+  'record',
+  'record-hud',
+  'record-dev',
+  'record-durable',
+  'record-no-audio',
+]);
 
 const TALL_LIVE_TRANSCRIPT = [
   'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed.',
@@ -76,7 +87,18 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
   pending: boolean;
   showDeveloperHud: boolean;
   snipsGathered: number;
+  noAudioAlert: boolean;
 } {
+  if (mode === 'record-no-audio') {
+    return {
+      seconds: 8,
+      transcript: '',
+      pending: true,
+      showDeveloperHud: false,
+      snipsGathered: 0,
+      noAudioAlert: true,
+    };
+  }
   if (mode === 'record-hud') {
     return {
       seconds: 42,
@@ -84,6 +106,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       pending: true,
       showDeveloperHud: false,
       snipsGathered: 0,
+      noAudioAlert: false,
     };
   }
   if (mode === 'record-durable') {
@@ -93,6 +116,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       pending: false,
       showDeveloperHud: true,
       snipsGathered: 2,
+      noAudioAlert: false,
     };
   }
   if (mode === 'record-dev') {
@@ -102,6 +126,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       pending: false,
       showDeveloperHud: true,
       snipsGathered: 16,
+      noAudioAlert: false,
     };
   }
   return {
@@ -110,6 +135,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
     pending: false,
     showDeveloperHud: false,
     snipsGathered: 16,
+    noAudioAlert: false,
   };
 }
 

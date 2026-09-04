@@ -19,6 +19,15 @@ import {
   readScreenshotMode,
 } from './screenshotMode';
 import { ensureSessionDetailScreenshotSession } from './sessionDetailScreenshot';
+import { actionForCaptureError } from './captureErrorPolicy';
+import {
+  closeAlertAudio,
+  prepareAlertAudioFromUserGesture,
+} from './noAudioAlert';
+import {
+  initializeRecordingWakeLock,
+  setRecordingWakeLockActive,
+} from './wakeLock';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
 
 function captureStartOptions() {
@@ -58,6 +67,8 @@ type AppContextValue = {
   captureHandle: CaptureHandle | null;
   recordingSessionId: string | null;
   chunkCount: number;
+  noAudioAlert: boolean;
+  noAudioAlertStartedAt: number | null;
   setSettingsOpen: (open: boolean) => void;
   setDeveloperOpen: (open: boolean) => void;
   setPermissionError: (message: string | null) => void;
@@ -93,11 +104,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [captureHandle, setCaptureHandle] = useState<CaptureHandle | null>(null);
   const [recordingSessionId, setRecordingSessionId] = useState<string | null>(null);
   const [chunkCount, setChunkCount] = useState(0);
+  const [noAudioAlert, setNoAudioAlert] = useState(false);
+  const [noAudioAlertStartedAt, setNoAudioAlertStartedAt] = useState<number | null>(null);
   const toastId = useRef(0);
   const handleRef = useRef<CaptureHandle | null>(null);
   const recordingSessionIdRef = useRef<string | null>(null);
   const finishingRef = useRef(false);
   const abortRecordingRef = useRef<(() => Promise<void>) | null>(null);
+  const noAudioAlertRef = useRef(false);
 
   const capBytes = capBytesFromMb(settings.storageCapMb);
 
@@ -168,6 +182,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!ready) return;
     void enforceCap({ force: true });
   }, [ready, capBytes, enforceCap]);
+
+  useEffect(() => {
+    initializeRecordingWakeLock();
+    return () => {
+      void setRecordingWakeLockActive(false, 'unmount');
+      closeAlertAudio();
+    };
+  }, []);
+
+  const enterNoAudioAlert = useCallback((startedAt: number) => {
+    if (noAudioAlertRef.current) return;
+    noAudioAlertRef.current = true;
+    setNoAudioAlert(true);
+    setNoAudioAlertStartedAt(startedAt);
+  }, []);
+
+  const clearNoAudioAlert = useCallback(() => {
+    if (!noAudioAlertRef.current) return;
+    noAudioAlertRef.current = false;
+    setNoAudioAlert(false);
+    setNoAudioAlertStartedAt(null);
+  }, []);
 
   const updateSetting = useCallback(<K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -251,6 +287,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [goHome, refresh, sessionId, showToast]);
 
   const startRecording = useCallback(async () => {
+    prepareAlertAudioFromUserGesture();
     await enforceCap({ force: true });
     const created = await sessionStore.createSession();
     if (created.error || !created.id) {
@@ -265,13 +302,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRecordingSessionId(created.id);
       setChunkCount(0);
       setScreen('recording');
+      enterNoAudioAlert(Date.now());
+      void setRecordingWakeLockActive(true, 'start-recording');
       handle.on('chunkEncoded', (event: { seq?: number }) => {
         setChunkCount((event.seq ?? 0) + 1);
+        clearNoAudioAlert();
         void enforceCap();
       });
+      handle.on('audioStalled', (event: { stalledFor?: number }) => {
+        const stalledForMs = Math.max(0, (event.stalledFor ?? 5) * 1000);
+        enterNoAudioAlert(Date.now() - stalledForMs);
+      });
+      handle.on('audioResumed', () => {
+        clearNoAudioAlert();
+      });
       handle.on('captureError', (event: { reason?: string; details?: string }) => {
-        if (event.reason === 'no_audio_received') {
-          void finishCaptureRef.current?.('home');
+        const action = actionForCaptureError(event.reason);
+        if (action === 'alert') {
+          enterNoAudioAlert(Date.now() - 10_000);
           return;
         }
         if (event.reason === 'store_write_failed') {
@@ -279,7 +327,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           showToast('Storage write failed. Recording may be incomplete.', 'warning');
           return;
         }
-        if (event.reason === 'encoding_failed') {
+        if (action === 'stop') {
           showToast(`Recording failed: ${event.details || event.reason}`, 'error');
           void finishCaptureRef.current?.('home');
           return;
@@ -298,10 +346,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const message = error instanceof Error ? error.message : 'Could not start recording';
       showToast(message, 'error');
     }
-  }, [enforceCap, showToast]);
+  }, [clearNoAudioAlert, enforceCap, enterNoAudioAlert, showToast]);
 
   const finishCapture = useCallback(
     async (navigate: 'session' | 'home' | 'none') => {
+      void setRecordingWakeLockActive(false, navigate === 'none' ? 'unload' : 'finish-capture');
+      clearNoAudioAlert();
+      closeAlertAudio();
       if (finishingRef.current && navigate === 'none') {
         const handle = handleRef.current;
         if (handle) {
@@ -368,8 +419,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await refresh();
       }
     },
-    [enforceCap, openSession, refresh, settings.groqApiKey, settings.keyValid, showToast]
+    [clearNoAudioAlert, enforceCap, openSession, refresh, settings.groqApiKey, settings.keyValid, showToast]
   );
+
+  useEffect(() => {
+    if (!captureHandle) return undefined;
+    const tick = () => {
+      const status = captureHandle.getStatus();
+      if (!status?.isActive) return;
+      if (status.stalled || status.chunksEncoded === 0) {
+        const startedAt = status.stalled
+          ? Date.now() - Math.max(0, (status.stalledFor || 0) * 1000)
+          : Date.now();
+        enterNoAudioAlert(startedAt);
+        return;
+      }
+      clearNoAudioAlert();
+    };
+    const id = window.setInterval(tick, 250);
+    tick();
+    return () => window.clearInterval(id);
+  }, [captureHandle, clearNoAudioAlert, enterNoAudioAlert]);
 
   const finishCaptureRef = useRef(finishCapture);
   finishCaptureRef.current = finishCapture;
@@ -430,6 +500,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       captureHandle,
       recordingSessionId,
       chunkCount,
+      noAudioAlert,
+      noAudioAlertStartedAt,
       setSettingsOpen,
       setDeveloperOpen,
       setPermissionError,
@@ -452,6 +524,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       captureHandle,
       chunkCount,
       confirm,
+      noAudioAlert,
+      noAudioAlertStartedAt,
       developerOpen,
       permissionError,
       ready,
