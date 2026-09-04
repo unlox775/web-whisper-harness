@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Capture Engine Isolation Demo</title>
-  <script type="module" crossorigin src="./assets/index-Cj6qnIpJ.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-D9GSYIR6.css">
+  <script type="module" crossorigin src="./assets/index-B5F5KiQz.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DV6RwN_8.css">
 </head>
 <body>
   <!-- Top Chrome Panel -->
@@ -39,10 +39,19 @@
 
       <button id="startBtn" class="btn btn-start">Start Capture</button>
       <button id="stopBtn" class="btn btn-stop" disabled>Stop Capture</button>
+      <button id="simulateStallBtn" class="btn btn-stall" disabled>Simulate stall</button>
       <button id="resetBtn" class="btn btn-reset">Reset</button>
+
+      <div id="streamBanner" class="stream-banner idle" role="status">
+        Stream: idle
+      </div>
 
       <div class="meters">
         <h3>Live Meters</h3>
+        <div class="meter-item">
+          <span class="meter-label">Stream:</span>
+          <span id="streamMeter" class="meter-value">idle</span>
+        </div>
         <div class="meter-item">
           <span class="meter-label">Duration:</span>
           <span id="durationMeter" class="meter-value">0.00s</span>

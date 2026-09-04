@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { startCapture, CaptureError, type CaptureHandle } from '@web-whisper/capture-engine';
+import { parseSessionArchive } from '@web-whisper/session-store';
 import './App.css';
 import { FIXTURE_PATTERNS, generateFixturePattern } from './fixtures';
 import {
@@ -18,17 +19,30 @@ import {
   loadTunerSettings,
   saveTunerSettings,
 } from './demoStore';
+import {
+  ARCHIVE_ERROR_NO_AUDIO,
+  mapArchiveChunksToAnalyze,
+  messageForArchiveParseError,
+} from './archiveSource';
 
-// Storage: live/fixture chunks in RAM; tuner settings in isolated IndexedDB
-// `web-whisper-volume-analyzer-demo-db` (see demoStore.ts). Must never open
-// `web-whisper-db`. Live capture uses capture-engine inMemory mode.
+// Storage: live/fixture/archive chunks in RAM; tuner settings in isolated
+// IndexedDB `web-whisper-volume-analyzer-demo-db` (see demoStore.ts). Must
+// never open `web-whisper-db`. Archive parse uses session-store
+// parseSessionArchive only — no zip/manifest reimplementation.
+
+type DataMode = 'live' | 'fixture' | 'archive';
 
 function App() {
   const [selectedPattern, setSelectedPattern] = useState(FIXTURE_PATTERNS[0].id);
-  const [liveCaptureEnabled, setLiveCaptureEnabled] = useState(true);
+  const [dataMode, setDataMode] = useState<DataMode>('live');
   const [isCapturing, setIsCapturing] = useState(false);
   const [captureStatus, setCaptureStatus] = useState('Idle — tap Start Capture and speak');
+  const [archiveStatus, setArchiveStatus] = useState('Pick a session archive zip to analyze');
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [archiveFileName, setArchiveFileName] = useState<string | null>(null);
   const captureHandleRef = useRef<CaptureHandle | null>(null);
+  const archiveInputRef = useRef<HTMLInputElement | null>(null);
+  const liveCaptureEnabled = dataMode === 'live';
 
   const [quietThresholdDb, setQuietThresholdDb] = useState(-40);
   const [autoNoiseFloor, setAutoNoiseFloor] = useState(true);
@@ -84,14 +98,14 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (liveCaptureEnabled) {
+    if (dataMode !== 'fixture') {
       return;
     }
     const pattern = FIXTURE_PATTERNS.find((p) => p.id === selectedPattern);
     if (pattern) {
       generateFixturePattern(pattern).then(setChunks);
     }
-  }, [selectedPattern, liveCaptureEnabled]);
+  }, [selectedPattern, dataMode]);
 
   useEffect(() => {
     return () => {
@@ -124,11 +138,55 @@ function App() {
 
   const handleToggleLiveCapture = async (enabled: boolean) => {
     await stopCaptureIfRunning();
-    setLiveCaptureEnabled(enabled);
     clearAnalysis();
+    setArchiveError(null);
+    setArchiveFileName(null);
     if (enabled) {
+      setDataMode('live');
       setChunks([]);
       setCaptureStatus('Idle — tap Start Capture and speak');
+    } else {
+      setDataMode('fixture');
+    }
+  };
+
+  const handleArchiveUpload = async (file: File | undefined) => {
+    if (!file) return;
+    await stopCaptureIfRunning();
+    clearAnalysis();
+    setDataMode('archive');
+    setArchiveFileName(file.name);
+    setArchiveError(null);
+    setChunks([]);
+    setArchiveStatus('Reading archive…');
+    try {
+      const parsed = await parseSessionArchive(file);
+      if (parsed.error) {
+        const message = messageForArchiveParseError(parsed.error);
+        setArchiveError(message);
+        setArchiveStatus(message);
+        return;
+      }
+      const mapped = mapArchiveChunksToAnalyze(parsed);
+      if (mapped.length === 0) {
+        setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
+        setArchiveStatus(ARCHIVE_ERROR_NO_AUDIO);
+        return;
+      }
+      setChunks(mapped);
+      const sessionId = parsed.session?.id ? `session ${parsed.session.id}` : 'session archive';
+      const skipped = (parsed.chunks?.length ?? 0) - mapped.length;
+      setArchiveStatus(
+        `${mapped.length} playable chunk${mapped.length === 1 ? '' : 's'} from ${sessionId}` +
+          (skipped > 0 ? ` (${skipped} purged skipped)` : '')
+      );
+    } catch {
+      setArchiveError(messageForArchiveParseError('not_a_zip'));
+      setArchiveStatus(messageForArchiveParseError('not_a_zip'));
+    } finally {
+      if (archiveInputRef.current) {
+        archiveInputRef.current.value = '';
+      }
     }
   };
 
@@ -232,7 +290,13 @@ function App() {
   );
 
   const handleComputeVolume = useCallback(async () => {
-    if (chunks.length === 0) return;
+    if (chunks.length === 0) {
+      if (dataMode === 'archive') {
+        setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
+        setArchiveStatus(ARCHIVE_ERROR_NO_AUDIO);
+      }
+      return;
+    }
 
     setIsComputing(true);
     try {
@@ -248,7 +312,7 @@ function App() {
     } finally {
       setIsComputing(false);
     }
-  }, [chunks, recomputeSnips, autoNoiseFloor]);
+  }, [chunks, recomputeSnips, autoNoiseFloor, dataMode]);
 
   useEffect(() => {
     if (volumeProfile) {
@@ -265,7 +329,7 @@ function App() {
     setMinSnipDuration(DEFAULT_SNIP_OPTIONS.minSnipDuration);
     setMaxSnipDuration(DEFAULT_SNIP_OPTIONS.maxSnipDuration);
     setMinSilenceGapDuration(DEFAULT_SNIP_OPTIONS.minSilenceGapDuration);
-    if (liveCaptureEnabled) {
+    if (dataMode === 'live') {
       setChunks([]);
       setCaptureStatus('Idle — tap Start Capture and speak');
     }
@@ -281,8 +345,14 @@ function App() {
     <div className="app">
       <header className="top-chrome">
         <h1>Volume Analyzer Isolation Demo</h1>
-        <div className={`data-mode-chip ${liveCaptureEnabled ? 'live' : ''}`}>
-          {liveCaptureEnabled ? 'LIVE FROM CAPTURE (in-memory)' : 'FIXTURE AUDIO'}
+        <div
+          className={`data-mode-chip${dataMode === 'live' ? ' live' : ''}${dataMode === 'archive' ? ' archive' : ''}`}
+        >
+          {dataMode === 'live'
+            ? 'LIVE FROM CAPTURE (in-memory)'
+            : dataMode === 'archive'
+              ? 'SESSION ARCHIVE'
+              : 'FIXTURE AUDIO'}
         </div>
         <div className="db-chip" title="Isolated from the PWA and other package demos">
           IDB {VOLUME_ANALYZER_DEMO_DB}
@@ -303,7 +373,7 @@ function App() {
 
       <main className="main-content">
         <aside className="control-panel">
-          {liveCaptureEnabled ? (
+          {dataMode === 'live' ? (
             <div className="control-section">
               <p className="hint">{captureStatus}</p>
               <p className="hint">
@@ -324,6 +394,23 @@ function App() {
                 disabled={!isCapturing}
               >
                 Stop Capture
+              </button>
+            </div>
+          ) : dataMode === 'archive' ? (
+            <div className="control-section">
+              <p className="hint">{archiveStatus}</p>
+              {archiveFileName ? (
+                <p className="hint archive-filename">{archiveFileName}</p>
+              ) : null}
+              <p className="hint">
+                {chunks.length} archive chunk{chunks.length === 1 ? '' : 's'} in RAM
+              </p>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => void handleToggleLiveCapture(false)}
+              >
+                Use fixture instead
               </button>
             </div>
           ) : (
@@ -350,6 +437,26 @@ function App() {
               </p>
             </div>
           )}
+
+          <div className="control-section">
+            <label htmlFor="session-archive">Upload session archive</label>
+            <input
+              ref={archiveInputRef}
+              id="session-archive"
+              type="file"
+              accept=".zip,application/zip,application/x-zip-compressed"
+              disabled={isCapturing}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                void handleArchiveUpload(file);
+              }}
+            />
+            <p className="hint">
+              Spec-1 zip from session-store export. Parsed with parseSessionArchive; same Compute
+              Volume path as live/fixture.
+            </p>
+            {archiveError ? <p className="error-banner">{archiveError}</p> : null}
+          </div>
 
           <button
             className="primary"

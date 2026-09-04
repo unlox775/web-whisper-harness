@@ -1,3 +1,34 @@
+declare module '@web-whisper/session-store' {
+  export type ParsedArchiveChunk = {
+    meta: {
+      id: string;
+      seq: number;
+      startTime: number;
+      endTime: number;
+      duration: number;
+      mime?: string;
+      sizeBytes?: number;
+      audioPurgedAt?: number | null;
+      file?: string | null;
+    };
+    blob: Blob | null;
+  };
+
+  export function parseSessionArchive(blob: Blob | Uint8Array | ArrayBuffer): Promise<{
+    error?: string;
+    formatVersion?: number;
+    exportedAt?: string;
+    session?: {
+      id: string;
+      chunkCount?: number;
+      duration?: number;
+      status?: string;
+    };
+    notes?: string;
+    chunks?: ParsedArchiveChunk[];
+  }>;
+}
+
 declare module '@web-whisper/capture-engine' {
   export class CaptureError extends Error {
     code: string;

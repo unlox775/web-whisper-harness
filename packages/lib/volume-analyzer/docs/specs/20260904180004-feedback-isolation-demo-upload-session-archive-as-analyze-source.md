@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T18:00:04Z
 Product: packages/lib/volume-analyzer
@@ -72,8 +72,31 @@ Purged rows (`blob: null`) are skipped for analysis; if **no** playable blobs re
 
 Mark this spec resolved when:
 
-- [ ] Isolation Demo can upload a spec-1 zip and feed chunks into the existing analyze/snip pipeline
-- [ ] Live and fixture modes still work
-- [ ] Bad archive / no audio show clear errors
-- [ ] `parseSessionArchive` is the only parser
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Isolation Demo can upload a spec-1 zip and feed chunks into the existing analyze/snip pipeline
+- [x] Live and fixture modes still work
+- [x] Bad archive / no audio show clear errors
+- [x] `parseSessionArchive` is the only parser
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved**: 2026-09-04  
+**Package**: `packages/lib/volume-analyzer` Isolation Demo only  
+**Parser**: session-store `parseSessionArchive` (no zip/manifest reimplementation, no `web-whisper-db`)
+
+Shipped **Upload session archive** as a third analyze source next to live microphone and fixture patterns.
+
+### What landed
+
+- File input (`accept` zip) in `isolation-demo/src/App.tsx`. On pick, the demo calls `parseSessionArchive(file)` and maps non-null `blob` rows to the existing `ChunkWithBlob` shape (`id`, `seq`, `startTime`, `endTime`, `duration`, `blob`) in seq order via `mapArchiveChunksToAnalyze`.
+- That list is set as `chunks` — the same RAM state live/fixture already feed into `analyzeChunksVolume` → `proposeSnipsFromProfile`. Sliders still recompute snips on that path. Snip algorithm / `src/snips.ts` defaults were not changed.
+- Data-mode chip: `SESSION ARCHIVE` (amber) vs `LIVE FROM CAPTURE (in-memory)` / `FIXTURE AUDIO`. Tuner settings still persist only in `web-whisper-volume-analyzer-demo-db`.
+- Purged rows (`blob: null`) are skipped. If no playable blobs remain, the demo shows **No audio in archive to analyze** and does not call analyze on an empty list (`Compute Volume` stays disabled).
+- User-visible parse errors:
+  - bad zip / unzip fail → **Cannot read archive**
+  - wrong / missing `formatVersion` or `kind` (also missing/corrupt manifest) → **Not a supported session archive**
+  - decode failure on a chunk → existing compute-volume `alert` path (page does not crash)
+
+### Tests
+
+`isolation-demo/src/archiveSource.test.ts` covers mapper/error copy and drives `parseSessionArchive` with spec-1 zips (valid audio, purged-only, bad zip, `kind_mismatch`, `unsupported_format_version`).
