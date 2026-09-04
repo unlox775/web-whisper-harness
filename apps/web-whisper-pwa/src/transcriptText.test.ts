@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { buildTranscriptText } from './transcriptText.ts';
+import { buildTranscriptText, previewSnipTranscriptText } from './transcriptText.ts';
 import type { SnipRecord, TranscriptRecord } from './types.ts';
 
 function snip(id: string, startTime: number): SnipRecord {
@@ -68,5 +68,28 @@ describe('buildTranscriptText', () => {
   it('returns empty string when nothing is transcribed', () => {
     assert.equal(buildTranscriptText([], []), '');
     assert.equal(buildTranscriptText([snip('a', 0)], []), '');
+  });
+});
+
+describe('previewSnipTranscriptText', () => {
+  it('returns flattened text unchanged when under the preview limit', () => {
+    assert.equal(
+      previewSnipTranscriptText('Okay so the first thing is the grocery list.'),
+      'Okay so the first thing is the grocery list.'
+    );
+  });
+
+  it('flattens whitespace and returns empty for missing or blank text', () => {
+    assert.equal(previewSnipTranscriptText('Line one.\n\nLine two.'), 'Line one. Line two.');
+    assert.equal(previewSnipTranscriptText(undefined), '');
+    assert.equal(previewSnipTranscriptText('   '), '');
+  });
+
+  it('truncates long text at 220 characters with an ellipsis', () => {
+    const long = 'word '.repeat(80).trim();
+    const preview = previewSnipTranscriptText(long);
+    assert.equal(preview.endsWith('…'), true);
+    assert.ok(preview.length <= 221);
+    assert.equal(preview.includes('\n'), false);
   });
 });

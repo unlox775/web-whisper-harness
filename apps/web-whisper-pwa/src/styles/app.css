@@ -1062,6 +1062,29 @@ a.isolation-demos-head-link {
   align-items: stretch;
 }
 
+.session-detail-snip-preview,
+.session-detail-snip-pending {
+  margin: 6px 0 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.session-detail-snip-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+}
+
+.session-detail-snip-pending {
+  font-style: italic;
+}
+
 .session-detail-debug-section {
   margin-top: 20px;
   padding-top: 16px;

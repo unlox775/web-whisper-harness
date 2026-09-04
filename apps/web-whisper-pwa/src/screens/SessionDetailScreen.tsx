@@ -3,11 +3,13 @@ import * as sessionStore from '@web-whisper/session-store';
 import { playChunk, playSession, playSnip, type PlaybackHandle } from '@web-whisper/playback-engine';
 import { formatBytes, formatDuration, formatCapturedRange, formatDurationHeroStyle, jsonReplacer } from '../format';
 import { runDoctor, type DoctorReport } from '../doctor';
-import { buildTranscriptText, transcribeSession, type TranscribeProgress } from '../orchestration';
+import { transcribeSession, type TranscribeProgress } from '../orchestration';
 import { useApp } from '../context';
 import type { ChunkRecord, SessionRecord, SnipRecord, TranscriptRecord } from '../types';
 import { VolumeHistogram } from '../components/VolumeHistogram';
+import { buildTranscriptText, previewSnipTranscriptText } from '../transcriptText';
 import {
+  isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
   readScreenshotMode,
   sessionTranscribedPreview,
@@ -27,9 +29,11 @@ type DetailTab = 'transcript' | 'debug';
 
 export function SessionDetailScreen() {
   const app = useApp();
-  const screenshotPreview = isSessionTranscribedScreenshot(readScreenshotMode())
-    ? sessionTranscribedPreview()
-    : null;
+  const screenshotMode = readScreenshotMode();
+  const screenshotPreview =
+    isSessionTranscribedScreenshot(screenshotMode) || isSessionSnipsScreenshot(screenshotMode)
+      ? sessionTranscribedPreview()
+      : null;
   const sessionId = screenshotPreview?.session.id ?? app.sessionId!;
   const [session, setSession] = useState<SessionRecord | null>(screenshotPreview?.session ?? null);
   const [chunks, setChunks] = useState<ChunkRecord[]>([]);
@@ -45,7 +49,9 @@ export function SessionDetailScreen() {
   const [transcribing, setTranscribing] = useState(false);
   const [progress, setProgress] = useState<TranscribeProgress | null>(null);
   const [failures, setFailures] = useState<Array<{ snipId: string; error: string }>>([]);
-  const [detailTab, setDetailTab] = useState<DetailTab>('transcript');
+  const [detailTab, setDetailTab] = useState<DetailTab>(
+    isSessionSnipsScreenshot(screenshotMode) ? 'debug' : 'transcript'
+  );
   const [snipsTab, setSnipsTab] = useState<'chunks' | 'snips'>('snips');
   const [showHistogram, setShowHistogram] = useState(false);
   const [showDoctor, setShowDoctor] = useState(false);
@@ -608,6 +614,8 @@ export function SessionDetailScreen() {
                     const transcript = transcripts.find((t) => t.snipId === snip.id);
                     const failure = failures.find((f) => f.snipId === snip.id);
                     const hasTranscript = Boolean(transcript);
+                    const previewText = previewSnipTranscriptText(transcript?.text);
+                    const pending = !hasTranscript && !failure;
                     return (
                       <div
                         key={snip.id}
@@ -653,6 +661,11 @@ export function SessionDetailScreen() {
                             </button>
                           </div>
                         </div>
+                        {previewText ? (
+                          <p className="tiny session-detail-snip-preview">{previewText}</p>
+                        ) : pending ? (
+                          <p className="tiny session-detail-snip-pending">Pending…</p>
+                        ) : null}
                         {failure ? (
                           <p className="danger-text" style={{ fontSize: 12, marginTop: 6 }}>
                             {failure.error}

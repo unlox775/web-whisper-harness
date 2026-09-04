@@ -66,6 +66,10 @@ export function isSessionTranscribedScreenshot(mode: string | null): boolean {
   return mode === 'session-transcribed';
 }
 
+export function isSessionSnipsScreenshot(mode: string | null): boolean {
+  return mode === 'session-snips';
+}
+
 export function recordScreenshotPreview(mode: RecordScreenshotMode): {
   seconds: number;
   transcript: string;
