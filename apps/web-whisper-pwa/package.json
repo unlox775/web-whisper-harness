@@ -8,7 +8,7 @@
     "dev": "vite --host --port 5173",
     "build": "vite build",
     "preview": "vite preview --host --port 4173",
-    "test": "npx --yes tsx --test src/transcriptText.test.ts"
+    "test": "npx --yes tsx --test src/transcriptText.test.ts src/wakeLock.test.ts src/noAudioAlert.test.ts src/captureErrorPolicy.test.ts"
   },
   "dependencies": {
     "lamejs": "^1.2.1",
