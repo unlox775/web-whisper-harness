@@ -60,6 +60,12 @@
       color: #00bcd4;
     }
 
+    .data-mode-chip.archive {
+      border-color: #ce93d8;
+      background: #4a1942;
+      color: #ce93d8;
+    }
+
     .live-panel {
       margin-bottom: 16px;
       padding-bottom: 12px;
@@ -143,7 +149,19 @@
 
     .radio-group {
       display: flex;
+      flex-wrap: wrap;
       gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      border: 1px solid #3e3e42;
+      border-radius: 4px;
+      font-size: 13px;
       margin-bottom: 8px;
     }
 
@@ -305,7 +323,7 @@
       margin-right: 8px;
     }
   </style>
-  <script type="module" crossorigin src="./assets/index-B6wsBN84.js"></script>
+  <script type="module" crossorigin src="./assets/index-CLCEdsOl.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-C2U0nnk3.css">
 </head>
 <body>
@@ -315,8 +333,9 @@
   </div>
 
   <div class="main-content">
-    <!-- Fixture Data Panel -->
     <div class="panel">
+    <!-- Fixture Data Panel -->
+    <div id="fixture-data-panel">
       <h2>Fixture Session Data</h2>
       <div class="info-line">
         <span class="info-label">Session ID:</span> demo-session-001
@@ -383,6 +402,38 @@
       </table>
     </div>
 
+    <div id="archive-data-panel" style="display: none;">
+      <h2>Uploaded Session Archive</h2>
+      <div class="info-line">
+        <span class="info-label">File:</span> <span id="archive-file-name">None</span>
+      </div>
+      <div class="info-line">
+        <span class="info-label">Session ID:</span> <span id="archive-session-id">—</span>
+      </div>
+      <div class="info-line">
+        <span class="info-label">Duration:</span> <span id="archive-duration">—</span>
+      </div>
+      <div class="info-line">
+        <span class="info-label">Chunks:</span> <span id="archive-chunk-count">0 playable / 0 listed</span>
+      </div>
+      <table class="chunks-table">
+        <thead>
+          <tr>
+            <th>Seq</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Audio</th>
+          </tr>
+        </thead>
+        <tbody id="archive-chunks-tbody">
+          <tr>
+            <td colspan="4">Upload a session archive zip to inspect chunks.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+
     <!-- Playback Control Panel -->
     <div class="panel">
       <h2>Playback Controls</h2>
@@ -398,7 +449,17 @@
             <input type="radio" name="audio-source" value="fixture">
             Fixture (optional)
           </label>
+          <label>
+            <input type="radio" name="audio-source" value="archive">
+            Upload session archive
+          </label>
         </div>
+      </div>
+
+      <div class="live-panel" id="archive-panel" style="display: none;">
+        <label for="archive-file">Session archive zip</label>
+        <input type="file" id="archive-file" accept=".zip,application/zip,application/x-zip-compressed">
+        <div class="live-status" id="archive-status">Choose a Web Whisper session zip, then Play.</div>
       </div>
 
       <div class="live-panel" id="live-panel">

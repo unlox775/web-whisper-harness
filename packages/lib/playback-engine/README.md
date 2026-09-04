@@ -36,7 +36,7 @@ Audio playback for sessions, chunks, and snips. Reads MP3 audio from session-sto
 
 ## Isolation Demo
 
-See `isolation-demo/README.md` for the package-local runnable demo. The demo uses fixture audio (simulated session with 3 chunks, 2 snips) by default. Optionally, it can read from real session-store in read-only mode. It proves: session playback works (concatenates chunks), chunk playback works (single chunk), snip playback works (chunk range), seek works, pause/resume works, stop works, and the Volume slider audibly changes level via `setVolume` / GainNode (including the iOS `element.volume` quirk).
+See `isolation-demo/README.md` for the package-local runnable demo. Sources: live capture, fixture session (3 chunks, 2 snips), or an uploaded session archive zip parsed with `parseSessionArchive` (session-concat via `playBlobs`; no `web-whisper-db` writes). It proves: session playback works (concatenates chunks), chunk playback works (single chunk), snip playback works (chunk range), archive upload plays non-purged chunks, seek works, pause/resume works, stop works, and the Volume slider audibly changes level via `setVolume` / GainNode (including the iOS `element.volume` quirk).
 
 ## Product Specs
 

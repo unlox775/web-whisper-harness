@@ -8,6 +8,7 @@ Proves that playback-engine:
 - Plays sessions (concatenates all chunks, plays full session audio)
 - Plays chunks (plays single chunk audio)
 - Plays snips (concatenates chunk range for snip, plays snip audio)
+- Plays an uploaded session archive zip (RAM chunks → `playBlobs` session concat)
 - Supports playback controls (play, pause, resume, seek, stop, volume)
 - Tracks playback state (current time, duration, playing/paused/stopped status)
 - Emits playback events (playing, paused, ended, error)
@@ -31,9 +32,22 @@ This package routes playback through:
 
 ## Data Mode
 
-**Fixture by default** (simulated session with 3 chunks: 4.0s, 4.1s, 3.5s; 2 snips: chunks 0–1 = 8.1s, chunks 2–2 = 3.5s). Optionally, **real session-store read-only** mode (sandbox IndexedDB instance, not production).
+Three play sources (chip in the top chrome):
 
-**Safe default**: Fixture mode (no session-store dependency, known audio data for testing).
+- **LIVE FROM CAPTURE (in-memory)** — record with capture-engine, play RAM chunks via `playBlobs`
+- **FIXTURE MODE (mock audio)** — simulated session with 3 chunks (4.0s, 4.1s, 3.5s) and 2 snips
+- **ARCHIVE UPLOAD** — file input (`accept` zip) parsed with `@web-whisper/session-store` `parseSessionArchive`. Non-null chunk blobs stay in RAM and play as **session concat** through the same `playBlobs` path as live. Per-chunk / snip radios stay fixture-only (archives are session-concat).
+
+Does **not** open `web-whisper-db`. Does **not** reimplement the zip / `manifest.json` format.
+
+Clear errors in the archive status line and event feed:
+
+- Bad zip / cannot read archive
+- Not a Web Whisper session archive (missing manifest / wrong `kind`)
+- Unsupported archive version
+- No playable audio in archive (purged or metadata-only)
+
+**Safe default**: Live capture (no session-store write). Fixture remains available for known tones.
 
 ## Panel-Based Layout
 
