@@ -25,6 +25,7 @@ class FakeScriptProcessor extends FakeAudioNode {
 
 let lastProcessor: FakeScriptProcessor | null = null;
 let startCapture: typeof import('./captureEngine.js').startCapture;
+let setEncoderFactoryForTests: typeof import('./captureEngine.js').setEncoderFactoryForTests;
 
 function installAudioMocks(): void {
   class FakeAudioContext {
@@ -97,7 +98,18 @@ async function startTestCapture(options: {
 
 before(async () => {
   installAudioMocks();
-  ({ startCapture } = await import('./captureEngine.js'));
+  ({ startCapture, setEncoderFactoryForTests } = await import('./captureEngine.js'));
+  setEncoderFactoryForTests(() => ({
+    encode(): Uint8Array {
+      return new Uint8Array([1, 2, 3]);
+    },
+    flush(): Uint8Array {
+      return new Uint8Array();
+    },
+    createBlob(data: Uint8Array): Blob {
+      return new Blob([data], { type: 'audio/mpeg' });
+    },
+  }));
 });
 
 afterEach(async () => {
@@ -161,6 +173,26 @@ describe('mid-stream stall detection', () => {
     pushPcm();
     pushPcm();
     assert.equal(resumed.length, 1, 'audioResumed must fire once, not on every later callback');
+  });
+
+  it('setPcmPaused ignores PCM until unpaused, then resumes once', async () => {
+    const handle = await startTestCapture({ stallTimeout: 0.08, watchdogTimeout: 2.0 });
+    const stalled: AudioStalledEvent[] = [];
+    const resumed: AudioResumedEvent[] = [];
+    handle.on('audioStalled', (event) => stalled.push(event));
+    handle.on('audioResumed', (event) => resumed.push(event));
+
+    pushPcm();
+    handle.setPcmPaused(true);
+    pushPcm();
+    await wait(140);
+    assert.equal(stalled.length, 1);
+    assert.equal(handle.getStatus().isActive, true);
+
+    handle.setPcmPaused(false);
+    pushPcm();
+    assert.equal(resumed.length, 1);
+    assert.equal(handle.getStatus().stalled, false);
   });
 
   it('does not emit no_audio_received or auto-stop on mid-stream stall', async () => {

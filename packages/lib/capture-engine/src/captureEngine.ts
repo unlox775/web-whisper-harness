@@ -14,6 +14,22 @@ import type {
   ChunkMetadata,
 } from './types';
 
+type EncoderLike = {
+  encode(samples: Float32Array): Uint8Array;
+  flush(): Uint8Array;
+  createBlob(data: Uint8Array): Blob;
+};
+
+let createEncoder: (sampleRate: number) => EncoderLike = (sampleRate) =>
+  new MP3Encoder(sampleRate, 128);
+
+/** Test-only: Node lamejs needs browser globals; tests inject a stub encoder. */
+export function setEncoderFactoryForTests(
+  factory: ((sampleRate: number) => EncoderLike) | null
+): void {
+  createEncoder = factory ?? ((sampleRate) => new MP3Encoder(sampleRate, 128));
+}
+
 interface InternalChunk {
   seq: number;
   startTime: number;
@@ -28,7 +44,7 @@ class CaptureSession {
   private scriptProcessor: ScriptProcessorNode | null = null;
   private silentGain: GainNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | OscillatorNode | null = null;
-  private encoder: MP3Encoder | null = null;
+  private encoder: EncoderLike | null = null;
   
   private pcmBuffer: Float32Array[] = [];
   private totalSamples: number = 0;
@@ -74,7 +90,7 @@ class CaptureSession {
     try {
       this.audioContext = new AudioContext();
       this.sampleRate = this.audioContext.sampleRate;
-      this.encoder = new MP3Encoder(this.sampleRate, 128);
+      this.encoder = createEncoder(this.sampleRate);
 
       if (this.options.audioSource === 'live') {
         await this.setupLiveMicrophone();
