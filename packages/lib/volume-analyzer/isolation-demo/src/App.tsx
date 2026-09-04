@@ -193,6 +193,7 @@ function App() {
 
   const releaseAudio = useCallback(() => {
     stopRaf();
+    playingSnipRef.current = null;
     const audio = audioRef.current;
     audioRef.current = null;
     if (audio) {
@@ -204,7 +205,6 @@ function App() {
       URL.revokeObjectURL(objectUrlRef.current);
       objectUrlRef.current = null;
     }
-    playingSnipRef.current = null;
   }, [stopRaf]);
 
   const handleStopPlayback = useCallback(() => {
@@ -243,26 +243,25 @@ function App() {
   }, [stopRaf]);
 
   const attachAudioListeners = useCallback(
-    (audio: HTMLAudioElement, snip: Snip) => {
+    (audio: HTMLAudioElement) => {
       const onEnded = () => {
         stopRaf();
+        playingSnipRef.current = null;
         setPlayheadTime(null);
         setPlaybackSnipId(null);
         setPlaybackStatus('idle');
-        playingSnipRef.current = null;
       };
       const onPause = () => {
         if (audio.ended) return;
         const current = playingSnipRef.current;
-        if (current) {
-          setPlayheadTime(playheadSessionTime(current.startTime, audio.currentTime));
-        }
+        if (!current) return;
+        setPlayheadTime(playheadSessionTime(current.startTime, audio.currentTime));
       };
       audio.addEventListener('ended', onEnded);
       audio.addEventListener('pause', onPause);
       audio.addEventListener('timeupdate', () => {
-        const current = playingSnipRef.current ?? snip;
-        if (audio.paused && audio.ended) return;
+        const current = playingSnipRef.current;
+        if (!current || audio.ended) return;
         setPlayheadTime(playheadSessionTime(current.startTime, audio.currentTime));
       });
     },
@@ -313,7 +312,7 @@ function App() {
         objectUrlRef.current = url;
         const audio = new Audio(url);
         audioRef.current = audio;
-        attachAudioListeners(audio, snip);
+        attachAudioListeners(audio);
         await audio.play();
         setPlaybackStatus('playing');
         startPlayheadLoop();
@@ -839,7 +838,7 @@ function App() {
 
         <section className="histogram-panel">
           <h2>Waveform + snip overlay (100ms peak dB)</h2>
-          {playheadTime !== null ? (
+          {playbackStatus !== 'idle' && playheadTime !== null ? (
             <p className="playhead-readout">
               Playhead {playheadTime.toFixed(2)}s
               {playbackStatus === 'paused' ? ' (paused)' : ''}

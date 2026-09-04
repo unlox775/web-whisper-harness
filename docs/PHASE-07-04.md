@@ -14,7 +14,7 @@ Theme: Dave imported a long session archive into the volume-analyzer Isolation D
 1. **Isolation Demo — histogram zoom / scroll + snip play** — `packages/lib/volume-analyzer`  
    - Path: `packages/lib/volume-analyzer/docs/specs/20260904213000-feedback-isolation-demo-histogram-zoom-scroll-snip-play.md`  
    - Prompt: `docs/ai-product-slice-harness/cloud-agents/phase-07-volume-analyzer-histogram-zoom-scroll-snip-play.md`  
-   - Status: unresolved  
+   - Status: resolved (Isolation Demo zoom / pan / live sliders / snip play)  
    - Scope: Isolation Demo `VolumeHistogram` / `SnipList` / `App` / styles only. Window slider, horizontal pan, preserve scroll on slider recompute, play snip from in-memory blobs, session-relative playhead. `make build` to publish `docs/isolation-demos/volume-analyzer/`.  
    - Out of scope: `proposeSnipsFromProfile` / `src/snips.ts` / defaults; PWA session-detail histogram; session-store / playback-engine package edits.
 

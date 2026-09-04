@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T21:30:00Z
+Resolved: 2026-09-04T21:58:00Z
 Product: packages/lib/volume-analyzer
 
 # Feedback: Isolation Demo — histogram zoom / scroll + snip play
@@ -70,11 +71,44 @@ Do not change `src/snips.ts` / `proposeSnipsFromProfile` / defaults. Do not edit
 
 Mark this spec resolved when:
 
-- [ ] Histogram has a window (seconds-visible) control and pans when zoomed
-- [ ] Snip markers + noise floor stay aligned in the zoomed/scrolled viewport
-- [ ] Aggressiveness sliders recompute snips without resetting scroll
-- [ ] A snip can be played from in-memory blobs with a session-relative playhead
-- [ ] Pause freezes the playhead; stop/ended clears it
-- [ ] `proposeSnipsFromProfile` / core library snipping logic unchanged
-- [ ] `make build` published Isolation Demo artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Histogram has a window (seconds-visible) control and pans when zoomed
+- [x] Snip markers + noise floor stay aligned in the zoomed/scrolled viewport
+- [x] Aggressiveness sliders recompute snips without resetting scroll
+- [x] A snip can be played from in-memory blobs with a session-relative playhead
+- [x] Pause freezes the playhead; stop/ended clears it
+- [x] `proposeSnipsFromProfile` / core library snipping logic unchanged
+- [x] `make build` published Isolation Demo artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved**: 2026-09-04  
+**Package**: `packages/lib/volume-analyzer` Isolation Demo only  
+**Playhead time domain**: session-relative — `playheadTime = snip.startTime + audio.currentTime` (same flattened 100ms timeline as `proposeSnipsFromProfile`, t=0). Pause freezes; Stop / `ended` clears (idle, hidden).
+
+### What landed
+
+- **Window slider** (“Window: N seconds”) in `App.tsx`. Short sessions default to fit-all; sessions longer than 45s default to a 30s window. **Fit all** restores full duration.
+- **Horizontal scrollbar** under the canvas when `window < duration`. Pan is `viewStart` in session seconds. Snip bands/labels and the purple noise-floor line are clipped/mapped through the viewport (`histogramViewport.ts` + `VolumeHistogram.tsx`).
+- Aggressiveness sliders still call the existing `proposeSnipsFromProfile` path. Recompute **does not** reset `viewStart` (only clamps if the window no longer fits).
+- **Play / Pause / Stop** on each snip row; clicking a snip band on the histogram also plays. Demo-local `assembleSnipWavBlob` decodes overlapping in-memory chunk blobs, slices `[startTime, endTime]`, encodes WAV, plays with `HTMLAudioElement`. No playback-engine dependency.
+- Black session-relative playhead on the histogram + readout. Pause freezes; Stop / ended returns to “Playhead idle”.
+
+`src/snips.ts` / defaults / PWA session-detail histogram / session-store / playback-engine packages were not edited.
+
+### How to repro with an uploaded session zip
+
+1. Open the Isolation Demo (`docs/isolation-demos/volume-analyzer/` on Pages, or `isolation-demo` Vite).
+2. **Upload session archive** (spec-1 zip from Debug Export Session / session-store export). Chip should read SESSION ARCHIVE.
+3. **Compute Volume**. For a long take the window defaults to 30s; otherwise drag **Window** down (e.g. 8–15s) until bars are readable.
+4. Pan the scrollbar under the waveform to a suspected double-grab. Markers and noise floor stay on the session timeline.
+5. Drag noise-floor / min / max / quiet-gap while scrolled — snips recompute, pan stays.
+6. **Play** the suspect snip. Watch the playhead against the markers to hear whether the cut grabbed the wrong region.
+
+Fixture path (no zip): uncheck Live microphone → Breath-paused speech → Compute Volume → Window ~8s → pan → Play.
+
+### Tests / publish
+
+- `isolation-demo/src/histogramViewport.test.ts` — window defaults, pan clamp/preserve, time↔x, playhead session math, scrollbar round-trip.
+- `isolation-demo/src/snipPlayback.test.ts` — 0-based chunk timeline, slice ranges for a snip spanning three chunks, WAV header.
+- `make build` published `docs/isolation-demos/volume-analyzer/`.

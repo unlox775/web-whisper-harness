@@ -2,7 +2,7 @@
 
 **Package**: packages/lib/volume-analyzer  
 **Spec**: packages/lib/volume-analyzer/docs/specs/20260904213000-feedback-isolation-demo-histogram-zoom-scroll-snip-play.md  
-**Status**: unresolved  
+**Status**: resolved  
 **Runner**: Cursor Cloud Agent (not Codex)
 
 ## Model / runner notes (read first)
