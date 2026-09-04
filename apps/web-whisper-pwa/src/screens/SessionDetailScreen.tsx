@@ -692,7 +692,7 @@ export function SessionDetailScreen() {
                         <VolumeHistogram
                           profile={volumeProfile}
                           snips={snips}
-                          currentTime={hasPlayback ? currentTime : null}
+                          currentTime={hasPlayback || playing ? currentTime : null}
                           duration={playbackDuration}
                         />
                       ) : (

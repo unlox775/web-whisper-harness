@@ -19,6 +19,8 @@ type Props = {
   duration?: number | null;
 };
 
+const PLOT_PADDING = 36;
+
 export function VolumeHistogram({ profile, snips, currentTime = null, duration = null }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const samples = profile.chunkVolumes.flatMap((chunk) =>
@@ -26,101 +28,124 @@ export function VolumeHistogram({ profile, snips, currentTime = null, duration =
   );
   const plotDuration = histogramPlotDuration(samples.length, duration);
   const showPlayhead = shouldShowPlayhead(currentTime);
+  const playheadFraction = showPlayhead && currentTime != null ? timeToFraction(currentTime, plotDuration) : 0;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = rect.height * window.devicePixelRatio;
-    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
 
-    const width = rect.width;
-    const height = rect.height;
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#0a0f18';
-    ctx.fillRect(0, 0, width, height);
+    const draw = () => {
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width < 8 || rect.height < 8) return;
+      canvas.width = rect.width * window.devicePixelRatio;
+      canvas.height = rect.height * window.devicePixelRatio;
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
 
-    const padding = 36;
-    const chartWidth = width - padding * 2;
-    const chartHeight = height - padding * 2;
-    const minDb = -80;
-    const maxDb = 0;
-    const dbToY = (db: number) =>
-      padding + chartHeight - ((Math.max(minDb, Math.min(maxDb, db)) - minDb) / (maxDb - minDb)) * chartHeight;
-    const timeToX = (time: number) => padding + timeToFraction(time, plotDuration) * chartWidth;
+      const width = rect.width;
+      const height = rect.height;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = '#0a0f18';
+      ctx.fillRect(0, 0, width, height);
 
-    ctx.strokeStyle = 'rgba(156,163,175,0.35)';
-    ctx.beginPath();
-    ctx.moveTo(padding, padding);
-    ctx.lineTo(padding, padding + chartHeight);
-    ctx.lineTo(padding + chartWidth, padding + chartHeight);
-    ctx.stroke();
+      const padding = PLOT_PADDING;
+      const chartWidth = width - padding * 2;
+      const chartHeight = height - padding * 2;
+      const minDb = -80;
+      const maxDb = 0;
+      const dbToY = (db: number) =>
+        padding + chartHeight - ((Math.max(minDb, Math.min(maxDb, db)) - minDb) / (maxDb - minDb)) * chartHeight;
+      const timeToX = (time: number) => padding + timeToFraction(time, plotDuration) * chartWidth;
 
-    ctx.fillStyle = '#9ca3af';
-    ctx.font = '11px sans-serif';
-    ctx.textAlign = 'right';
-    for (let db = minDb; db <= maxDb; db += 20) {
-      const y = dbToY(db);
-      ctx.fillText(`${db}`, padding - 6, y + 4);
-    }
-
-    if (samples.length > 1) {
-      ctx.strokeStyle = '#22d3ee';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(156,163,175,0.35)';
       ctx.beginPath();
-      samples.forEach((db, index) => {
-        const x = padding + (index / (samples.length - 1)) * chartWidth;
+      ctx.moveTo(padding, padding);
+      ctx.lineTo(padding, padding + chartHeight);
+      ctx.lineTo(padding + chartWidth, padding + chartHeight);
+      ctx.stroke();
+
+      ctx.fillStyle = '#9ca3af';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'right';
+      for (let db = minDb; db <= maxDb; db += 20) {
         const y = dbToY(db);
-        if (index === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        ctx.fillText(`${db}`, padding - 6, y + 4);
+      }
+
+      if (samples.length > 1) {
+        ctx.strokeStyle = '#22d3ee';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        samples.forEach((db, index) => {
+          const x = padding + (index / (samples.length - 1)) * chartWidth;
+          const y = dbToY(db);
+          if (index === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+
+      snips.forEach((snip, index) => {
+        if (!plotDuration) return;
+        const x = timeToX(snip.startTime);
+        ctx.strokeStyle = '#f59e0b';
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, padding + chartHeight);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#f59e0b';
+        ctx.textAlign = 'left';
+        ctx.fillText(String(index + 1), x + 4, padding + 12);
       });
-      ctx.stroke();
-    }
 
-    snips.forEach((snip, index) => {
-      if (!plotDuration) return;
-      const x = timeToX(snip.startTime);
-      ctx.strokeStyle = '#f59e0b';
-      ctx.setLineDash([4, 4]);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x, padding);
-      ctx.lineTo(x, padding + chartHeight);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#f59e0b';
-      ctx.textAlign = 'left';
-      ctx.fillText(String(index + 1), x + 4, padding + 12);
-    });
+      if (showPlayhead && currentTime != null && plotDuration > 0) {
+        const x = timeToX(currentTime);
+        ctx.setLineDash([]);
+        ctx.strokeStyle = '#f8fafc';
+        ctx.shadowColor = 'rgba(248,250,252,0.85)';
+        ctx.shadowBlur = 8;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, padding + chartHeight);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#f8fafc';
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x - 6, padding + 9);
+        ctx.lineTo(x + 6, padding + 9);
+        ctx.closePath();
+        ctx.fill();
+      }
+    };
 
-    if (showPlayhead && currentTime != null && plotDuration > 0) {
-      const x = timeToX(currentTime);
-      ctx.setLineDash([]);
-      ctx.strokeStyle = '#f8fafc';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x, padding);
-      ctx.lineTo(x, padding + chartHeight);
-      ctx.stroke();
-      ctx.fillStyle = '#f8fafc';
-      ctx.beginPath();
-      ctx.moveTo(x, padding);
-      ctx.lineTo(x - 5, padding + 8);
-      ctx.lineTo(x + 5, padding + 8);
-      ctx.closePath();
-      ctx.fill();
-    }
+    draw();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(draw) : null;
+    observer?.observe(canvas);
+    return () => observer?.disconnect();
   }, [profile, snips, samples, currentTime, plotDuration, showPlayhead]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="histogram"
-      data-playhead={showPlayhead && currentTime != null ? String(currentTime) : undefined}
-      data-duration={plotDuration > 0 ? String(plotDuration) : undefined}
-    />
+    <div className="histogram-wrap">
+      <canvas
+        ref={canvasRef}
+        className="histogram"
+        data-playhead={showPlayhead && currentTime != null ? String(currentTime) : undefined}
+        data-duration={plotDuration > 0 ? String(plotDuration) : undefined}
+      />
+      {showPlayhead ? (
+        <div
+          className="histogram-playhead"
+          data-testid="histogram-playhead"
+          aria-hidden="true"
+          style={{ left: `calc(${PLOT_PADDING}px + (100% - ${PLOT_PADDING * 2}px) * ${playheadFraction})` }}
+        />
+      ) : null}
+    </div>
   );
 }
