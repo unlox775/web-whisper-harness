@@ -1,4 +1,9 @@
 import { useEffect, useRef } from 'react';
+import {
+  histogramPlotDuration,
+  shouldShowPlayhead,
+  timeToFraction,
+} from '../histogramScale';
 import type { SnipRecord } from '../types';
 
 type Props = {
@@ -10,13 +15,17 @@ type Props = {
     }>;
   };
   snips: SnipRecord[];
+  currentTime?: number | null;
+  duration?: number | null;
 };
 
-export function VolumeHistogram({ profile, snips }: Props) {
+export function VolumeHistogram({ profile, snips, currentTime = null, duration = null }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const samples = profile.chunkVolumes.flatMap((chunk) =>
     chunk.samples && chunk.samples.length ? chunk.samples : [chunk.peakDb ?? -100]
   );
+  const plotDuration = histogramPlotDuration(samples.length, duration);
+  const showPlayhead = shouldShowPlayhead(currentTime);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -41,6 +50,7 @@ export function VolumeHistogram({ profile, snips }: Props) {
     const maxDb = 0;
     const dbToY = (db: number) =>
       padding + chartHeight - ((Math.max(minDb, Math.min(maxDb, db)) - minDb) / (maxDb - minDb)) * chartHeight;
+    const timeToX = (time: number) => padding + timeToFraction(time, plotDuration) * chartWidth;
 
     ctx.strokeStyle = 'rgba(156,163,175,0.35)';
     ctx.beginPath();
@@ -70,10 +80,9 @@ export function VolumeHistogram({ profile, snips }: Props) {
       ctx.stroke();
     }
 
-    const total = samples.length * 0.1;
     snips.forEach((snip, index) => {
-      if (!total) return;
-      const x = padding + (snip.startTime / total) * chartWidth;
+      if (!plotDuration) return;
+      const x = timeToX(snip.startTime);
       ctx.strokeStyle = '#f59e0b';
       ctx.setLineDash([4, 4]);
       ctx.lineWidth = 1;
@@ -86,7 +95,32 @@ export function VolumeHistogram({ profile, snips }: Props) {
       ctx.textAlign = 'left';
       ctx.fillText(String(index + 1), x + 4, padding + 12);
     });
-  }, [profile, snips, samples]);
 
-  return <canvas ref={canvasRef} className="histogram" />;
+    if (showPlayhead && currentTime != null && plotDuration > 0) {
+      const x = timeToX(currentTime);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#f8fafc';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, padding);
+      ctx.lineTo(x, padding + chartHeight);
+      ctx.stroke();
+      ctx.fillStyle = '#f8fafc';
+      ctx.beginPath();
+      ctx.moveTo(x, padding);
+      ctx.lineTo(x - 5, padding + 8);
+      ctx.lineTo(x + 5, padding + 8);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }, [profile, snips, samples, currentTime, plotDuration, showPlayhead]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="histogram"
+      data-playhead={showPlayhead && currentTime != null ? String(currentTime) : undefined}
+      data-duration={plotDuration > 0 ? String(plotDuration) : undefined}
+    />
+  );
 }

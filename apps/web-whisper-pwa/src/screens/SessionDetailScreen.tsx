@@ -59,6 +59,7 @@ export function SessionDetailScreen() {
   const [doctorJson, setDoctorJson] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const handleRef = useRef<PlaybackHandle | null>(null);
+  const [hasPlayback, setHasPlayback] = useState(false);
   const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
   const selectTokenRef = useRef(0);
 
@@ -80,6 +81,7 @@ export function SessionDetailScreen() {
     return () => {
       handleRef.current?.stop();
       handleRef.current = null;
+      setHasPlayback(false);
     };
   }, [sessionId]);
 
@@ -116,6 +118,7 @@ export function SessionDetailScreen() {
   function bindHandle(handle: PlaybackHandle) {
     handleRef.current?.stop();
     handleRef.current = handle;
+    setHasPlayback(true);
     setPlaying(true);
     setDuration(handle.duration || session?.duration || 0);
     handle.setVolume(volume);
@@ -686,7 +689,12 @@ export function SessionDetailScreen() {
                     </button>
                     {showHistogram ? (
                       volumeProfile?.chunkVolumes?.length ? (
-                        <VolumeHistogram profile={volumeProfile} snips={snips} />
+                        <VolumeHistogram
+                          profile={volumeProfile}
+                          snips={snips}
+                          currentTime={hasPlayback ? currentTime : null}
+                          duration={playbackDuration}
+                        />
                       ) : (
                         <p className="tiny">Volume profiles not available. Run Doctor to diagnose.</p>
                       )

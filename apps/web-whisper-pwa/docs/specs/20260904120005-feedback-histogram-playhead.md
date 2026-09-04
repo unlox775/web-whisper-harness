@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T12:00:05Z
 Product: apps/web-whisper-pwa
@@ -46,10 +46,26 @@ iPhone screenshot of histogram + playhead is **optional but preferred** (DevTool
 
 Mark this spec resolved when:
 
-- [ ] `VolumeHistogram` receives `currentTime` (and duration if needed)
-- [ ] A clear playhead updates on `timeupdate` while the histogram is visible
-- [ ] Playhead shows for playing and paused-with-position; hidden when idle
-- [ ] Snip-boundary lines still make sense on the same x-scale
+- [x] `VolumeHistogram` receives `currentTime` (and duration if needed)
+- [x] A clear playhead updates on `timeupdate` while the histogram is visible
+- [x] Playhead shows for playing and paused-with-position; hidden when idle
+- [x] Snip-boundary lines still make sense on the same x-scale
 - [ ] iPhone screenshot optional but preferred
-- [ ] `make build` published `docs/` PWA artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] `make build` published `docs/` PWA artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-04 on branch `cursor/histogram-playhead-dd72` (draft PR).
+
+### What shipped
+
+- `apps/web-whisper-pwa/src/histogramScale.ts` — shared plot duration (`session`/`playback` duration, else `samples × 0.1s`) and `timeToFraction` so snip starts and `currentTime` share one x-domain.
+- `VolumeHistogram` accepts `currentTime` / `duration`. Solid white playhead (full plot height + top marker) is distinct from amber dashed snip boundaries. Hidden when `currentTime` is null (idle, no handle).
+- `SessionDetailScreen` sets `hasPlayback` on `bindHandle` and passes `currentTime={hasPlayback ? currentTime : null}` plus `playbackDuration`. `timeupdate` already updates `currentTime`, so the canvas redraws while the histogram is visible (playing or paused-with-position).
+- Unit tests in `histogramScale.test.ts`. Waveform still spans the canvas; time-mapped markers use the duration domain. Snip detection / volume-analyzer / wake lock / snips text / `setVolume` unchanged.
+
+### Proof
+
+- iPhone DevTools screenshot optional; added after browser verification when available.
+- `make build` refreshed `docs/` GitHub Pages PWA artifacts.
