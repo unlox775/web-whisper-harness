@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Session Store Isolation Demo</title>
-  <script type="module" crossorigin src="./assets/index-BWSsmoOT.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-BikSPL_Z.css">
+  <script type="module" crossorigin src="./assets/index-DX0B1sNQ.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DaoTmyza.css">
 </head>
 <body>
   <div id="app">
@@ -84,6 +84,20 @@
         </section>
 
         <section class="write-section">
+          <h3>Session Archive</h3>
+          <label>
+            Session ID:
+            <input type="text" id="archive-session-id" class="input-field" placeholder="Session ID to export">
+          </label>
+          <button id="export-archive-btn" class="btn btn-primary">Export Selected Session</button>
+          <label>
+            Import archive
+            <input type="file" id="import-archive-input" class="input-field" accept=".zip,application/zip,application/x-zip-compressed">
+          </label>
+          <div id="archive-status" class="info-text">Sandbox DB only (not web-whisper-db). Optional snips/transcripts/volume-profile stay off.</div>
+        </section>
+
+        <section class="write-section">
           <h3>Transcripts</h3>
           <label>
             Snip ID:
@@ -126,7 +140,10 @@
         <!-- Session Details Expansion -->
         <div id="session-details" class="session-details" style="display: none;">
           <h3>Session Details: <span id="details-session-id"></span></h3>
-          <button id="close-details-btn" class="btn btn-secondary">Close Details</button>
+          <div class="details-actions">
+            <button id="export-details-archive-btn" class="btn btn-primary btn-small">Export Session Archive</button>
+            <button id="close-details-btn" class="btn btn-secondary btn-small">Close Details</button>
+          </div>
           
           <div class="details-tabs">
             <button class="tab-btn active" data-tab="chunks">Chunks</button>
