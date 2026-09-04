@@ -8,11 +8,14 @@ import {
   type PlaybackError,
 } from '../../src/index.js';
 import { startCapture, CaptureError } from '@web-whisper/capture-engine';
+import type { ParsedSessionArchiveChunk } from '@web-whisper/session-store';
 import '../../../../isolation-demo-shared/compact-mobile.css';
 
-// Storage: live chunks in RAM, or in-memory fixture blobs. Must never open
-// IndexedDB `web-whisper-db`. Reserved unused namespace:
+// Storage: live chunks, fixture blobs, or parsed archive chunks in RAM.
+// Must never open IndexedDB `web-whisper-db`. Reserved unused namespace:
 // `web-whisper-isolation-demo-playback-engine`.
+
+type AudioSource = 'live' | 'fixture' | 'archive';
 
 type LiveChunk = {
   seq: number;
@@ -26,6 +29,10 @@ let currentHandle: PlaybackHandle | null = null;
 let currentDuration = 11.6;
 let captureHandle: Awaited<ReturnType<typeof startCapture>> | null = null;
 let liveChunks: LiveChunk[] = [];
+let archiveChunks: ParsedSessionArchiveChunk[] = [];
+let archiveSessionId = '';
+let archiveFileName = '';
+let archiveParsed = false;
 let meterTimer: ReturnType<typeof setInterval> | null = null;
 
 const btnPlay = document.getElementById('btn-play') as HTMLButtonElement;
@@ -45,12 +52,27 @@ const targetSelect = document.getElementById('target-select') as HTMLSelectEleme
 const dataModeChip = document.getElementById('data-mode-chip') as HTMLDivElement;
 const liveStatus = document.getElementById('live-status') as HTMLDivElement;
 const livePanel = document.getElementById('live-panel') as HTMLDivElement;
+const archivePanel = document.getElementById('archive-panel') as HTMLDivElement;
+const archiveFileInput = document.getElementById('archive-file') as HTMLInputElement;
+const archiveStatus = document.getElementById('archive-status') as HTMLDivElement;
+const fixtureDataPanel = document.getElementById('fixture-data-panel') as HTMLDivElement;
+const archiveDataPanel = document.getElementById('archive-data-panel') as HTMLDivElement;
 const fixtureTargetPanel = document.getElementById('fixture-target-panel') as HTMLDivElement;
 const radioButtons = document.querySelectorAll<HTMLInputElement>('input[name="target"]');
 const sourceRadios = document.querySelectorAll<HTMLInputElement>('input[name="audio-source"]');
 
+function currentSource(): AudioSource {
+  const value = document.querySelector<HTMLInputElement>('input[name="audio-source"]:checked')?.value;
+  if (value === 'live' || value === 'archive') return value;
+  return 'fixture';
+}
+
 function isLiveSource() {
-  return document.querySelector<HTMLInputElement>('input[name="audio-source"]:checked')?.value === 'live';
+  return currentSource() === 'live';
+}
+
+function isArchiveSource() {
+  return currentSource() === 'archive';
 }
 
 async function initialize() {
@@ -71,16 +93,29 @@ function setupEventListeners() {
   volumeSlider.addEventListener('input', handleVolumeChange);
   radioButtons.forEach((radio) => radio.addEventListener('change', updateTargetOptions));
   sourceRadios.forEach((radio) => radio.addEventListener('change', updateSourceMode));
+  archiveFileInput.addEventListener('change', () => void handleArchiveFileChange());
 }
 
 function updateSourceMode() {
-  const live = isLiveSource();
-  livePanel.style.display = live ? 'block' : 'none';
-  fixtureTargetPanel.style.display = live ? 'none' : 'block';
-  dataModeChip.textContent = live ? 'LIVE FROM CAPTURE (in-memory)' : 'FIXTURE MODE (mock audio)';
-  dataModeChip.className = `data-mode-chip ${live ? 'live' : 'fixture'}`;
+  const source = currentSource();
+  livePanel.style.display = source === 'live' ? 'block' : 'none';
+  archivePanel.style.display = source === 'archive' ? 'block' : 'none';
+  fixtureTargetPanel.style.display = source === 'fixture' ? 'block' : 'none';
+  fixtureDataPanel.style.display = source === 'archive' ? 'none' : 'block';
+  archiveDataPanel.style.display = source === 'archive' ? 'block' : 'none';
+  if (source === 'live') {
+    dataModeChip.textContent = 'LIVE FROM CAPTURE (in-memory)';
+    dataModeChip.className = 'data-mode-chip live';
+  } else if (source === 'archive') {
+    dataModeChip.textContent = 'ARCHIVE UPLOAD';
+    dataModeChip.className = 'data-mode-chip archive';
+  } else {
+    dataModeChip.textContent = 'FIXTURE MODE (mock audio)';
+    dataModeChip.className = 'data-mode-chip fixture';
+  }
   updateTargetOptions();
   updateLiveStatus();
+  updateArchiveStatus();
 }
 
 function updateLiveStatus() {
@@ -91,9 +126,187 @@ function updateLiveStatus() {
       : `${liveChunks.length} chunk(s), ${liveChunks.reduce((s, c) => s + c.duration, 0).toFixed(1)}s in RAM`;
 }
 
+function playableArchiveChunks(): ParsedSessionArchiveChunk[] {
+  return archiveChunks
+    .filter((entry) => entry.blob && entry.blob.size > 0)
+    .slice()
+    .sort((a, b) => {
+      const seqDiff = (a.meta.seq ?? 0) - (b.meta.seq ?? 0);
+      if (seqDiff !== 0) return seqDiff;
+      return (a.meta.startTime ?? 0) - (b.meta.startTime ?? 0);
+    });
+}
+
+function archiveDurationSeconds(): number {
+  const playable = playableArchiveChunks();
+  const fromChunks = playable.reduce((sum, entry) => sum + (entry.meta.duration || 0), 0);
+  return fromChunks;
+}
+
+function updateArchiveStatus() {
+  if (!isArchiveSource()) return;
+  if (!archiveParsed) {
+    archiveStatus.textContent = 'Choose a Web Whisper session zip, then Play.';
+    return;
+  }
+  const playable = playableArchiveChunks();
+  const listed = archiveChunks.length;
+  if (playable.length === 0) {
+    archiveStatus.textContent = 'No playable audio in archive (purged or metadata-only)';
+    return;
+  }
+  archiveStatus.textContent = `${playable.length} playable chunk(s) of ${listed} listed, ${archiveDurationSeconds().toFixed(1)}s in RAM (session concat)`;
+}
+
+function renderArchiveData() {
+  const fileNameEl = document.getElementById('archive-file-name');
+  const sessionIdEl = document.getElementById('archive-session-id');
+  const durationEl = document.getElementById('archive-duration');
+  const countEl = document.getElementById('archive-chunk-count');
+  const tbody = document.getElementById('archive-chunks-tbody');
+  if (!fileNameEl || !sessionIdEl || !durationEl || !countEl || !tbody) return;
+
+  fileNameEl.textContent = archiveFileName || 'None';
+  sessionIdEl.textContent = archiveSessionId || '—';
+  const playable = playableArchiveChunks();
+  durationEl.textContent = archiveParsed ? `${archiveDurationSeconds().toFixed(1)}s` : '—';
+  countEl.textContent = `${playable.length} playable / ${archiveChunks.length} listed`;
+
+  if (!archiveParsed || archiveChunks.length === 0) {
+    tbody.innerHTML =
+      '<tr><td colspan="4">Upload a session archive zip to inspect chunks.</td></tr>';
+    return;
+  }
+
+  const rows = archiveChunks
+    .slice()
+    .sort((a, b) => (a.meta.seq ?? 0) - (b.meta.seq ?? 0))
+    .map((entry) => {
+      const hasAudio = Boolean(entry.blob && entry.blob.size > 0);
+      return `<tr>
+        <td>${entry.meta.seq ?? '—'}</td>
+        <td>${Number(entry.meta.startTime ?? 0).toFixed(1)}s</td>
+        <td>${Number(entry.meta.endTime ?? 0).toFixed(1)}s</td>
+        <td>${hasAudio ? 'yes' : 'purged'}</td>
+      </tr>`;
+    });
+  tbody.innerHTML = rows.join('');
+}
+
+function archiveErrorMessage(code: string): string {
+  if (code === 'not_a_zip') return 'Bad zip / cannot read archive';
+  if (
+    code === 'missing_manifest' ||
+    code === 'kind_mismatch' ||
+    code === 'invalid_manifest' ||
+    code === 'corrupt_json'
+  ) {
+    return 'Not a Web Whisper session archive';
+  }
+  if (code === 'unsupported_format_version') return 'Unsupported archive version';
+  return `Archive error: ${code}`;
+}
+
+async function loadParseSessionArchive(): Promise<
+  | { parse: (blob: Blob) => ReturnType<typeof import('@web-whisper/session-store').parseSessionArchive> }
+  | { error: string }
+> {
+  try {
+    const mod = await import('@web-whisper/session-store');
+    if (typeof mod.parseSessionArchive !== 'function') {
+      return {
+        error:
+          'parseSessionArchive is not available. Session-store spec 1 must be on this branch.',
+      };
+    }
+    return { parse: mod.parseSessionArchive };
+  } catch {
+    return {
+      error:
+        'parseSessionArchive is not available. Session-store spec 1 must be on this branch.',
+    };
+  }
+}
+
+async function handleArchiveFileChange() {
+  const file = archiveFileInput.files?.[0];
+  archiveChunks = [];
+  archiveSessionId = '';
+  archiveFileName = file?.name || '';
+  archiveParsed = false;
+  renderArchiveData();
+
+  if (!file) {
+    updateArchiveStatus();
+    updateTargetOptions();
+    return;
+  }
+
+  const loaded = await loadParseSessionArchive();
+  if ('error' in loaded) {
+    archiveStatus.textContent = loaded.error;
+    logEvent('error', loaded.error, {});
+    updateTargetOptions();
+    return;
+  }
+
+  try {
+    const parsed = await loaded.parse(file);
+    if ('error' in parsed && parsed.error) {
+      const message = archiveErrorMessage(parsed.error);
+      archiveStatus.textContent = message;
+      logEvent('error', message, parsed);
+      updateTargetOptions();
+      return;
+    }
+
+    if (!('chunks' in parsed)) {
+      const message = 'Not a Web Whisper session archive';
+      archiveStatus.textContent = message;
+      logEvent('error', message, parsed);
+      updateTargetOptions();
+      return;
+    }
+
+    archiveChunks = parsed.chunks;
+    archiveSessionId = parsed.session?.id || '';
+    archiveParsed = true;
+    renderArchiveData();
+    updateArchiveStatus();
+    updateTargetOptions();
+
+    const playable = playableArchiveChunks();
+    if (playable.length === 0) {
+      const message = 'No playable audio in archive (purged or metadata-only)';
+      archiveStatus.textContent = message;
+      logEvent('error', message, { sessionId: archiveSessionId, listed: archiveChunks.length });
+      return;
+    }
+
+    logEvent(
+      'info',
+      `Archive parsed: ${archiveSessionId || 'unknown session'}, ${playable.length} playable chunk(s)`,
+      { sessionId: archiveSessionId, chunks: archiveChunks.length }
+    );
+  } catch (error) {
+    const message = 'Bad zip / cannot read archive';
+    archiveStatus.textContent = message;
+    logEvent('error', message, error);
+    updateTargetOptions();
+  }
+}
+
 function updateTargetOptions() {
   if (isLiveSource()) {
     currentDuration = liveChunks.reduce((sum, chunk) => sum + chunk.duration, 0) || 0;
+    targetSelect.style.display = 'none';
+    updateSeekSlider();
+    updateTimeDisplay(0, currentDuration);
+    return;
+  }
+
+  if (isArchiveSource()) {
+    currentDuration = archiveDurationSeconds();
     targetSelect.style.display = 'none';
     updateSeekSlider();
     updateTimeDisplay(0, currentDuration);
@@ -202,6 +415,22 @@ async function handlePlay() {
       }
       result = await playBlobs(liveChunks.map((chunk) => chunk.blob));
       currentDuration = liveChunks.reduce((sum, chunk) => sum + chunk.duration, 0);
+    } else if (isArchiveSource()) {
+      if (!archiveParsed) {
+        const message = 'Upload a session archive zip first.';
+        archiveStatus.textContent = message;
+        logEvent('error', message, {});
+        return;
+      }
+      const playable = playableArchiveChunks();
+      if (playable.length === 0) {
+        const message = 'No playable audio in archive (purged or metadata-only)';
+        archiveStatus.textContent = message;
+        logEvent('error', message, { sessionId: archiveSessionId });
+        return;
+      }
+      result = await playBlobs(playable.map((entry) => entry.blob as Blob));
+      currentDuration = archiveDurationSeconds();
     } else {
       const selectedTarget = document.querySelector<HTMLInputElement>('input[name="target"]:checked')?.value;
       if (selectedTarget === 'session') {
