@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-06T20:46:02Z
+Resolved: 2026-09-06T21:50:00Z
 Product: packages/lib/volume-analyzer
 
 # Feedback: Isolation Demo — snip overlap + boundary-repeat detection
@@ -118,11 +119,48 @@ Pure helper tests (no browser required):
 
 Mark this spec resolved when:
 
-- [ ] Time overlaps between snip `start`/`end` ranges are detected and listed
-- [ ] Adjacent 1–3 token transcript repeats are detected when text exists
-- [ ] Contiguous times + repeated words is a first-class finding even when overlap is zero
-- [ ] Live (archived) vs recomputed side-by-side / overlay exists when both sets are loaded
-- [ ] Helper is unit-tested (overlap, abut, BLT-style n-gram)
-- [ ] `proposeSnipsFromProfile` / defaults unchanged
-- [ ] `make build` published Isolation Demo (and PWA if doctor.ts changed)
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Time overlaps between snip `start`/`end` ranges are detected and listed
+- [x] Adjacent 1–3 token transcript repeats are detected when text exists
+- [x] Contiguous times + repeated words is a first-class finding even when overlap is zero
+- [x] Live (archived) vs recomputed side-by-side / overlay exists when both sets are loaded
+- [x] Helper is unit-tested (overlap, abut, BLT-style n-gram)
+- [x] `proposeSnipsFromProfile` / defaults unchanged
+- [x] `make build` published Isolation Demo (and PWA if doctor.ts changed)
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved**: 2026-09-06  
+**Package**: `packages/lib/volume-analyzer` Isolation Demo + shared helper; optional PWA `snipScan` reuse  
+**Algorithm**: unchanged — `src/snips.ts` / `proposeSnipsFromProfile` / `DEFAULT_SNIP_OPTIONS` were not edited. No new doctor package.
+
+### What landed
+
+- Shared helper `src/boundaryScan.ts` (`scanSnipBoundaries`), exported from the library:
+  - **Time overlap**: intersection length **> 1 ms** (`OVERLAP_EPSILON_SECONDS`). Abutting (`|endA − startB| ≤ ε`) is **not** an overlap.
+  - **Adjacent n-gram**: last 1–3 tokens of N ≈ first 1–3 of N+1. Tokenize: lowercase, strip wrapping punctuation, strip possessive `'s` / trailing `'`. Comparison stems one trailing `s` (not `ss`) on tokens longer than 3 chars so `quesadilla` ≈ `quesadillas` (**k=2**). `BLT's.` → `blt` equals first token of `BLT is…` (**k=1**).
+  - **`contiguousBoundaryRepeat`**: abutting (overlap duration 0) **and** an n-gram hit. Missing / empty transcripts skip n-gram for that boundary (or all boundaries) and still report overlaps.
+- Isolation Demo **Doctor / boundary** panel (right column, above Live / Proposed Snips): snip / overlap / n-gram / contiguous-repeat counts; flagged pairs with clocks + repeated tokens. Headline copy: **Contiguous times with repeated words — not a time overlap.** Overlap count 0 is not “no issues.”
+- When both live (archived) and recomputed sets exist: side-by-side counts + separate flagged-pair lists; histogram overlay keeps amber-dashed live vs cyan recomputed, plus rose (contiguous) / purple (overlap) ticks.
+- No transcripts → explicit **n-gram skipped — no transcripts**.
+- **Load BLT diagnosis fixture** (no Groq, no audio) loads Dave’s `1:55→2:11` / `2:11→2:30` live cuts plus a sample overlapping recomputed pair so the comparison is visible without a zip.
+- Optional: PWA `apps/web-whisper-pwa/src/doctor.ts` `snipScan` joins `getTranscriptsForSession` and appends `formatBoundaryScanIssues`.
+
+### Doctor panel (BLT fixture)
+
+![Doctor / boundary panel — contiguous BLT repeat with overlap 0, live vs recomputed side-by-side](./20260906204602-doctor-panel.png)
+
+Live: 3 snips, **0 overlaps**, 2 n-gram / 2 contiguous-repeats (`blt` k=1, `cheese quesadilla` k=2).  
+Recomputed: 2 snips, **1 overlap** (2.000s), **n-gram skipped — no transcripts**.
+
+### How to repro
+
+1. Open the Isolation Demo (`docs/isolation-demos/volume-analyzer/` on Pages, or isolation-demo Vite).
+2. Click **Load BLT diagnosis fixture**. The doctor panel should show the headline, live vs recomputed counts, BLT contiguous-repeat pairs, and recomputed overlap + n-gram skipped.
+3. Or upload a Spec B debug zip (live snips + transcripts), then **Compute Volume**: doctor runs on both sets.
+4. Fixture-only **Compute Volume**: doctor still runs; n-gram skipped because the demo has no transcripts.
+
+### Tests / publish
+
+- `src/boundaryScan.test.ts` — overlap `[0,10]`/`[8,15]`; abut `[115,131]`/`[131,150]` no overlap; BLT n-gram; quesadilla k=2; missing transcripts; `contiguousBoundaryRepeat`.
+- `make build` published `docs/isolation-demos/volume-analyzer/` and PWA `docs/` (doctor.ts changed).
