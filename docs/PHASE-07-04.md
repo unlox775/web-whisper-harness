@@ -31,3 +31,7 @@ One Cursor Cloud Agent. Paste `docs/ai-product-slice-harness/cloud-agents/phase-
 - Screenshot of zoomed + scrolled dense view with snip markers before marking resolved
 - `make build` before push (Isolation Demo Pages artifacts)
 - Do not mark the spec resolved until the implementation PR ships a Resolution section
+
+## Follow-on
+
+Snip diagnosis (reset Isolation Demo sliders to app defaults, debug-include live snips/transcripts in the archive, overlap + boundary-repeat doctor) is the next roster: `docs/PHASE-07-05.md`.
