@@ -249,4 +249,94 @@ describe('session audio archive export / parse / import', () => {
     assert.equal(parsedOptionals.transcripts[0].text, 'keep me out of the default zip');
     assert.ok(parsedOptionals.volumeProfile);
   });
+
+  it('stays on formatVersion 1 and slim v1 zips still parse without optionals', async () => {
+    assert.equal(sessionStore.SESSION_ARCHIVE_FORMAT_VERSION, 1);
+
+    const slim = await zipFromManifest({
+      formatVersion: 1,
+      exportedAt: '2026-09-06T20:46:01.000Z',
+      kind: sessionStore.SESSION_ARCHIVE_KIND,
+      id: 'ses_slim_v1',
+      createdAt: '2026-09-06T20:00:00.000Z',
+      updatedAt: '2026-09-06T20:01:00.000Z',
+      duration: 4,
+      chunkCount: 0,
+      sizeBytes: 0,
+      hasVolumeProfile: true,
+      hasSnips: true,
+      hasTranscript: true,
+      status: 'ready',
+      chunks: [],
+    });
+    const parsed = await sessionStore.parseSessionArchive(slim);
+    assert.equal(parsed.error, undefined);
+    assert.equal(parsed.formatVersion, 1);
+    assert.equal(parsed.session.id, 'ses_slim_v1');
+    assert.equal(parsed.session.hasSnips, true);
+    assert.equal(parsed.snips, undefined);
+    assert.equal(parsed.transcripts, undefined);
+    assert.equal(parsed.volumeProfile, undefined);
+    assert.equal(parsed.snipsWithTranscripts, undefined);
+  });
+
+  it('includeDebugArtifacts writes snips + transcripts + volume and parse joins text', async () => {
+    const created = await sessionStore.createSession();
+    const first = await writeAudioChunk(created.id, 0, 61, 32);
+    const snip = await sessionStore.writeSnip(created.id, {
+      startChunkIndex: 0,
+      endChunkIndex: 0,
+      startTime: 115,
+      endTime: 131,
+      duration: 16,
+      chunkIds: [first.chunkId],
+      confidence: 0.91,
+    });
+    await sessionStore.writeTranscript(snip.snipId, "BLT's.");
+    await sessionStore.writeVolumeProfile(created.id, {
+      chunkVolumes: [{ chunkId: first.chunkId, peakDb: -14 }],
+    });
+
+    const defaults = sessionStore.resolveArchiveIncludeFlags({});
+    assert.deepEqual(defaults, {
+      includeSnips: false,
+      includeTranscripts: false,
+      includeVolumeProfile: false,
+    });
+    assert.deepEqual(sessionStore.resolveArchiveIncludeFlags({ includeDebugArtifacts: true }), {
+      includeSnips: true,
+      includeTranscripts: true,
+      includeVolumeProfile: true,
+    });
+
+    const slim = await sessionStore.exportSessionArchive(created.id);
+    const parsedSlim = await sessionStore.parseSessionArchive(slim);
+    assert.equal(parsedSlim.snips, undefined);
+    assert.equal(parsedSlim.transcripts, undefined);
+    assert.equal(parsedSlim.volumeProfile, undefined);
+    assert.equal(parsedSlim.snipsWithTranscripts, undefined);
+
+    const debugZip = await sessionStore.exportSessionArchive(created.id, {
+      includeDebugArtifacts: true,
+    });
+    const parsed = await sessionStore.parseSessionArchive(debugZip);
+    assert.equal(parsed.error, undefined);
+    assert.equal(parsed.formatVersion, 1);
+    assert.equal(parsed.snips.length, 1);
+    assert.equal(parsed.snips[0].id, snip.snipId);
+    assert.equal(parsed.snips[0].startTime, 115);
+    assert.equal(parsed.snips[0].endTime, 131);
+    assert.equal(parsed.snips[0].duration, 16);
+    assert.deepEqual(parsed.snips[0].chunkIds, [first.chunkId]);
+    assert.equal(parsed.transcripts.length, 1);
+    assert.equal(parsed.transcripts[0].text, "BLT's.");
+    assert.ok(parsed.volumeProfile);
+    assert.equal(parsed.snipsWithTranscripts.length, 1);
+    assert.equal(parsed.snipsWithTranscripts[0].id, snip.snipId);
+    assert.equal(parsed.snipsWithTranscripts[0].startTime, 115);
+    assert.equal(parsed.snipsWithTranscripts[0].endTime, 131);
+    assert.equal(parsed.snipsWithTranscripts[0].duration, 16);
+    assert.deepEqual(parsed.snipsWithTranscripts[0].chunkIds, [first.chunkId]);
+    assert.equal(parsed.snipsWithTranscripts[0].text, "BLT's.");
+  });
 });

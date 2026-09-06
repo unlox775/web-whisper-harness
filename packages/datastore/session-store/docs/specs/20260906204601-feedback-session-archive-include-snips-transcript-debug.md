@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-06T20:46:01Z
 Product: packages/datastore/session-store
@@ -137,10 +137,41 @@ Update `packages/datastore/session-store/README.md` archive section: debug optio
 
 Mark this spec resolved when:
 
-- [ ] Default export remains slim (chunks + manifest flags only)
-- [ ] PWA Debug Export and/or session-store Isolation Demo can opt in to snips + transcript text (+ volume profile)
-- [ ] `parseSessionArchive` exposes live snip ranges and per-snip text when included
-- [ ] volume-analyzer Isolation Demo overlays archived live snips when present and still allows recompute
-- [ ] formatVersion decision documented (stay on 1 unless a required-field bump is justified)
-- [ ] Slim v1 zips still parse
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Default export remains slim (chunks + manifest flags only)
+- [x] PWA Debug Export and/or session-store Isolation Demo can opt in to snips + transcript text (+ volume profile)
+- [x] `parseSessionArchive` exposes live snip ranges and per-snip text when included
+- [x] volume-analyzer Isolation Demo overlays archived live snips when present and still allows recompute
+- [x] formatVersion decision documented (stay on 1 unless a required-field bump is justified)
+- [x] Slim v1 zips still parse
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-06  
+**Phase:** Phase 07-05 Spec B — session archive debug include  
+**Runner:** Cursor Cloud Agent (not Codex)  
+**formatVersion:** stayed at **1**. Optional `snips.json` / `transcripts.json` / `volume-profile.json` were already valid v1. Slim v1 zips (no optionals) still parse. A bump to 2 would only be justified by a required new file or required manifest field.
+
+### What shipped
+
+**session-store** (`src/archive.js`) — optional includes still default **false**. New convenience `includeDebugArtifacts: true` is equivalent to `includeSnips` + `includeTranscripts` + `includeVolumeProfile` (individual flags still OR on). `parseSessionArchive` still returns separate `snips` / `transcripts` / `volumeProfile` when those files exist, and now also attaches `snipsWithTranscripts` (join on `snipId`) with `id`, `startTime`, `endTime`, `duration`, `chunkIds`, chunk indexes, `confidence`, and `text` when a transcript row exists. Helpers: `resolveArchiveIncludeFlags`, `joinSnipsWithTranscripts`.
+
+**session-store Isolation Demo** — Export checkboxes unhidden: **Include snips + transcripts (debug)** plus the three individual optional files. Sandbox DB only. Default remains slim.
+
+**PWA Debug Export** (`SessionDetailScreen` / `exportSession.ts`) — checkbox **Include snips + transcripts (debug)** next to Export Session. Off → `exportSessionArchive(sessionId)` (no include flags). On → `{ includeDebugArtifacts: true }`. Helper text documents slim vs debug.
+
+**volume-analyzer Isolation Demo** — after `parseSessionArchive`, non-empty snips become **Live (archived)** (list + amber dashed histogram overlay + transcript text). Compute Volume / sliders still recompute via `proposeSnipsFromProfile` and do **not** drop the archived live set. Slim zips stay chunks-only; status notes when `hasSnips` is a flag only.
+
+### How to repro
+
+1. PWA Session Detail → Debug: Export Session with the debug checkbox **off** → zip is `manifest.json` + `chunks/` only (`hasSnips` may still be true).
+2. Check **Include snips + transcripts (debug)** → zip also has `snips.json`, `transcripts.json`, `volume-profile.json`.
+3. Upload that debug zip in volume-analyzer Isolation Demo → **Live (archived)** list + overlay; Compute Volume still proposes a second set.
+4. Upload a slim zip → chunks only; chip may say `hasSnips` is a flag only.
+
+### Tests / publish
+
+- `packages/datastore/session-store/src/archive.test.js` — default slim; `includeDebugArtifacts` round-trip + joined text; formatVersion still `1`; slim v1 without optionals still parses.
+- `apps/web-whisper-pwa/src/exportSession.test.ts` — checkbox off omits include flags.
+- `packages/lib/volume-analyzer/isolation-demo/src/archiveSource.test.ts` — mapper retains archived snips/text from parse.
+- `make build` publishes PWA `docs/` + Isolation Demo artifacts.

@@ -3,7 +3,7 @@
 **Package**: packages/datastore/session-store (primary)  
 **Consumers (allowed)**: apps/web-whisper-pwa Debug Export; packages/lib/volume-analyzer Isolation Demo overlay  
 **Spec**: packages/datastore/session-store/docs/specs/20260906204601-feedback-session-archive-include-snips-transcript-debug.md  
-**Status**: unresolved  
+**Status**: resolved  
 **Roster**: docs/PHASE-07-05.md (Spec B — after A; before C)  
 **Depends on**: Phase 07-03 `exportSessionArchive` / `parseSessionArchive` (already on main)  
 **Runner**: Cursor Cloud Agent (not Codex)

@@ -1115,6 +1115,33 @@ a.isolation-demos-head-link {
   margin: 0 0 16px;
 }
 
+.session-detail-debug-include {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 12px;
+  cursor: pointer;
+}
+
+.session-detail-debug-include input[type='checkbox'] {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.session-detail-debug-include-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.session-detail-debug-include-help {
+  display: block;
+  margin: 4px 0 0;
+  line-height: 1.35;
+}
+
 .session-detail-export-hint {
   margin: 8px 0 0;
 }

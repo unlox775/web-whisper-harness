@@ -6,7 +6,9 @@ import {
   ARCHIVE_ERROR_CANNOT_READ,
   ARCHIVE_ERROR_NO_AUDIO,
   ARCHIVE_ERROR_UNSUPPORTED,
+  archiveLiveRangesStatusNote,
   mapArchiveChunksToAnalyze,
+  mapArchivedLiveSnips,
   messageForArchiveParseError,
 } from './archiveSource.ts';
 
@@ -102,6 +104,84 @@ describe('mapArchiveChunksToAnalyze', () => {
   });
 });
 
+describe('mapArchivedLiveSnips', () => {
+  it('returns empty when optional files are absent (slim v1)', () => {
+    const archived = mapArchivedLiveSnips({
+      session: { id: 'ses_slim', hasSnips: true },
+      chunks: [],
+    });
+    assert.deepEqual(archived, []);
+    assert.equal(
+      archiveLiveRangesStatusNote({ session: { id: 'ses_slim', hasSnips: true } }, 0),
+      'hasSnips is a flag only — live ranges were not exported'
+    );
+  });
+
+  it('joins transcripts on snipId and keeps ranges when a recompute list is replaced', () => {
+    const archived = mapArchivedLiveSnips({
+      snips: [
+        {
+          id: 'snip_9',
+          startTime: 115,
+          endTime: 131,
+          duration: 16,
+          chunkIds: ['c9'],
+          startChunkIndex: 28,
+          endChunkIndex: 32,
+          confidence: 0.9,
+        },
+        {
+          id: 'snip_10',
+          startTime: 131,
+          endTime: 150,
+          duration: 19,
+          chunkIds: ['c10'],
+        },
+      ],
+      transcripts: [
+        { snipId: 'snip_9', text: "BLT's." },
+        { snipId: 'snip_10', text: 'BLT is cheese quesadilla' },
+      ],
+    });
+
+    assert.equal(archived.length, 2);
+    assert.equal(archived[0].id, 'snip_9');
+    assert.equal(archived[0].startTime, 115);
+    assert.equal(archived[0].endTime, 131);
+    assert.equal(archived[0].duration, 16);
+    assert.equal(archived[0].text, "BLT's.");
+    assert.equal(archived[1].text, 'BLT is cheese quesadilla');
+
+    const recomputed = [{ snipId: 1, startTime: 0, endTime: 8, duration: 8 }];
+    assert.equal(archived.length, 2);
+    assert.equal(archived[0].text, "BLT's.");
+    assert.notEqual(archived[0].id, String(recomputed[0].snipId));
+    assert.equal(
+      archiveLiveRangesStatusNote({ session: { id: 'ses_x' } }, archived.length),
+      'Live (archived): 2 snips'
+    );
+  });
+
+  it('prefers parseSessionArchive snipsWithTranscripts when present', () => {
+    const archived = mapArchivedLiveSnips({
+      snips: [{ id: 'ignored', startTime: 0, endTime: 1, duration: 1, chunkIds: [] }],
+      snipsWithTranscripts: [
+        {
+          id: 'snip_live',
+          startTime: 2,
+          endTime: 10,
+          duration: 8,
+          chunkIds: ['c0'],
+          text: 'hello from join',
+        },
+      ],
+    });
+    assert.equal(archived.length, 1);
+    assert.equal(archived[0].id, 'snip_live');
+    assert.equal(archived[0].text, 'hello from join');
+  });
+});
+
 describe('parseSessionArchive is the only archive parser', () => {
   it('maps a spec-1 zip into ChunkWithBlob seq order', async () => {
     const first = new Uint8Array([11, 12, 13]);
@@ -186,5 +266,63 @@ describe('parseSessionArchive is the only archive parser', () => {
     const parsed = await parseSessionArchive(zip);
     assert.equal(parsed.error, undefined);
     assert.equal(mapArchiveChunksToAnalyze(parsed).length, 0);
+    assert.deepEqual(mapArchivedLiveSnips(parsed), []);
+  });
+
+  it('retains archived live snips + transcript text from optional zip files', async () => {
+    const encoder = new TextEncoder();
+    const zip = zipFromManifest(
+      validManifest({
+        hasSnips: true,
+        hasTranscript: true,
+        chunks: [
+          {
+            id: 'chunk_a',
+            seq: 0,
+            startTime: 0,
+            endTime: 4,
+            duration: 4,
+            mime: 'audio/mpeg',
+            sizeBytes: 1,
+            file: 'chunks/000.mp3',
+          },
+        ],
+      }),
+      [
+        { name: 'chunks/000.mp3', data: new Uint8Array([9]) },
+        {
+          name: 'snips.json',
+          data: encoder.encode(
+            JSON.stringify([
+              {
+                id: 'snip_live',
+                startTime: 0,
+                endTime: 4,
+                duration: 4,
+                chunkIds: ['chunk_a'],
+                startChunkIndex: 0,
+                endChunkIndex: 0,
+                confidence: 0.8,
+              },
+            ])
+          ),
+        },
+        {
+          name: 'transcripts.json',
+          data: encoder.encode(
+            JSON.stringify([{ snipId: 'snip_live', text: 'archived live text' }])
+          ),
+        },
+      ]
+    );
+    const parsed = await parseSessionArchive(zip);
+    assert.equal(parsed.error, undefined);
+    const archived = mapArchivedLiveSnips(parsed);
+    assert.equal(archived.length, 1);
+    assert.equal(archived[0].id, 'snip_live');
+    assert.equal(archived[0].startTime, 0);
+    assert.equal(archived[0].endTime, 4);
+    assert.equal(archived[0].duration, 4);
+    assert.equal(archived[0].text, 'archived live text');
   });
 });

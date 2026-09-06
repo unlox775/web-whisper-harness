@@ -15,9 +15,11 @@ import {
   sessionTranscribedPreview,
 } from '../screenshotMode';
 import {
+  ARCHIVE_DEBUG_INCLUDE_HELP,
   archiveExportErrorMessage,
   archiveExportHelperText,
   isArchiveExportError,
+  sessionArchiveExportOptions,
   triggerBlobDownload,
 } from '../exportSession';
 
@@ -88,6 +90,7 @@ export function SessionDetailScreen() {
   const [doctorJson, setDoctorJson] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [exporting, setExporting] = useState(false);
+  const [includeDebugArtifacts, setIncludeDebugArtifacts] = useState(false);
   const handleRef = useRef<PlaybackHandle | null>(null);
   const [hasPlayback, setHasPlayback] = useState(demoPlayhead != null);
   const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -351,7 +354,10 @@ export function SessionDetailScreen() {
     if (exporting) return;
     setExporting(true);
     try {
-      const result = await sessionStore.exportSessionArchive(sessionId);
+      const options = sessionArchiveExportOptions(includeDebugArtifacts);
+      const result = options
+        ? await sessionStore.exportSessionArchive(sessionId, options)
+        : await sessionStore.exportSessionArchive(sessionId);
       if (isArchiveExportError(result)) {
         app.showToast(archiveExportErrorMessage(result.error), 'error');
         return;
@@ -607,20 +613,36 @@ export function SessionDetailScreen() {
                 {snipsTab === 'chunks' ? `CHUNKS (${chunks.length})` : `SNIPS (${snips.length})`} · {format}
               </p>
               <div className="session-detail-export">
+                <label className="session-detail-debug-include">
+                  <input
+                    type="checkbox"
+                    checked={includeDebugArtifacts}
+                    onChange={(event) => setIncludeDebugArtifacts(event.target.checked)}
+                  />
+                  <span>
+                    <span className="session-detail-debug-include-label">
+                      Include snips + transcripts (debug)
+                    </span>
+                    <span className="tiny muted session-detail-debug-include-help">
+                      {ARCHIVE_DEBUG_INCLUDE_HELP}
+                    </span>
+                  </span>
+                </label>
                 <button
                   type="button"
                   className="cta-outline"
                   disabled={exporting}
-                  aria-describedby={archiveHint ? 'session-export-hint' : undefined}
+                  aria-describedby="session-export-hint"
                   onClick={() => void downloadSessionArchive()}
                 >
                   {exporting ? 'Exporting…' : 'Export Session'}
                 </button>
-                {archiveHint ? (
-                  <p id="session-export-hint" className="tiny muted session-detail-export-hint">
-                    {archiveHint}
-                  </p>
-                ) : null}
+                <p id="session-export-hint" className="tiny muted session-detail-export-hint">
+                  {archiveHint ??
+                    (includeDebugArtifacts
+                      ? 'Debug zip includes live snip ranges, transcript text, and volume profile.'
+                      : 'Slim zip: audio chunks + manifest only.')}
+                </p>
               </div>
               <div className="pills" style={{ marginBottom: 16 }}>
                 <button

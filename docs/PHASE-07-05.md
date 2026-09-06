@@ -24,7 +24,7 @@ Need diagnosis tooling **before** any algorithm fix. Do **not** change `proposeS
 2. **B — Session archive: optional include snips + transcript for debug** — `packages/datastore/session-store`  
    - Path: `packages/datastore/session-store/docs/specs/20260906204601-feedback-session-archive-include-snips-transcript-debug.md`  
    - Prompt: `docs/ai-product-slice-harness/cloud-agents/phase-07-session-archive-include-snips-transcript-debug.md`  
-   - Status: unresolved  
+   - Status: resolved (debug include opt-in; Isolation Demo live overlay)  
    - Product ownership: session-store (primary). Allowed consumers: PWA Debug Export UI; volume-analyzer Isolation Demo overlay.  
    - Scope: default export stays slim; explicit debug option includes snip ranges + per-snip transcript text (+ volume profile if cheap); Isolation Demo loads/overlays archived live snips and still recomputes; document formatVersion (stay on 1 unless a required-field bump is justified).  
    - Out of scope: turning includes on by default; snip algorithm; doctor/diff panel (Spec C).

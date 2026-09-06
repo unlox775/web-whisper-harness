@@ -39,6 +39,20 @@ export function archiveExportHelperText(
   return null;
 }
 
+export const ARCHIVE_DEBUG_INCLUDE_HELP =
+  'Default export is audio + manifest only. Debug include adds live snip ranges and transcript text for Isolation Demo comparison.';
+
+/**
+ * Checkbox off → no include flags (caller uses exportSessionArchive(sessionId)).
+ * Checkbox on → includeDebugArtifacts (snips + transcripts + volume profile).
+ */
+export function sessionArchiveExportOptions(includeDebugArtifacts: boolean):
+  | { includeDebugArtifacts: true }
+  | undefined {
+  if (!includeDebugArtifacts) return undefined;
+  return { includeDebugArtifacts: true };
+}
+
 export function triggerBlobDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

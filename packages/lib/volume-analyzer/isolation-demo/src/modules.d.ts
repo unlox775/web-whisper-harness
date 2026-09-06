@@ -23,9 +23,16 @@ declare module '@web-whisper/session-store' {
       chunkCount?: number;
       duration?: number;
       status?: string;
+      hasSnips?: boolean;
+      hasTranscript?: boolean;
+      hasVolumeProfile?: boolean;
     };
     notes?: string;
     chunks?: ParsedArchiveChunk[];
+    snips?: Array<Record<string, unknown>>;
+    transcripts?: Array<{ snipId?: string; text?: string }>;
+    snipsWithTranscripts?: Array<Record<string, unknown>>;
+    volumeProfile?: unknown;
   }>;
 }
 

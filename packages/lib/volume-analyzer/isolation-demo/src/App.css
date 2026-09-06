@@ -333,6 +333,54 @@ canvas {
   margin-bottom: 0.75rem;
 }
 
+.snip-summary.archived {
+  color: #b45309;
+}
+
+.overlay-legend {
+  font-size: 0.72rem;
+  color: #4b5563;
+  margin: -0.15rem 0 0.55rem;
+  line-height: 1.35;
+}
+
+.overlay-legend-live {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.overlay-legend-recomputed {
+  color: #0e7490;
+  font-weight: 700;
+}
+
+.archived-live-section {
+  margin-bottom: 1.1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid #fde68a;
+}
+
+.archived-live-section h2 {
+  color: #b45309;
+}
+
+.snip-item.archived {
+  background: #fffbeb;
+  border-left-color: #d97706;
+}
+
+.archived-snip-text {
+  margin: 0.45rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: #78350f;
+}
+
+.archived-snip-text.muted {
+  color: #9ca3af;
+  font-style: italic;
+}
+
 .snip-list {
   display: flex;
   flex-direction: column;

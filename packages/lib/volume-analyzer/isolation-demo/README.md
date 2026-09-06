@@ -43,7 +43,7 @@ Proves that volume-analyzer:
 - **Max snip length slider** (10–90s, default **60s**)
 - **Quiet-gap duration slider** (0.2–2.5s, default **0.6s**)
 - **Window slider** (seconds visible across the histogram; default fit-all for short sessions, 30s for long ones) + **Fit all**
-- **Upload session archive** file input (zip). Calls `parseSessionArchive`; maps non-null blobs into the same `ChunkWithBlob[]` live/fixture use. Errors: "Cannot read archive", "Not a supported session archive", "No audio in archive to analyze".
+- **Upload session archive** file input (zip). Calls `parseSessionArchive`; maps non-null blobs into the same `ChunkWithBlob[]` live/fixture use. When the zip includes optional `snips.json` (debug export), shows **Live (archived)** list + histogram overlay (transcript text when present). Compute Volume / sliders still recompute and do not drop the live set. Slim zips stay chunks-only. Errors: "Cannot read archive", "Not a supported session archive", "No audio in archive to analyze".
 - Fixture pattern dropdown (only visible when Live microphone OFF and no archive loaded):
   - "Breath-paused speech (run-on)" (default; 2.2s phrases / 1.1s breaths — proves 10s target vs 4–5 word cuts)
   - "Quiet → Loud → Quiet"
