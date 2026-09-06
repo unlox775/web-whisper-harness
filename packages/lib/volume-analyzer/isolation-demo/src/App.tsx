@@ -22,9 +22,13 @@ import {
 import { appDefaultTunerSettings, tunerMatchesAppDefaults } from './tunerDefaults';
 import {
   ARCHIVE_ERROR_NO_AUDIO,
+  archiveLiveRangesStatusNote,
   mapArchiveChunksToAnalyze,
+  mapArchivedLiveSnips,
   messageForArchiveParseError,
+  type ArchivedLiveSnip,
 } from './archiveSource';
+import ArchivedSnipList from './ArchivedSnipList';
 import {
   clampViewStart,
   clampWindowSeconds,
@@ -66,6 +70,7 @@ function App() {
   const [chunks, setChunks] = useState<ChunkWithBlob[]>([]);
   const [volumeProfile, setVolumeProfile] = useState<ChunkVolumeProfile[] | null>(null);
   const [snips, setSnips] = useState<Snip[] | null>(null);
+  const [archivedLiveSnips, setArchivedLiveSnips] = useState<ArchivedLiveSnip[] | null>(null);
   const [computedFloorDb, setComputedFloorDb] = useState<number | null>(null);
 
   const [isComputing, setIsComputing] = useState(false);
@@ -364,6 +369,7 @@ function App() {
     setArchiveError(null);
     setArchiveFileName(null);
     setShowDefaultsBanner(false);
+    setArchivedLiveSnips(null);
     if (enabled) {
       setDataMode('live');
       setChunks([]);
@@ -381,6 +387,7 @@ function App() {
     setArchiveFileName(file.name);
     setArchiveError(null);
     setChunks([]);
+    setArchivedLiveSnips(null);
     setArchiveStatus('Reading archive…');
     try {
       const parsed = await parseSessionArchive(file);
@@ -391,17 +398,23 @@ function App() {
         return;
       }
       const mapped = mapArchiveChunksToAnalyze(parsed);
-      if (mapped.length === 0) {
-        setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
-        setArchiveStatus(ARCHIVE_ERROR_NO_AUDIO);
-        return;
-      }
+      const live = mapArchivedLiveSnips(parsed);
+      setArchivedLiveSnips(live.length > 0 ? live : null);
       setChunks(mapped);
       const sessionId = parsed.session?.id ? `session ${parsed.session.id}` : 'session archive';
       const skipped = (parsed.chunks?.length ?? 0) - mapped.length;
+      const liveNote = archiveLiveRangesStatusNote(parsed, live.length);
+      if (mapped.length === 0) {
+        setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
+        setArchiveStatus(
+          `${ARCHIVE_ERROR_NO_AUDIO}` + (liveNote ? ` · ${liveNote}` : '')
+        );
+        return;
+      }
       setArchiveStatus(
         `${mapped.length} playable chunk${mapped.length === 1 ? '' : 's'} from ${sessionId}` +
-          (skipped > 0 ? ` (${skipped} purged skipped)` : '')
+          (skipped > 0 ? ` (${skipped} purged skipped)` : '') +
+          (liveNote ? ` · ${liveNote}` : '')
       );
       if (
         !tunerMatchesAppDefaults({
@@ -949,12 +962,20 @@ function App() {
             <p className="playhead-readout muted">Playhead idle — play a snip to inspect the cut</p>
           )}
           {playbackError ? <p className="error-banner">{playbackError}</p> : null}
+          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
+            <p className="overlay-legend">
+              <span className="overlay-legend-live">Live (archived)</span> amber dashed ·{' '}
+              <span className="overlay-legend-recomputed">Recomputed</span> cyan fill. Compute /
+              sliders do not drop the live set.
+            </p>
+          ) : null}
           <div className="histogram-container">
             {volumeProfile ? (
               <VolumeHistogram
                 volumeProfile={volumeProfile}
                 threshold={effectiveThreshold}
                 snips={snips}
+                archivedSnips={archivedLiveSnips}
                 viewStart={viewStart}
                 windowSeconds={windowSeconds}
                 playheadTime={playheadTime}
@@ -972,6 +993,16 @@ function App() {
         </section>
 
         <aside className="snip-list-panel">
+          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
+            <section className="archived-live-section">
+              <h2>Live (archived)</h2>
+              <p className="snip-summary archived">
+                {archivedLiveSnips.length} live cut
+                {archivedLiveSnips.length === 1 ? '' : 's'} from the zip — kept when you recompute
+              </p>
+              <ArchivedSnipList snips={archivedLiveSnips} />
+            </section>
+          ) : null}
           <h2>Proposed Snips</h2>
           {avgSnip !== null && (
             <p className="snip-summary">

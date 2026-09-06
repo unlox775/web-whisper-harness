@@ -100,6 +100,29 @@ label {
   color: #666;
 }
 
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 12px;
+  color: #444;
+}
+
+.checkbox-field input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.hint-text {
+  font-size: 11px;
+  color: #777;
+  line-height: 1.4;
+  margin: 4px 0 8px;
+}
+
 .input-field,
 .select-field,
 .textarea-field {

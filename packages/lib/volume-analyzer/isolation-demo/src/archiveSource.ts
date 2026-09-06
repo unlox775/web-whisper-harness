@@ -21,13 +21,36 @@ export type ArchiveChunkEntry = {
   blob: Blob | null;
 };
 
+export type ArchivedLiveSnip = {
+  id: string;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  chunkIds: string[];
+  startChunkIndex?: number;
+  endChunkIndex?: number;
+  confidence?: number;
+  text?: string;
+};
+
 export type ParsedSessionArchive = {
   error?: string;
   formatVersion?: number;
   exportedAt?: string;
-  session?: { id: string; chunkCount?: number; duration?: number };
+  session?: {
+    id: string;
+    chunkCount?: number;
+    duration?: number;
+    hasSnips?: boolean;
+    hasTranscript?: boolean;
+    hasVolumeProfile?: boolean;
+  };
   notes?: string;
   chunks?: ArchiveChunkEntry[];
+  snips?: Array<Record<string, unknown>>;
+  transcripts?: Array<{ snipId?: string; text?: string }>;
+  snipsWithTranscripts?: Array<Record<string, unknown>>;
+  volumeProfile?: unknown;
 };
 
 const UNSUPPORTED_PARSE_ERRORS = new Set([
@@ -65,4 +88,85 @@ export function mapArchiveChunksToAnalyze(parsed: ParsedSessionArchive): ChunkWi
       blob: entry.blob,
     }))
     .sort((a, b) => a.seq - b.seq);
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizeArchivedSnip(raw: Record<string, unknown>, text?: string): ArchivedLiveSnip | null {
+  const id = raw.id != null ? String(raw.id) : '';
+  const startTime = asFiniteNumber(raw.startTime);
+  const endTime = asFiniteNumber(raw.endTime);
+  const duration = asFiniteNumber(raw.duration);
+  if (!id || startTime == null || endTime == null || duration == null) {
+    return null;
+  }
+  const chunkIds = Array.isArray(raw.chunkIds) ? raw.chunkIds.map((value) => String(value)) : [];
+  const joined: ArchivedLiveSnip = {
+    id,
+    startTime,
+    endTime,
+    duration,
+    chunkIds,
+  };
+  const startChunkIndex = asFiniteNumber(raw.startChunkIndex);
+  const endChunkIndex = asFiniteNumber(raw.endChunkIndex);
+  const confidence = asFiniteNumber(raw.confidence);
+  if (startChunkIndex != null) joined.startChunkIndex = startChunkIndex;
+  if (endChunkIndex != null) joined.endChunkIndex = endChunkIndex;
+  if (confidence != null) joined.confidence = confidence;
+  if (typeof text === 'string') joined.text = text;
+  else if (typeof raw.text === 'string') joined.text = raw.text;
+  return joined;
+}
+
+/**
+ * Live snip ranges from parseSessionArchive optional payload.
+ * Prefers `snipsWithTranscripts`; otherwise joins `transcripts[].text` on snipId.
+ * Empty / missing optional files → [] (slim v1 zip behaves as today).
+ */
+export function mapArchivedLiveSnips(parsed: ParsedSessionArchive): ArchivedLiveSnip[] {
+  const joined = Array.isArray(parsed.snipsWithTranscripts) ? parsed.snipsWithTranscripts : null;
+  if (joined && joined.length > 0) {
+    return joined
+      .map((row) => (row && typeof row === 'object' ? normalizeArchivedSnip(row) : null))
+      .filter((row): row is ArchivedLiveSnip => row != null);
+  }
+
+  const snips = Array.isArray(parsed.snips) ? parsed.snips : [];
+  if (snips.length === 0) return [];
+
+  const textBySnipId = new Map<string, string>();
+  if (Array.isArray(parsed.transcripts)) {
+    for (const row of parsed.transcripts) {
+      if (!row || row.snipId == null) continue;
+      textBySnipId.set(String(row.snipId), typeof row.text === 'string' ? row.text : '');
+    }
+  }
+
+  return snips
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null;
+      const id = row.id != null ? String(row.id) : '';
+      return normalizeArchivedSnip(row, textBySnipId.has(id) ? textBySnipId.get(id) : undefined);
+    })
+    .filter((row): row is ArchivedLiveSnip => row != null);
+}
+
+/**
+ * Status chip note after upload. Slim zips with hasSnips:true still have no live ranges.
+ */
+export function archiveLiveRangesStatusNote(
+  parsed: ParsedSessionArchive,
+  liveCount: number
+): string | null {
+  if (liveCount > 0) {
+    return `Live (archived): ${liveCount} snip${liveCount === 1 ? '' : 's'}`;
+  }
+  if (parsed.session?.hasSnips) {
+    return 'hasSnips is a flag only — live ranges were not exported';
+  }
+  return null;
 }

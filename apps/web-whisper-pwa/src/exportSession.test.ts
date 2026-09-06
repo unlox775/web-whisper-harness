@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  ARCHIVE_DEBUG_INCLUDE_HELP,
   archiveExportErrorMessage,
   archiveExportHelperText,
   chunkLooksPurged,
   isArchiveExportError,
+  sessionArchiveExportOptions,
 } from './exportSession.ts';
 
 describe('archiveExportHelperText', () => {
@@ -38,6 +40,21 @@ describe('archiveExportHelperText', () => {
       ]),
       null
     );
+  });
+});
+
+describe('sessionArchiveExportOptions', () => {
+  it('omits include flags when the debug checkbox is off', () => {
+    assert.equal(sessionArchiveExportOptions(false), undefined);
+  });
+
+  it('turns on includeDebugArtifacts when the debug checkbox is on', () => {
+    assert.deepEqual(sessionArchiveExportOptions(true), { includeDebugArtifacts: true });
+  });
+
+  it('documents slim vs debug helper copy', () => {
+    assert.match(ARCHIVE_DEBUG_INCLUDE_HELP, /audio \+ manifest only/);
+    assert.match(ARCHIVE_DEBUG_INCLUDE_HELP, /snip ranges and transcript text/);
   });
 });
 

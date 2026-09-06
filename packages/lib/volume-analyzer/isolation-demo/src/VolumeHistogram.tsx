@@ -13,11 +13,13 @@ import {
   type ChunkVolumeProfile,
   type Snip,
 } from './volumeAnalyzer';
+import type { ArchivedLiveSnip } from './archiveSource';
 
 interface VolumeHistogramProps {
   volumeProfile: ChunkVolumeProfile[];
   threshold: number;
   snips: Snip[] | null;
+  archivedSnips?: ArchivedLiveSnip[] | null;
   viewStart: number;
   windowSeconds: number;
   /** Session-relative seconds, or null when idle. */
@@ -43,6 +45,7 @@ function drawHistogram(
   volumeProfile: ChunkVolumeProfile[],
   threshold: number,
   snips: Snip[] | null,
+  archivedSnips: ArchivedLiveSnip[] | null,
   viewStart: number,
   windowSeconds: number,
   playheadTime: number | null
@@ -83,6 +86,32 @@ function drawHistogram(
   ctx.rect(padding.left, padding.top, chartWidth, chartHeight);
   ctx.clip();
 
+  if (archivedSnips && archivedSnips.length > 0) {
+    archivedSnips.forEach((snip, index) => {
+      if (snip.endTime < viewStart || snip.startTime > viewEnd) {
+        return;
+      }
+      const x1 = toX(snip.startTime);
+      const x2 = toX(snip.endTime);
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+      ctx.fillRect(x1, padding.top, Math.max(2, x2 - x1), chartHeight);
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(x1, padding.top);
+      ctx.lineTo(x1, padding.top + chartHeight);
+      ctx.moveTo(x2, padding.top);
+      ctx.lineTo(x2, padding.top + chartHeight);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#b45309';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(`L${index + 1} ${snip.duration.toFixed(1)}s`, x1 + 4, padding.top + 14);
+    });
+  }
+
   if (snips && snips.length > 0) {
     const palette = ['rgba(6, 182, 212, 0.22)', 'rgba(99, 102, 241, 0.22)', 'rgba(16, 185, 129, 0.22)'];
     snips.forEach((snip, index) => {
@@ -104,7 +133,9 @@ function drawHistogram(
       ctx.fillStyle = '#0e7490';
       ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(`S${snip.snipId} ${snip.duration.toFixed(1)}s`, x1 + 4, padding.top + 14);
+      const labelY =
+        archivedSnips && archivedSnips.length > 0 ? padding.top + 28 : padding.top + 14;
+      ctx.fillText(`S${snip.snipId} ${snip.duration.toFixed(1)}s`, x1 + 4, labelY);
     });
   }
 
@@ -187,6 +218,7 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
   volumeProfile,
   threshold,
   snips,
+  archivedSnips = null,
   viewStart,
   windowSeconds,
   playheadTime,
@@ -203,8 +235,17 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    drawHistogram(canvas, volumeProfile, threshold, snips, viewStart, windowSeconds, playheadTime);
-  }, [volumeProfile, threshold, snips, viewStart, windowSeconds, playheadTime]);
+    drawHistogram(
+      canvas,
+      volumeProfile,
+      threshold,
+      snips,
+      archivedSnips,
+      viewStart,
+      windowSeconds,
+      playheadTime
+    );
+  }, [volumeProfile, threshold, snips, archivedSnips, viewStart, windowSeconds, playheadTime]);
 
   useEffect(() => {
     redraw();

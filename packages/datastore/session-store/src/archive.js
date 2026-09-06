@@ -99,17 +99,66 @@ function asBlobInput(input) {
 }
 
 /**
+ * Resolve optional export includes. `includeDebugArtifacts: true` is
+ * equivalent to includeSnips + includeTranscripts + includeVolumeProfile.
+ * Individual flags still work; debug ORs them on. Defaults stay off.
+ *
+ * @param {{ includeSnips?: boolean, includeTranscripts?: boolean, includeVolumeProfile?: boolean, includeDebugArtifacts?: boolean }} [options]
+ * @returns {{ includeSnips: boolean, includeTranscripts: boolean, includeVolumeProfile: boolean }}
+ */
+export function resolveArchiveIncludeFlags(options = {}) {
+  const debug = options.includeDebugArtifacts === true;
+  return {
+    includeSnips: options.includeSnips === true || debug,
+    includeTranscripts: options.includeTranscripts === true || debug,
+    includeVolumeProfile: options.includeVolumeProfile === true || debug
+  };
+}
+
+/**
+ * Join snips.json rows with transcripts.json text on snipId.
+ * Transcript `text` is attached only when a transcript row exists.
+ *
+ * @param {Array<object>} snips
+ * @param {Array<object> | undefined} transcripts
+ * @returns {Array<object>}
+ */
+export function joinSnipsWithTranscripts(snips, transcripts) {
+  const bySnipId = new Map();
+  if (Array.isArray(transcripts)) {
+    for (const row of transcripts) {
+      if (!row || row.snipId == null) continue;
+      bySnipId.set(row.snipId, typeof row.text === 'string' ? row.text : '');
+    }
+  }
+  return (snips || []).map((snip) => {
+    const joined = {
+      id: snip.id,
+      startTime: snip.startTime,
+      endTime: snip.endTime,
+      duration: snip.duration,
+      chunkIds: Array.isArray(snip.chunkIds) ? snip.chunkIds : [],
+      startChunkIndex: snip.startChunkIndex,
+      endChunkIndex: snip.endChunkIndex,
+      confidence: snip.confidence
+    };
+    if (bySnipId.has(snip.id)) {
+      joined.text = bySnipId.get(snip.id);
+    }
+    return joined;
+  });
+}
+
+/**
  * Export a session as a versioned zip Blob (type application/zip).
  * Optional includes default false. Errors: { error: 'session_not_found' | 'database_unavailable' }.
  *
  * @param {string} sessionId
- * @param {{ includeSnips?: boolean, includeTranscripts?: boolean, includeVolumeProfile?: boolean, notes?: string }} [options]
+ * @param {{ includeSnips?: boolean, includeTranscripts?: boolean, includeVolumeProfile?: boolean, includeDebugArtifacts?: boolean, notes?: string }} [options]
  * @returns {Promise<Blob | { error: string }>}
  */
 export async function exportSessionArchive(sessionId, options = {}) {
-  const includeSnips = options.includeSnips === true;
-  const includeTranscripts = options.includeTranscripts === true;
-  const includeVolumeProfile = options.includeVolumeProfile === true;
+  const { includeSnips, includeTranscripts, includeVolumeProfile } = resolveArchiveIncludeFlags(options);
   const notes = typeof options.notes === 'string' ? options.notes : undefined;
 
   let session;
@@ -307,6 +356,10 @@ export async function parseSessionArchive(blob) {
     if (parsed.value && typeof parsed.value === 'object') {
       result.volumeProfile = parsed.value;
     }
+  }
+
+  if (Array.isArray(result.snips)) {
+    result.snipsWithTranscripts = joinSnipsWithTranscripts(result.snips, result.transcripts);
   }
 
   return result;

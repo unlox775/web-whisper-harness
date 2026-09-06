@@ -56,11 +56,27 @@ Zip contents:
 - `chunks/NNN.<ext>` — audio bytes only when the chunk is still present (`NNN` is zero-padded `seq`; `audio/mpeg` → `mp3`, `audio/webm` → `webm`, else `bin`)
 - Purged / empty chunks stay in `manifest.json` with `file: null` and no zip entry
 - Optional (export flags, **default OFF**): `includeSnips` → `snips.json`, `includeTranscripts` → `transcripts.json`, `includeVolumeProfile` → `volume-profile.json`
+- Convenience: `includeDebugArtifacts: true` turns on all three optional files (snips + transcripts + volume profile). Default export stays slim (`manifest.json` + `chunks/` only).
+
+**formatVersion stays at 1.** Optional JSON files were already valid v1. Slim v1 zips (no optionals) still parse. A bump to 2 is only needed if a **required** new file or required manifest field is added.
+
+When debug artifacts are included, diagnosis fields per snip (from `snips.json`, joined to `transcripts.json` on `snipId`):
+
+| Field | Required |
+| --- | --- |
+| `id` | yes |
+| `startTime` / `endTime` / `duration` (seconds) | yes |
+| `chunkIds` and/or `startChunkIndex` / `endChunkIndex` | yes |
+| transcript `text` | yes when a transcript row exists |
+| `confidence` | kept if stored |
+
+`parseSessionArchive` still returns the separate `snips` / `transcripts` / `volumeProfile` arrays/objects. It also attaches `snipsWithTranscripts` (same join) so Isolation Demos do not have to re-join. Consumers may still join `transcripts[].text` on `snipId` themselves.
 
 APIs (errors are `{ error }` objects, same as the rest of this package):
 
-- `exportSessionArchive(sessionId, options?)` → `Blob` or `{ error: 'session_not_found' | 'database_unavailable' }`. Options: `{ includeSnips?, includeTranscripts?, includeVolumeProfile?, notes? }` — all optional includes default `false`.
-- `parseSessionArchive(blob)` → parse-only (no IndexedDB writes). Returns `{ formatVersion, exportedAt, session, notes?, chunks: [{ meta, blob | null }], snips?, transcripts?, volumeProfile? }` or a named error: `not_a_zip`, `missing_manifest`, `corrupt_json`, `invalid_manifest`, `kind_mismatch`, `unsupported_format_version`. Unknown future `formatVersion` fails; it is not guessed.
+- `exportSessionArchive(sessionId, options?)` → `Blob` or `{ error: 'session_not_found' | 'database_unavailable' }`. Options: `{ includeSnips?, includeTranscripts?, includeVolumeProfile?, includeDebugArtifacts?, notes? }` — all optional includes default `false`.
+- `parseSessionArchive(blob)` → parse-only (no IndexedDB writes). Returns `{ formatVersion, exportedAt, session, notes?, chunks: [{ meta, blob | null }], snips?, transcripts?, volumeProfile?, snipsWithTranscripts? }` or a named error: `not_a_zip`, `missing_manifest`, `corrupt_json`, `invalid_manifest`, `kind_mismatch`, `unsupported_format_version`. Unknown future `formatVersion` fails; it is not guessed.
+- `resolveArchiveIncludeFlags(options)` / `joinSnipsWithTranscripts(snips, transcripts)` — small helpers for the debug include and the transcript join.
 - `importSessionArchive(blob, options?)` → writes into the **current** DB (`init()` name: PWA `web-whisper-db` or Isolation Demo `web-whisper-isolation-demo-session-store`). **Default: new IDs** (`generateId('ses')` / `generateId('chunk')`, `sessionId` rewritten on chunks). `options.preserveIds === true` keeps archive IDs if they do not collide; collision returns `{ error: 'id_collision' }` unless `overwrite === true` (default off). Optional JSON files are imported when present.
 
 `sessionArchiveFilename(sessionId, timestampMs?)` builds the documented download name.

@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Session Store Isolation Demo</title>
-  <script type="module" crossorigin src="./assets/index-DX0B1sNQ.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-DaoTmyza.css">
+  <script type="module" crossorigin src="./assets/index-Bo4_zhou.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-B7c4g_ku.css">
 </head>
 <body>
   <div id="app">
@@ -89,12 +89,29 @@
             Session ID:
             <input type="text" id="archive-session-id" class="input-field" placeholder="Session ID to export">
           </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="archive-include-debug">
+            Include snips + transcripts (debug)
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="archive-include-snips">
+            Include snips.json
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="archive-include-transcripts">
+            Include transcripts.json
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="archive-include-volume">
+            Include volume-profile.json
+          </label>
+          <p class="hint-text">Default export is audio + manifest only. Debug include adds live snip ranges and transcript text for Isolation Demo comparison.</p>
           <button id="export-archive-btn" class="btn btn-primary">Export Selected Session</button>
           <label>
             Import archive
             <input type="file" id="import-archive-input" class="input-field" accept=".zip,application/zip,application/x-zip-compressed">
           </label>
-          <div id="archive-status" class="info-text">Sandbox DB only (not web-whisper-db). Optional snips/transcripts/volume-profile stay off.</div>
+          <div id="archive-status" class="info-text">Sandbox DB only (not web-whisper-db). Optional includes default off.</div>
         </section>
 
         <section class="write-section">

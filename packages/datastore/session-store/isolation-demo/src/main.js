@@ -379,6 +379,28 @@ function setupEventListeners() {
     currentDetailsSessionId = null;
   });
 
+  const debugInclude = document.getElementById('archive-include-debug');
+  const includeSnips = document.getElementById('archive-include-snips');
+  const includeTranscripts = document.getElementById('archive-include-transcripts');
+  const includeVolume = document.getElementById('archive-include-volume');
+
+  function syncDebugIncludeCheckboxes(fromDebug) {
+    if (fromDebug) {
+      const on = debugInclude.checked;
+      includeSnips.checked = on;
+      includeTranscripts.checked = on;
+      includeVolume.checked = on;
+      return;
+    }
+    debugInclude.checked =
+      includeSnips.checked && includeTranscripts.checked && includeVolume.checked;
+  }
+
+  debugInclude.addEventListener('change', () => syncDebugIncludeCheckboxes(true));
+  includeSnips.addEventListener('change', () => syncDebugIncludeCheckboxes(false));
+  includeTranscripts.addEventListener('change', () => syncDebugIncludeCheckboxes(false));
+  includeVolume.addEventListener('change', () => syncDebugIncludeCheckboxes(false));
+
   document.getElementById('export-archive-btn').addEventListener('click', async () => {
     const sessionId = document.getElementById('archive-session-id').value.trim()
       || currentDetailsSessionId
@@ -652,7 +674,15 @@ async function exportSelectedSession(sessionId) {
     showToast(message, 'error');
     return;
   }
-  const blob = await sessionStore.exportSessionArchive(sessionId);
+  const debugOn = document.getElementById('archive-include-debug')?.checked === true;
+  const options = debugOn
+    ? { includeDebugArtifacts: true }
+    : {
+        includeSnips: document.getElementById('archive-include-snips')?.checked === true,
+        includeTranscripts: document.getElementById('archive-include-transcripts')?.checked === true,
+        includeVolumeProfile: document.getElementById('archive-include-volume')?.checked === true,
+      };
+  const blob = await sessionStore.exportSessionArchive(sessionId, options);
   if (blob.error) {
     const message = archiveErrorMessage(blob.error);
     statusEl.textContent = message;

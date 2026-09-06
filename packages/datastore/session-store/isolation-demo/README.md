@@ -62,7 +62,7 @@ Proves that session-store:
   - "Write Transcript" button (cyan)
 - **Session archive:**
   - Session ID input (pre-filled from last created / Details)
-  - "Export Selected Session" downloads `web-whisper-session-<id>-<timestamp>.zip` (`formatVersion` 1; optional snips/transcripts/volume-profile stay off)
+  - "Export Selected Session" downloads `web-whisper-session-<id>-<timestamp>.zip` (`formatVersion` 1). Optional include checkboxes default **off** (slim zip). **Include snips + transcripts (debug)** turns on `includeDebugArtifacts` (snips + transcripts + volume profile).
   - "Import archive" file input writes a **new-id** session into the sandbox DB and refreshes the list. Bad zip / wrong `formatVersion` shows a named error.
 
 **Behaviors:**
