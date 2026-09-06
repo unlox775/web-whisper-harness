@@ -10,6 +10,13 @@ export {
   resolveSnipOptions,
 } from '../../src/snips.ts';
 export { DEFAULT_SNIP_OPTIONS, SAMPLE_WINDOW_MS } from '../../src/defaults.ts';
+export {
+  CONTIGUOUS_REPEAT_HEADLINE,
+  NGRAM_SKIPPED_NO_TRANSCRIPTS,
+  flaggedBoundaryTimes,
+  formatSnipRange,
+  scanSnipBoundaries,
+} from '../../src/boundaryScan.ts';
 
 export type {
   ChunkMetadata,
@@ -18,3 +25,7 @@ export type {
   Snip,
   SnipOptions,
 } from '../../src/types.ts';
+export type {
+  BoundaryScanResult,
+  FlaggedBoundaryTime,
+} from '../../src/boundaryScan.ts';

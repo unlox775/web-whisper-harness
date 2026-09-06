@@ -8,12 +8,20 @@ import {
   proposeSnipsFromProfile,
   computeAdaptiveQuietThresholdDb,
   DEFAULT_SNIP_OPTIONS,
+  flaggedBoundaryTimes,
+  scanSnipBoundaries,
   type ChunkWithBlob,
   type ChunkVolumeProfile,
   type Snip,
 } from './volumeAnalyzer';
 import VolumeHistogram from './VolumeHistogram';
 import SnipList, { type SnipPlaybackStatus } from './SnipList';
+import BoundaryDoctorPanel from './BoundaryDoctorPanel';
+import {
+  BLT_FIXTURE_NOTE,
+  BLT_LIVE_SNIPS,
+  BLT_RECOMPUTED_SNIPS,
+} from './bltBoundaryFixture';
 import {
   VOLUME_ANALYZER_DEMO_DB,
   loadTunerSettings,
@@ -658,6 +666,46 @@ function App() {
     }
   }, [matchesAppDefaults]);
 
+  const handleLoadBltFixture = () => {
+    void stopCaptureIfRunning();
+    handleStopPlayback();
+    setVolumeProfile(null);
+    setComputedFloorDb(null);
+    setViewStart(0);
+    setZoomUserSet(false);
+    setPlaybackError(null);
+    setArchiveError(null);
+    setShowDefaultsBanner(false);
+    setDataMode('archive');
+    setArchiveFileName('blt-boundary-fixture');
+    setArchiveStatus(BLT_FIXTURE_NOTE);
+    setChunks([]);
+    setArchivedLiveSnips(BLT_LIVE_SNIPS);
+    setSnips(BLT_RECOMPUTED_SNIPS);
+  };
+
+  const liveScan = useMemo(
+    () =>
+      archivedLiveSnips && archivedLiveSnips.length > 0
+        ? scanSnipBoundaries(archivedLiveSnips, archivedLiveSnips.map((snip) => snip.text))
+        : null,
+    [archivedLiveSnips]
+  );
+
+  const recomputedScan = useMemo(
+    () => (snips && snips.length > 0 ? scanSnipBoundaries(snips) : null),
+    [snips]
+  );
+
+  const histogramFlags = useMemo(() => {
+    const flags = [];
+    if (liveScan) flags.push(...flaggedBoundaryTimes(liveScan));
+    if (recomputedScan) flags.push(...flaggedBoundaryTimes(recomputedScan));
+    return flags;
+  }, [liveScan, recomputedScan]);
+
+  const showDoctor = liveScan != null || recomputedScan != null;
+
   const effectiveThreshold = autoNoiseFloor ? (computedFloorDb ?? quietThresholdDb) : quietThresholdDb;
   const avgSnip =
     snips && snips.length > 0
@@ -778,6 +826,13 @@ function App() {
             <p className="hint">
               Spec-1 zip from session-store export. Parsed with parseSessionArchive; same Compute
               Volume path as live/fixture.
+            </p>
+            <button type="button" className="secondary" onClick={handleLoadBltFixture}>
+              Load BLT diagnosis fixture
+            </button>
+            <p className="hint">
+              Dave’s 1:55→2:11 / 2:11→2:30 BLT cuts plus sample recomputed ranges. No Groq, no
+              audio — opens the doctor panel.
             </p>
             {archiveError ? <p className="error-banner">{archiveError}</p> : null}
             {dataMode === 'archive' && showDefaultsBanner ? (
@@ -966,7 +1021,8 @@ function App() {
             <p className="overlay-legend">
               <span className="overlay-legend-live">Live (archived)</span> amber dashed ·{' '}
               <span className="overlay-legend-recomputed">Recomputed</span> cyan fill. Compute /
-              sliders do not drop the live set.
+              sliders do not drop the live set. Rose dashed = contiguous-repeat; purple =
+              time-overlap.
             </p>
           ) : null}
           <div className="histogram-container">
@@ -976,6 +1032,7 @@ function App() {
                 threshold={effectiveThreshold}
                 snips={snips}
                 archivedSnips={archivedLiveSnips}
+                flaggedBoundaryTimes={histogramFlags}
                 viewStart={viewStart}
                 windowSeconds={windowSeconds}
                 playheadTime={playheadTime}
@@ -993,6 +1050,9 @@ function App() {
         </section>
 
         <aside className="snip-list-panel">
+          {showDoctor ? (
+            <BoundaryDoctorPanel liveScan={liveScan} recomputedScan={recomputedScan} />
+          ) : null}
           {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
             <section className="archived-live-section">
               <h2>Live (archived)</h2>

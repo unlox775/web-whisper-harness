@@ -14,12 +14,14 @@ import {
   type Snip,
 } from './volumeAnalyzer';
 import type { ArchivedLiveSnip } from './archiveSource';
+import type { FlaggedBoundaryTime } from './volumeAnalyzer';
 
 interface VolumeHistogramProps {
   volumeProfile: ChunkVolumeProfile[];
   threshold: number;
   snips: Snip[] | null;
   archivedSnips?: ArchivedLiveSnip[] | null;
+  flaggedBoundaryTimes?: FlaggedBoundaryTime[] | null;
   viewStart: number;
   windowSeconds: number;
   /** Session-relative seconds, or null when idle. */
@@ -46,6 +48,7 @@ function drawHistogram(
   threshold: number,
   snips: Snip[] | null,
   archivedSnips: ArchivedLiveSnip[] | null,
+  flaggedBoundaryTimes: FlaggedBoundaryTime[] | null,
   viewStart: number,
   windowSeconds: number,
   playheadTime: number | null
@@ -153,6 +156,21 @@ function drawHistogram(
     });
   }
 
+  if (flaggedBoundaryTimes && flaggedBoundaryTimes.length > 0) {
+    flaggedBoundaryTimes.forEach((flag) => {
+      if (flag.time < viewStart || flag.time > viewEnd) return;
+      const fx = toX(flag.time);
+      ctx.strokeStyle = flag.kind === 'contiguous' ? '#e11d48' : '#7c3aed';
+      ctx.lineWidth = 2;
+      ctx.setLineDash(flag.kind === 'contiguous' ? [3, 3] : [2, 2]);
+      ctx.beginPath();
+      ctx.moveTo(fx, padding.top);
+      ctx.lineTo(fx, padding.top + chartHeight);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+
   if (playheadTime !== null && playheadTime >= viewStart && playheadTime <= viewEnd) {
     const px = toX(playheadTime);
     ctx.strokeStyle = '#111827';
@@ -219,6 +237,7 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
   threshold,
   snips,
   archivedSnips = null,
+  flaggedBoundaryTimes = null,
   viewStart,
   windowSeconds,
   playheadTime,
@@ -241,11 +260,21 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
       threshold,
       snips,
       archivedSnips,
+      flaggedBoundaryTimes,
       viewStart,
       windowSeconds,
       playheadTime
     );
-  }, [volumeProfile, threshold, snips, archivedSnips, viewStart, windowSeconds, playheadTime]);
+  }, [
+    volumeProfile,
+    threshold,
+    snips,
+    archivedSnips,
+    flaggedBoundaryTimes,
+    viewStart,
+    windowSeconds,
+    playheadTime,
+  ]);
 
   useEffect(() => {
     redraw();

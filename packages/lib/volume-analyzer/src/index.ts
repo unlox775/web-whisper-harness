@@ -7,6 +7,7 @@ export * from './types.js';
 export * from './defaults.js';
 export * from './volume.js';
 export * from './snips.js';
+export * from './boundaryScan.js';
 export { analyzeVolumeForSession, proposeSnipsForSession } from './session.js';
 
 import type {
