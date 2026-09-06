@@ -19,6 +19,7 @@ import {
   loadTunerSettings,
   saveTunerSettings,
 } from './demoStore';
+import { appDefaultTunerSettings, tunerMatchesAppDefaults } from './tunerDefaults';
 import {
   ARCHIVE_ERROR_NO_AUDIO,
   mapArchiveChunksToAnalyze,
@@ -69,6 +70,7 @@ function App() {
 
   const [isComputing, setIsComputing] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
+  const [showDefaultsBanner, setShowDefaultsBanner] = useState(false);
 
   const [windowSeconds, setWindowSeconds] = useState(MIN_WINDOW_SECONDS);
   const [viewStart, setViewStart] = useState(0);
@@ -361,6 +363,7 @@ function App() {
     clearAnalysis();
     setArchiveError(null);
     setArchiveFileName(null);
+    setShowDefaultsBanner(false);
     if (enabled) {
       setDataMode('live');
       setChunks([]);
@@ -400,6 +403,18 @@ function App() {
         `${mapped.length} playable chunk${mapped.length === 1 ? '' : 's'} from ${sessionId}` +
           (skipped > 0 ? ` (${skipped} purged skipped)` : '')
       );
+      if (
+        !tunerMatchesAppDefaults({
+          autoNoiseFloor,
+          minSnipDuration,
+          maxSnipDuration,
+          minSilenceGapDuration,
+        })
+      ) {
+        setShowDefaultsBanner(true);
+      } else {
+        setShowDefaultsBanner(false);
+      }
     } catch {
       setArchiveError(messageForArchiveParseError('not_a_zip'));
       setArchiveStatus(messageForArchiveParseError('not_a_zip'));
@@ -526,13 +541,32 @@ function App() {
       if (autoNoiseFloor) {
         setQuietThresholdDb(Math.round(adaptive));
       }
+      if (
+        dataMode === 'archive' &&
+        !tunerMatchesAppDefaults({
+          autoNoiseFloor,
+          minSnipDuration,
+          maxSnipDuration,
+          minSilenceGapDuration,
+        })
+      ) {
+        setShowDefaultsBanner(true);
+      }
     } catch (error) {
       console.error('Volume computation failed:', error);
       alert('Failed to compute volume. Check console for details.');
     } finally {
       setIsComputing(false);
     }
-  }, [chunks, recomputeSnips, autoNoiseFloor, dataMode]);
+  }, [
+    chunks,
+    recomputeSnips,
+    autoNoiseFloor,
+    dataMode,
+    minSnipDuration,
+    maxSnipDuration,
+    minSilenceGapDuration,
+  ]);
 
   useEffect(() => {
     if (volumeProfile) {
@@ -548,6 +582,16 @@ function App() {
     }
   }, [snips, playbackSnipId, handleStopPlayback]);
 
+  const handleResetToAppDefaults = useCallback(() => {
+    const next = appDefaultTunerSettings(quietThresholdDb);
+    setAutoNoiseFloor(next.autoNoiseFloor);
+    setMinSnipDuration(next.minSnipDuration);
+    setMaxSnipDuration(next.maxSnipDuration);
+    setMinSilenceGapDuration(next.minSilenceGapDuration);
+    void saveTunerSettings(next);
+    setShowDefaultsBanner(false);
+  }, [quietThresholdDb]);
+
   const handleReset = () => {
     void stopCaptureIfRunning();
     handleStopPlayback();
@@ -558,6 +602,8 @@ function App() {
     setMinSnipDuration(DEFAULT_SNIP_OPTIONS.minSnipDuration);
     setMaxSnipDuration(DEFAULT_SNIP_OPTIONS.maxSnipDuration);
     setMinSilenceGapDuration(DEFAULT_SNIP_OPTIONS.minSilenceGapDuration);
+    void saveTunerSettings(appDefaultTunerSettings(quietThresholdDb));
+    setShowDefaultsBanner(false);
     setViewStart(0);
     setZoomUserSet(false);
     setPlaybackError(null);
@@ -585,6 +631,19 @@ function App() {
     setZoomUserSet(true);
     setViewStart(clampViewStart(start, totalDuration, windowSeconds));
   };
+
+  const matchesAppDefaults = tunerMatchesAppDefaults({
+    autoNoiseFloor,
+    minSnipDuration,
+    maxSnipDuration,
+    minSilenceGapDuration,
+  });
+
+  useEffect(() => {
+    if (matchesAppDefaults) {
+      setShowDefaultsBanner(false);
+    }
+  }, [matchesAppDefaults]);
 
   const effectiveThreshold = autoNoiseFloor ? (computedFloorDb ?? quietThresholdDb) : quietThresholdDb;
   const avgSnip =
@@ -708,6 +767,28 @@ function App() {
               Volume path as live/fixture.
             </p>
             {archiveError ? <p className="error-banner">{archiveError}</p> : null}
+            {dataMode === 'archive' && showDefaultsBanner ? (
+              <div className="defaults-banner" role="status">
+                <p>
+                  Saved Isolation Demo sliders differ from the PWA / DEFAULT_SNIP_OPTIONS, so
+                  recomputed snips will not match live Session Detail cuts.
+                </p>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={handleResetToAppDefaults}
+                >
+                  Reset to app defaults
+                </button>
+                <button
+                  type="button"
+                  className="linkish"
+                  onClick={() => setShowDefaultsBanner(false)}
+                >
+                  Keep current sliders
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <button
@@ -791,6 +872,22 @@ function App() {
           </div>
 
           <div className="control-section">
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleResetToAppDefaults}
+              disabled={matchesAppDefaults}
+            >
+              Reset to app defaults
+            </button>
+            <p className="hint">
+              Restore PWA / DEFAULT_SNIP_OPTIONS: adaptive noise floor, min {DEFAULT_SNIP_OPTIONS.minSnipDuration}s,
+              max {DEFAULT_SNIP_OPTIONS.maxSnipDuration}s, quiet-gap {DEFAULT_SNIP_OPTIONS.minSilenceGapDuration}s.
+              Persists in this demo&apos;s tuner store. Does not delete uploaded archive or in-memory chunks.
+            </p>
+          </div>
+
+          <div className="control-section">
             <label htmlFor="histogram-window">
               Window:{' '}
               {volumeProfile && windowSeconds >= totalDuration - 0.001
@@ -834,6 +931,10 @@ function App() {
           <button className="secondary" onClick={handleReset}>
             Reset
           </button>
+          <p className="hint">
+            Clear analysis and live chunks. Distinct from Reset to app defaults, which only restores
+            sliders.
+          </p>
         </aside>
 
         <section className="histogram-panel">

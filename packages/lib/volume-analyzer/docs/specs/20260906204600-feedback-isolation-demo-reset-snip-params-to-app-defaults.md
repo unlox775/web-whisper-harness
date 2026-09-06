@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-06T20:46:00Z
+Resolved: 2026-09-06T21:15:00Z
 Product: packages/lib/volume-analyzer
 
 # Feedback: Isolation Demo — Reset snip params to app defaults
@@ -106,10 +107,35 @@ A small helper (demo-local is fine) such as `tunerMatchesAppDefaults(settings)` 
 
 Mark this spec resolved when:
 
-- [ ] **Reset to app defaults** sets auto noise floor + min/max/gap to `DEFAULT_SNIP_OPTIONS` and persists that reset
-- [ ] Resetting defaults does not delete an uploaded archive / in-memory chunks
-- [ ] Archive upload (or first compute after upload) shows a banner/offer when saved params ≠ app defaults
-- [ ] Banner action persists the same defaults
-- [ ] `proposeSnipsFromProfile` / `src/snips.ts` / default constants unchanged
-- [ ] `make build` published Isolation Demo artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] **Reset to app defaults** sets auto noise floor + min/max/gap to `DEFAULT_SNIP_OPTIONS` and persists that reset
+- [x] Resetting defaults does not delete an uploaded archive / in-memory chunks
+- [x] Archive upload (or first compute after upload) shows a banner/offer when saved params ≠ app defaults
+- [x] Banner action persists the same defaults
+- [x] `proposeSnipsFromProfile` / `src/snips.ts` / default constants unchanged
+- [x] `make build` published Isolation Demo artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved**: 2026-09-06  
+**Package**: `packages/lib/volume-analyzer` Isolation Demo only  
+**Algorithm**: unchanged — `src/snips.ts` / `proposeSnipsFromProfile` / `DEFAULT_SNIP_OPTIONS` were not edited.
+
+### What landed
+
+- **Reset to app defaults** in `isolation-demo/src/App.tsx` (sidebar, under the min/max/quiet-gap sliders). Click sets `autoNoiseFloor = true` and min/max/gap to `DEFAULT_SNIP_OPTIONS`, then persists via `saveTunerSettings` (`web-whisper-volume-analyzer-demo-db` / store `tuner`). If a volume profile is already computed, snips recompute on the existing `recomputeSnips` path. Uploaded archive chunks and in-memory live/fixture chunks stay. Histogram zoom / pan is not reset.
+- Distinct from the existing **Reset** (clear analysis + live chunks). Copy under each control says which is which.
+- After a successful session-archive upload (mapped chunks > 0), and again on Compute Volume in archive mode, a banner offers the same reset when saved sliders ≠ app defaults. Copy states that recomputed snips will not match live Session Detail cuts. The banner action persists the same defaults. Saved sliders are never silently overwritten. **Keep current sliders** dismisses the offer so Dave can still experiment.
+- Demo-local helper `tunerMatchesAppDefaults` (`isolation-demo/src/tunerDefaults.ts`): auto on + min/max/gap match defaults; stored `quietThresholdDb` is ignored when auto is on.
+
+### How to repro
+
+1. Open the Isolation Demo (`docs/isolation-demos/volume-analyzer/` on Pages, or isolation-demo Vite).
+2. Drag min / max / quiet-gap and/or the noise-floor slider off PWA defaults. **Reset to app defaults** should restore adaptive floor + 5s / 60s / 0.6s and stay that way after reload.
+3. With sliders still diverged, **Upload session archive**. After playable chunks map, the orange banner should appear. **Reset to app defaults** on the banner restores and persists; archive chunk count stays.
+4. Confirm the existing **Reset** still clears analysis (and live chunks), and that fixture/archive audio is not wiped by the defaults-only control.
+
+### Tests / publish
+
+- `isolation-demo/src/tunerDefaults.test.ts` — match / diverge / ignore stored dB when auto.
+- `make build` published `docs/isolation-demos/volume-analyzer/`.

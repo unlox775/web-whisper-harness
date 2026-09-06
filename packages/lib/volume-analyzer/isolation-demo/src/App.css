@@ -167,6 +167,23 @@ body {
   line-height: 1.35;
 }
 
+.defaults-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  color: #7c2d12;
+  background: #fff7ed;
+  border: 1px solid #fb923c;
+  border-radius: 6px;
+  padding: 0.65rem 0.7rem;
+}
+
+.defaults-banner p {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
 button {
   padding: 0.7rem 1rem;
   border: none;
