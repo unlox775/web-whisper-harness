@@ -1,5 +1,9 @@
 import * as sessionStore from '@web-whisper/session-store';
-import { decodeChunkToPCM } from '@web-whisper/volume-analyzer';
+import {
+  decodeChunkToPCM,
+  formatBoundaryScanIssues,
+  scanSnipBoundaries,
+} from '@web-whisper/volume-analyzer';
 import type { ChunkRecord, SnipRecord } from './types';
 
 export type DoctorReport = {
@@ -22,6 +26,8 @@ export async function runDoctor(sessionId: string): Promise<DoctorReport> {
   const chunks: ChunkRecord[] = listed.chunks || [];
   const snipsResult = await sessionStore.getSnipsForSession(sessionId);
   const snips: SnipRecord[] = snipsResult.snips || [];
+  const transcriptsResult = await sessionStore.getTranscriptsForSession(sessionId);
+  const transcripts = transcriptsResult.transcripts || [];
 
   const gaps: Array<{ from: number; to: number }> = [];
   let cursor = 0;
@@ -61,6 +67,9 @@ export async function runDoctor(sessionId: string): Promise<DoctorReport> {
       snipIssues.push(`Snip ${index + 1}: invalid time range`);
     }
   });
+
+  const boundaryScan = scanSnipBoundaries(snips, transcripts);
+  snipIssues.push(...formatBoundaryScanIssues(boundaryScan));
 
   const checks = {
     coverage: { passed: gaps.length === 0, gaps },

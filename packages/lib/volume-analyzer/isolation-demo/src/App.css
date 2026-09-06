@@ -310,7 +310,7 @@ canvas {
 }
 
 .snip-list-panel {
-  flex: 0 0 280px;
+  flex: 0 0 320px;
   background: white;
   border-radius: 8px;
   padding: 1.25rem;
@@ -462,6 +462,142 @@ canvas {
   text-align: center;
   padding: 2rem 0;
   font-weight: 600;
+}
+
+.doctor-panel {
+  margin-bottom: 1.1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid #fecaca;
+}
+
+.doctor-panel h2 {
+  color: #9f1239;
+}
+
+.doctor-headline {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #4b5563;
+  line-height: 1.35;
+  margin-bottom: 0.35rem;
+}
+
+.doctor-headline.finding {
+  color: #9f1239;
+}
+
+.doctor-copy,
+.doctor-zero-overlap {
+  font-size: 0.72rem;
+  color: #6b7280;
+  line-height: 1.4;
+  margin-bottom: 0.55rem;
+}
+
+.doctor-zero-overlap {
+  color: #9f1239;
+  font-weight: 600;
+}
+
+.doctor-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.doctor-scan-col {
+  border-radius: 6px;
+  padding: 0.5rem 0.55rem;
+  background: #f8fafc;
+}
+
+.doctor-scan-col.live {
+  background: #fffbeb;
+}
+
+.doctor-scan-col.recomputed {
+  background: #ecfeff;
+}
+
+.doctor-scan-col h3,
+.doctor-subhead {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #374151;
+  margin: 0 0 0.35rem;
+}
+
+.doctor-subhead {
+  margin-top: 0.55rem;
+}
+
+.doctor-counts {
+  list-style: none;
+  font-size: 0.72rem;
+  color: #4b5563;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.doctor-skipped {
+  color: #92400e;
+  font-style: italic;
+}
+
+.doctor-pairs {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.doctor-pair {
+  border-left: 3px solid #94a3b8;
+  background: #f8fafc;
+  border-radius: 0 4px 4px 0;
+  padding: 0.4rem 0.5rem;
+}
+
+.doctor-pair.overlap {
+  border-left-color: #7c3aed;
+  background: #f5f3ff;
+}
+
+.doctor-pair.contiguous {
+  border-left-color: #e11d48;
+  background: #fff1f2;
+}
+
+.doctor-pair.skipped {
+  border-left-color: #d97706;
+  background: #fffbeb;
+}
+
+.doctor-pair-times {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.doctor-pair-meta {
+  font-size: 0.7rem;
+  color: #4b5563;
+  margin-top: 0.15rem;
+}
+
+.doctor-pair-meta code {
+  font-size: 0.7rem;
+  background: #ffe4e6;
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+}
+
+.doctor-empty {
+  font-size: 0.72rem;
+  color: #9ca3af;
+  font-style: italic;
 }
 
 @media (max-aspect-ratio: 3/4), (max-width: 900px) {
