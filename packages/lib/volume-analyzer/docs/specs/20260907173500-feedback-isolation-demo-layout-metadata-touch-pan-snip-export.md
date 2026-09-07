@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-07T17:35:00Z
+Resolved: 2026-09-07T18:10:00Z
 Product: packages/lib/volume-analyzer
 
 # Feedback: Isolation Demo layout — metadata toggle, touch pan, snip export
@@ -111,14 +112,53 @@ Especially useful for Live #9 and #10 around BLT. Disable when there is no playa
 
 Mark this spec resolved when:
 
-- [ ] Center column is viewport-capped; histogram canvas has a reasonable max (~280–360px) and does not grow with metadata
-- [ ] Left / right columns scroll independently
-- [ ] Archive metadata is hidden by default after upload; one-line status + replay controls remain
-- [ ] Histogram pans by scrollbar **and** pointer/touch drag
-- [ ] Frozen / Live archived / batch rows can Export assembled WAV (same path as Play)
-- [ ] Archive live-path replay of the BLT-shaped fixture yields Frozen === Live archived === 13 within 50ms
-- [ ] `Frozen N · Live archived M` is visible with FAIL styling when N≠M
-- [ ] `proposeSnipsFromProfile` / core snip algorithm unchanged
-- [ ] Isolation Demo README layout notes updated
-- [ ] `make build` published `docs/isolation-demos/volume-analyzer/`
-- [ ] Spec updated with a Resolution section (desktop + ~390px + Export proof)
+- [x] Center column is viewport-capped; histogram canvas has a reasonable max (~280–360px) and does not grow with metadata
+- [x] Left / right columns scroll independently
+- [x] Archive metadata is hidden by default after upload; one-line status + replay controls remain
+- [x] Histogram pans by scrollbar **and** pointer/touch drag
+- [x] Frozen / Live archived / batch rows can Export assembled WAV (same path as Play)
+- [x] Archive live-path replay of the BLT-shaped fixture yields Frozen === Live archived === 13 within 50ms
+- [x] `Frozen N · Live archived M` is visible with FAIL styling when N≠M
+- [x] `proposeSnipsFromProfile` / core snip algorithm unchanged
+- [x] Isolation Demo README layout notes updated
+- [x] `make build` published `docs/isolation-demos/volume-analyzer/`
+- [x] Spec updated with a Resolution section (desktop + ~390px + Export proof)
+
+## Resolution
+
+**Resolved:** 2026-09-07  
+**Package:** Isolation Demo only. `proposeSnipsFromProfile` / `src/snips.ts` / defaults unchanged.
+
+### Replay match (the hard verify)
+
+Dave’s phone 12-vs-13 was the Isolation Demo finishing the last chunk with `includeTrailing: false` (12 frozen + trailing). Offline check: growing profiles + last-tick `includeTrailing: true` matches live 13; full profile every tick is the 11-wrong path.
+
+Shipped `archiveReplay.ts`: **one stored chunk profile per tick**, last tick `includeTrailing: true`. `Replay remaining` calls `replayArchiveLivePath`. Queue mapping also matches stored samples by chunkId **or** seq/index.
+
+Regression `isolation-demo/src/archiveReplay.test.ts` + fixture `bltLiveReplayFixture.ts` (52 chunks, Dave’s cut times including Live #7 **92.9–103.4**):
+
+- Growing + last `includeTrailing: true` → Frozen **13** = Live archived **13**, ranges within **50ms**
+- Last tick false only → **12 frozen + trailing** (the phone-count failure mode)
+- Profile length grows 1, then 2 — never the full zip mid-replay
+
+Browser: **Load BLT 13-snip replay fixture** → **Replay remaining** → banner `Frozen 13 · Live archived 13 — MATCH`. Frozen snip 6 = 92.9–103.4s.
+
+### Layout / metadata / pan / Export
+
+- Center column viewport-capped; histogram max ~360px (desktop) / 280px (narrow)
+- Left/right independently scrollable
+- **Show archive metadata** default off; one-liner `volume-profile.json used · 52 chunks · Live archived 13`
+- Canvas pointer/touch drag pan (`touch-action: none` when zoomed) + scrollbar
+- **Export** on Frozen / Live archived / batch (same `assembleSnipWavBlob` WAV)
+
+Loud banner: `Frozen N · Live archived M` — FAIL rose when N≠M, MATCH green when equal.
+
+`make build` publishes `docs/isolation-demos/volume-analyzer/`.
+
+![Desktop Frozen 13 MATCH](desktop_frozen_13_live_13_match.png)
+
+![Frozen snip 6 is Live #7 92.9–103.4](desktop_frozen_snip6_92_9_to_103_4.png)
+
+![~390 histogram + doctor 13=13](iphone_390_histogram_touch_pan.png)
+
+![Export on Live snip rows](snip_row_export_button.png)
