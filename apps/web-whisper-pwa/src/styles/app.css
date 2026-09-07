@@ -974,6 +974,16 @@ a.isolation-demos-head-link {
   color: var(--text-secondary);
 }
 
+.build-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 20px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 .session-detail-card {
   border-color: var(--accent-primary);
   border-width: 1px;
