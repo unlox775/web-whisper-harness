@@ -80,6 +80,10 @@ One Cursor Cloud Agent per spec. Paste the matching `docs/ai-product-slice-harne
 - Calling Codex
 - Any snip-algorithm change
 
+## Follow-on
+
+Isolation Demo live-path redesign (operate the package the way the PWA records) is the next roster: `docs/PHASE-07-06.md`. Implement that after the 07-06 specs PR merges. Do not start it from this 07-05 roster.
+
 ## Prior rosters
 
 - `docs/PHASE-07-03.md` — session archive export/import (slim default)
