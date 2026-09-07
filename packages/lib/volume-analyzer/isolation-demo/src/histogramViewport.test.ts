@@ -8,6 +8,7 @@ import {
   playheadSessionTime,
   scrollLeftForViewStart,
   timeToX,
+  viewStartFromPointerDelta,
   viewStartFromScrollLeft,
   viewStartToShowTime,
   xToTime,
@@ -108,5 +109,22 @@ describe('viewStartToShowTime', () => {
     assert.ok(start <= 90);
     assert.ok(90 < start + 30);
     assert.equal(start, 87);
+  });
+});
+
+describe('pointer / touch drag pan', () => {
+  it('maps a rightward drag to an earlier viewStart', () => {
+    const next = viewStartFromPointerDelta(40, 100, 30, 300, 180);
+    assert.equal(next, 30);
+  });
+
+  it('maps a leftward drag to a later viewStart', () => {
+    const next = viewStartFromPointerDelta(40, -50, 30, 300, 180);
+    assert.equal(next, 45);
+  });
+
+  it('clamps at the session edges', () => {
+    assert.equal(viewStartFromPointerDelta(0, 80, 30, 300, 180), 0);
+    assert.equal(viewStartFromPointerDelta(150, -80, 30, 300, 180), 150);
   });
 });

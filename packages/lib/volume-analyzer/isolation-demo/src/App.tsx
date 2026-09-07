@@ -29,10 +29,13 @@ import { appDefaultTunerSettings, tunerMatchesAppDefaults } from './tunerDefault
 import {
   ARCHIVE_ERROR_NO_AUDIO,
   archiveLiveRangesStatusNote,
+  buildArchiveMetadataDump,
   buildArchiveReplayQueue,
+  compactArchiveStatusLine,
   mapArchivedLiveSnips,
   messageForArchiveParseError,
   type ArchivedLiveSnip,
+  type ArchiveMetadataDump,
   type ReplayQueueItem,
 } from './archiveSource';
 import ArchivedSnipList from './ArchivedSnipList';
@@ -45,7 +48,7 @@ import {
   sessionDurationFromProfile,
   viewStartToShowTime,
 } from './histogramViewport';
-import { assembleSnipWavBlob, SNIP_PLAY_ERROR } from './snipPlayback';
+import { assembleSnipWavBlob, SNIP_PLAY_ERROR, snipExportFilename, triggerBlobDownload } from './snipPlayback';
 import {
   formatFloorDb,
   runCommitTick,
@@ -70,6 +73,8 @@ function App() {
   const [archiveStatus, setArchiveStatus] = useState('Upload a session archive zip to replay the live path');
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archiveFileName, setArchiveFileName] = useState<string | null>(null);
+  const [archiveMeta, setArchiveMeta] = useState<ArchiveMetadataDump | null>(null);
+  const [showArchiveMetadata, setShowArchiveMetadata] = useState(false);
   const [replayComplete, setReplayComplete] = useState(false);
   const [stoppedCommitted, setStoppedCommitted] = useState(false);
   const [batchRan, setBatchRan] = useState(false);
@@ -124,6 +129,7 @@ function App() {
   const [playbackStatus, setPlaybackStatus] = useState<SnipPlaybackStatus>('idle');
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [playingTrailing, setPlayingTrailing] = useState(false);
+  const [exportingKey, setExportingKey] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -296,6 +302,30 @@ function App() {
       });
     },
     [stopRaf]
+  );
+
+  const handleExportSnip = useCallback(
+    async (snip: Pick<Snip, 'startTime' | 'endTime'>, label: string) => {
+      if (!volumeProfile) {
+        setPlaybackError(SNIP_PLAY_ERROR);
+        return;
+      }
+      setExportingKey(label);
+      setPlaybackError(null);
+      try {
+        const blob = await assembleSnipWavBlob(chunks, volumeProfile, snip);
+        if (!blob) {
+          setPlaybackError(SNIP_PLAY_ERROR);
+          return;
+        }
+        triggerBlobDownload(blob, snipExportFilename(label, snip.startTime, snip.endTime));
+      } catch {
+        setPlaybackError(SNIP_PLAY_ERROR);
+      } finally {
+        setExportingKey(null);
+      }
+    },
+    [chunks, volumeProfile]
   );
 
   const handlePlaySnip = useCallback(
@@ -588,6 +618,8 @@ function App() {
       setArchiveFileName(null);
       setArchiveQueue([]);
       setArchivedLiveSnips(null);
+      setArchiveMeta(null);
+      setShowArchiveMetadata(false);
       setArchiveStatus('Upload a session archive zip to replay the live path');
     }
     setSource(next);
@@ -608,6 +640,8 @@ function App() {
     setArchiveFileName(file.name);
     setArchiveError(null);
     setArchivedLiveSnips(null);
+    setArchiveMeta(null);
+    setShowArchiveMetadata(false);
     setArchiveStatus('Reading archive…');
     try {
       const parsed = await parseSessionArchive(file);
@@ -621,6 +655,14 @@ function App() {
       const live = mapArchivedLiveSnips(parsed);
       setArchivedLiveSnips(live.length > 0 ? live : null);
       setArchiveQueue(queue.items);
+      const dump = buildArchiveMetadataDump({
+        fileName: file.name,
+        parsed,
+        queue: queue.items,
+        liveCount: live.length,
+      });
+      setArchiveMeta(dump);
+      setShowArchiveMetadata(false);
       const liveNote = archiveLiveRangesStatusNote(parsed, live.length);
       if (queue.items.length === 0) {
         setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
@@ -820,6 +862,18 @@ function App() {
     setArchiveQueue([]);
     setArchivedLiveSnips(BLT_LIVE_SNIPS);
     setBatchSnips(BLT_RECOMPUTED_SNIPS);
+    setShowArchiveMetadata(false);
+    setArchiveMeta({
+      fileName: 'blt-boundary-fixture',
+      notes: BLT_FIXTURE_NOTE,
+      profileMode: 'missing',
+      profileLine: BLT_FIXTURE_NOTE,
+      queueCount: 0,
+      playableCount: 0,
+      profileOnlyCount: 0,
+      liveArchivedCount: BLT_LIVE_SNIPS.length,
+      chunkRows: [],
+    });
   };
 
   const handleLoadSyntheticArchive = async () => {
@@ -877,6 +931,31 @@ function App() {
           text: `Synthetic live cut ${index}`,
         }))
       );
+      setShowArchiveMetadata(false);
+      setArchiveMeta({
+        fileName: 'synthetic-debug-archive',
+        notes: 'Synthetic incremental run encoded as a debug archive (samples + live ranges).',
+        sessionId: 'synthetic-debug-archive',
+        sessionDuration: profiles.reduce((sum, row) => sum + row.samples.length * 0.1, 0),
+        sessionChunkCount: profiles.length,
+        hasSnips: true,
+        hasTranscript: false,
+        hasVolumeProfile: true,
+        profileMode: 'used',
+        profileLine: `volume-profile.json used (${profiles.length} chunk profiles, samples present)`,
+        queueCount: queue.length,
+        playableCount: queue.length,
+        profileOnlyCount: 0,
+        liveArchivedCount: frozen.length,
+        chunkRows: queue.map((item) => ({
+          seq: item.seq,
+          id: item.chunk.id,
+          startTime: item.chunk.startTime,
+          endTime: item.chunk.endTime,
+          playable: item.playable,
+          hasSamples: item.storedProfile != null,
+        })),
+      });
       setArchiveStatus(
         `volume-profile.json used (${profiles.length} chunk profiles, samples present) · 0 of ${queue.length} chunks replayed · Live (archived): ${frozen.length} snips`
       );
@@ -1072,8 +1151,71 @@ function App() {
 
           {source === 'archive' ? (
             <div className="control-section">
-              <p className="hint">{archiveStatusWithQueue}</p>
-              {archiveFileName ? <p className="hint archive-filename">{archiveFileName}</p> : null}
+              <p className="hint archive-status-line">
+                {archiveMeta
+                  ? compactArchiveStatusLine(archiveMeta)
+                  : archiveStatusWithQueue}
+              </p>
+              {archiveMeta && archiveQueue.length > 0 && !archiveError ? (
+                <p className="hint">
+                  {queueIndex} of {archiveQueue.length} chunks replayed
+                </p>
+              ) : null}
+              {archiveMeta ? (
+                <label className="metadata-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showArchiveMetadata}
+                    onChange={(e) => setShowArchiveMetadata(e.target.checked)}
+                  />
+                  Show archive metadata
+                </label>
+              ) : null}
+              {showArchiveMetadata && archiveMeta ? (
+                <div className="archive-metadata" aria-label="Archive metadata">
+                  {archiveFileName ? <p className="hint archive-filename">{archiveFileName}</p> : null}
+                  <p className="hint">{archiveStatusWithQueue}</p>
+                  <dl>
+                    <div><dt>formatVersion</dt><dd>{archiveMeta.formatVersion ?? '—'}</dd></div>
+                    <div><dt>exportedAt</dt><dd>{archiveMeta.exportedAt ?? '—'}</dd></div>
+                    <div><dt>session</dt><dd>{archiveMeta.sessionId ?? '—'}</dd></div>
+                    <div>
+                      <dt>duration</dt>
+                      <dd>{archiveMeta.sessionDuration != null ? `${archiveMeta.sessionDuration}s` : '—'}</dd>
+                    </div>
+                    <div>
+                      <dt>flags</dt>
+                      <dd>
+                        hasSnips={String(archiveMeta.hasSnips ?? false)} · hasTranscript=
+                        {String(archiveMeta.hasTranscript ?? false)} · hasVolumeProfile=
+                        {String(archiveMeta.hasVolumeProfile ?? false)}
+                      </dd>
+                    </div>
+                    <div><dt>profile</dt><dd>{archiveMeta.profileLine}</dd></div>
+                    <div>
+                      <dt>chunks</dt>
+                      <dd>
+                        queue {archiveMeta.queueCount} · playable {archiveMeta.playableCount} ·
+                        profile-only {archiveMeta.profileOnlyCount}
+                      </dd>
+                    </div>
+                    {archiveMeta.notes ? (
+                      <div><dt>notes</dt><dd>{archiveMeta.notes}</dd></div>
+                    ) : null}
+                  </dl>
+                  {archiveMeta.chunkRows.length > 0 ? (
+                    <ol className="archive-chunk-rows">
+                      {archiveMeta.chunkRows.map((row) => (
+                        <li key={`${row.seq}-${row.id}`}>
+                          seq {row.seq} · {row.id} · {row.startTime.toFixed(1)}–{row.endTime.toFixed(1)}s
+                          {row.playable ? '' : ' · purged'}
+                          {row.hasSamples ? ' · samples' : ''}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1366,6 +1508,9 @@ function App() {
             >
               Fit all
             </button>
+            <p className="hint">
+              Drag the waveform to pan (mouse or touch). Scrollbar still works.
+            </p>
           </div>
         </section>
 
@@ -1381,9 +1526,12 @@ function App() {
               floors={frozenFloors}
               playbackSnipId={playingTrailing ? null : playbackSnipId}
               playbackStatus={playingTrailing ? 'idle' : playbackStatus}
+              exportEnabled={chunks.some((chunk) => chunk.blob && chunk.blob.size > 0)}
+              exportingKey={exportingKey}
               onPlay={(snip) => void handlePlaySnip(snip)}
               onPause={handlePausePlayback}
               onStop={handleStopPlayback}
+              onExport={(snip, label) => void handleExportSnip(snip, label)}
             />
           )}
 
@@ -1407,17 +1555,6 @@ function App() {
               </p>
             )}
           </section>
-
-          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
-            <section className="archived-live-section">
-              <h2>Live (archived)</h2>
-              <p className="snip-summary archived">
-                {archivedLiveSnips.length} live cuts from the zip — compare to Frozen snips after
-                incremental replay.
-              </p>
-              <ArchivedSnipList snips={archivedLiveSnips} />
-            </section>
-          ) : null}
 
           {showDoctor ? (
             <>
@@ -1455,6 +1592,22 @@ function App() {
             </>
           ) : null}
 
+          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
+            <section className="archived-live-section">
+              <h2>Live (archived)</h2>
+              <p className="snip-summary archived">
+                {archivedLiveSnips.length} live cuts from the zip — compare to Frozen snips after
+                incremental replay.
+              </p>
+              <ArchivedSnipList
+                snips={archivedLiveSnips}
+                exportEnabled={chunks.some((chunk) => chunk.blob && chunk.blob.size > 0)}
+                exportingKey={exportingKey}
+                onExport={(snip, label) => void handleExportSnip(snip, label)}
+              />
+            </section>
+          ) : null}
+
           {batchSnips ? (
             <section className="batch-snips">
               <h2>Offline batch snips</h2>
@@ -1464,9 +1617,12 @@ function App() {
                 playbackSnipId={null}
                 playbackStatus="idle"
                 emptyMessage="Offline batch proposed no snips"
+                exportEnabled={chunks.some((chunk) => chunk.blob && chunk.blob.size > 0)}
+                exportingKey={exportingKey}
                 onPlay={(snip) => void handlePlaySnip(snip)}
                 onPause={handlePausePlayback}
                 onStop={handleStopPlayback}
+                onExport={(snip, label) => void handleExportSnip(snip, `batch-${label}`)}
               />
             </section>
           ) : null}

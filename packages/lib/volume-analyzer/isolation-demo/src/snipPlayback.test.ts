@@ -5,6 +5,7 @@ import {
   chunkTimelineFromProfile,
   overlappingEntriesForSnip,
   sliceRangesForSnip,
+  snipExportFilename,
 } from './snipPlayback.ts';
 import type { ChunkVolumeProfile, ChunkWithBlob } from './volumeAnalyzer.ts';
 
@@ -85,6 +86,13 @@ describe('snip slice ranges', () => {
     const { chunks, volumeProfile } = chunksAndProfile();
     const timeline = chunkTimelineFromProfile(chunks, volumeProfile);
     assert.equal(sliceRangesForSnip(timeline, { startTime: 20, endTime: 22 }).length, 0);
+  });
+});
+
+describe('snip export filename', () => {
+  it('labels the download with snip index and time range', () => {
+    assert.equal(snipExportFilename('snip 9', 115, 131), 'snip-9-115.0s-131.0s.wav');
+    assert.equal(snipExportFilename('live-10', 131, 150), 'live-10-131.0s-150.0s.wav');
   });
 });
 

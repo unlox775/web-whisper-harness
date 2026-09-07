@@ -8,9 +8,12 @@ interface SnipListProps {
   playbackStatus: SnipPlaybackStatus;
   floors?: Array<number | null>;
   emptyMessage?: string;
+  exportEnabled?: boolean;
+  exportingKey?: string | null;
   onPlay: (snip: Snip) => void;
   onPause: () => void;
   onStop: () => void;
+  onExport?: (snip: Snip, label: string) => void;
 }
 
 const SnipList: React.FC<SnipListProps> = ({
@@ -19,9 +22,12 @@ const SnipList: React.FC<SnipListProps> = ({
   playbackStatus,
   floors,
   emptyMessage = 'No speech detected (all-quiet session)',
+  exportEnabled = false,
+  exportingKey = null,
   onPlay,
   onPause,
   onStop,
+  onExport,
 }) => {
   if (snips.length === 0) {
     return (
@@ -38,6 +44,8 @@ const SnipList: React.FC<SnipListProps> = ({
         const playing = active && playbackStatus === 'playing';
         const paused = active && playbackStatus === 'paused';
         const loading = active && playbackStatus === 'loading';
+        const exportLabel = `snip-${snip.snipId}`;
+        const exporting = exportingKey === exportLabel;
         return (
           <div
             key={snip.snipId}
@@ -68,6 +76,16 @@ const SnipList: React.FC<SnipListProps> = ({
                 >
                   Stop
                 </button>
+                {onExport ? (
+                  <button
+                    type="button"
+                    className="snip-export-btn"
+                    onClick={() => onExport(snip, exportLabel)}
+                    disabled={!exportEnabled || exporting}
+                  >
+                    {exporting ? 'Exporting…' : 'Export'}
+                  </button>
+                ) : null}
               </div>
             </div>
             <div className="snip-detail">

@@ -133,3 +133,23 @@ export function viewStartFromScrollLeft(
   }
   return clampViewStart((scrollLeft / maxScroll) * maxStart, totalDuration, windowSeconds);
 }
+
+/**
+ * Pointer/touch drag on the canvas: grab the waveform and pull.
+ * Positive deltaX (drag right) reveals earlier session time.
+ */
+export function viewStartFromPointerDelta(
+  viewStart: number,
+  deltaX: number,
+  windowSeconds: number,
+  chartWidth: number,
+  totalDuration: number
+): number {
+  if (chartWidth <= 0 || windowSeconds <= 0) {
+    return clampViewStart(viewStart, totalDuration, windowSeconds);
+  }
+  const deltaSeconds = (-deltaX / chartWidth) * windowSeconds;
+  return clampViewStart(viewStart + deltaSeconds, totalDuration, windowSeconds);
+}
+
+export const POINTER_PAN_THRESHOLD_PX = 8;

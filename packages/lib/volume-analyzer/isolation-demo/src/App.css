@@ -4,6 +4,12 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
@@ -14,13 +20,15 @@ body {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
 }
 
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
 }
 
 .top-chrome {
@@ -31,6 +39,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  flex: 0 0 auto;
 }
 
 .chrome-row {
@@ -114,14 +123,19 @@ body {
 }
 
 .main-content {
-  display: flex;
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 340px;
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
+  min-height: 0;
   gap: 1rem;
   padding: 1rem;
+  overflow: hidden;
 }
 
 .control-panel {
-  flex: 0 0 300px;
+  min-height: 0;
+  max-height: 100%;
   background: white;
   border-radius: 8px;
   padding: 1.1rem;
@@ -130,7 +144,7 @@ body {
   flex-direction: column;
   gap: 0.75rem;
   overflow-y: auto;
-  max-height: calc(100vh - 7rem);
+  overscroll-behavior: contain;
 }
 
 .control-panel h2,
@@ -411,14 +425,16 @@ button:disabled {
 }
 
 .histogram-panel {
-  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
   background: white;
   border-radius: 8px;
   padding: 1.25rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
-  min-width: 0;
 }
 
 .histogram-panel h2 {
@@ -428,9 +444,11 @@ button:disabled {
 }
 
 .histogram-container {
-  flex: 1;
+  flex: 1 1 auto;
   position: relative;
-  min-height: 280px;
+  min-height: 240px;
+  max-height: 360px;
+  height: 320px;
   display: flex;
   flex-direction: column;
 }
@@ -447,7 +465,18 @@ button:disabled {
   flex: 1;
   width: 100%;
   min-height: 220px;
+  max-height: 346px;
   cursor: pointer;
+  touch-action: auto;
+}
+
+.histogram-canvas.pannable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.histogram-canvas.pannable:active {
+  cursor: grabbing;
 }
 
 .histogram-hscroll {
@@ -491,7 +520,8 @@ canvas {
 }
 
 .snip-list-panel {
-  flex: 0 0 340px;
+  min-height: 0;
+  max-height: 100%;
   background: white;
   border-radius: 8px;
   padding: 1.25rem;
@@ -499,6 +529,7 @@ canvas {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .snip-list-panel h2 {
@@ -569,7 +600,7 @@ canvas {
 }
 
 .snip-item {
-  padding: 0.85rem;
+  padding: 0.65rem 0.75rem;
   background: #f8f9fa;
   border-radius: 6px;
   border-left: 4px solid #667eea;
@@ -600,7 +631,8 @@ canvas {
 }
 
 .snip-play-btn,
-.snip-stop-btn {
+.snip-stop-btn,
+.snip-export-btn {
   padding: 0.25rem 0.55rem;
   font-size: 0.7rem;
   border-radius: 4px;
@@ -622,6 +654,80 @@ canvas {
 
 .snip-stop-btn:hover:not(:disabled) {
   background: #d1d5db;
+}
+
+.snip-export-btn {
+  background: #0f766e;
+  color: white;
+}
+
+.snip-export-btn:hover:not(:disabled) {
+  background: #0d5f59;
+}
+
+.metadata-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+}
+
+.metadata-toggle input {
+  width: 16px;
+  height: 16px;
+}
+
+.archive-status-line {
+  font-weight: 600;
+  color: #334155;
+}
+
+.archive-metadata {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 0.55rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.archive-metadata dl {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+.archive-metadata dl div {
+  display: grid;
+  grid-template-columns: 6.2rem 1fr;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+}
+
+.archive-metadata dt {
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.archive-metadata dd {
+  color: #111827;
+  word-break: break-word;
+}
+
+.archive-chunk-rows {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.68rem;
+  color: #4b5563;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
 .snip-detail {
@@ -782,18 +888,38 @@ canvas {
 }
 
 @media (max-aspect-ratio: 3/4), (max-width: 900px) {
+  html,
+  body,
+  #root,
+  .app {
+    height: auto;
+    max-height: none;
+    overflow: auto;
+  }
+
   .main-content {
+    display: flex;
     flex-direction: column;
+    overflow: visible;
+    min-height: 0;
   }
 
   .control-panel,
   .snip-list-panel {
     flex: none;
     width: 100%;
+    max-height: 55vh;
+    overflow-y: auto;
+  }
+
+  .histogram-panel {
+    overflow: hidden;
+    max-height: none;
   }
 
   .histogram-container {
     min-height: 240px;
     height: 280px;
+    max-height: 280px;
   }
 }
