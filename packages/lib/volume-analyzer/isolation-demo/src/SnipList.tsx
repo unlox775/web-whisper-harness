@@ -48,11 +48,13 @@ const SnipList: React.FC<SnipListProps> = ({
         const exporting = exportingKey === exportLabel;
         return (
           <div
-            key={snip.snipId}
-            className={`snip-item${active ? ' active' : ''}`}
+            key={`${snip.snipId}-${index}`}
+            className={`snip-item frozen-snip-card${active ? ' active' : ''}`}
+            data-testid="frozen-snip-card"
+            data-frozen-index={index + 1}
           >
             <div className="snip-item-header">
-              <div className="snip-id">Snip {snip.snipId}</div>
+              <div className="snip-id">Frozen {index + 1}</div>
               <div className="snip-play-controls">
                 {playing ? (
                   <button type="button" className="snip-play-btn" onClick={onPause}>

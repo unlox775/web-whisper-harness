@@ -3,6 +3,8 @@ import { describe, it } from 'node:test';
 import { proposeSnipsIncremental } from '../../src/incremental.ts';
 import {
   replayArchiveLivePath,
+  replayArchiveClockStyle,
+  replayArchiveUngatedOverlappingFires,
   replayWithFullProfileEveryTick,
   stepArchiveReplay,
   emptyArchiveReplayState,
@@ -74,6 +76,28 @@ describe('BLT archive live-path replay (13 snips)', () => {
     const wrong = replayWithFullProfileEveryTick(items, profiles);
     assert.ok(Array.isArray(wrong.frozen));
     assert.ok(profiles.length > 1);
+  });
+
+  it('clock-style skip-if-busy replay still matches live 13 (overlapping timer fires)', async () => {
+    const { items, liveSnips } = buildBltReplayQueue();
+    const state = await replayArchiveClockStyle(items, emptyArchiveReplayState(), {
+      extraFiresPerTick: 5,
+    });
+    assert.equal(state.frozen.length, 13, `Frozen ${state.frozen.length} — expected 13`);
+    assert.equal(state.frozen.length, liveSnips.length);
+    assertRangesMatch(state.frozen, liveSnips, 'clock-style Frozen vs Live archived');
+    const seven = state.frozen[6];
+    assert.ok(Math.abs(seven.startTime - 92.9) <= RANGE_EPS, `Live #7 start ${seven.startTime}`);
+    assert.ok(Math.abs(seven.endTime - 103.4) <= RANGE_EPS, `Live #7 end ${seven.endTime}`);
+  });
+
+  it('ungated overlapping applies from the same snapshot do not reach Frozen 13', async () => {
+    const { items } = buildBltReplayQueue();
+    const raced = await replayArchiveUngatedOverlappingFires(items);
+    assert.ok(
+      raced.frozen.length < 13,
+      `ungated overlap unexpectedly reached Frozen ${raced.frozen.length}`
+    );
   });
 
   it('kernel growing replay (no demo wrapper) also matches the 13 live ranges', () => {

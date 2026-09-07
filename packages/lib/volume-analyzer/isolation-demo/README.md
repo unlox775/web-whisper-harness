@@ -91,7 +91,7 @@ No noise-floor slider in the chrome.
 - Pattern dropdown (existing patterns; default Breath-paused speech). Changing pattern resets the in-memory session.
 - `Step next chunk` (primary) — append the next ~4s chunk and run **one live tick**.
 - `Replay remaining` — instant remaining ticks.
-- `Replay remaining (4s clock)` — optional wall-clock growth.
+- `Replay remaining (4s clock)` — optional wall-clock growth. Clock fires are **skip-if-busy**: only one archive/fixture step runs at a time (overlapping ticks cannot drop a freeze).
 - `Reset session` — clear chunks, profile, frozen snips, trailing, floor history, playhead.
 
 **Live microphone**
@@ -109,7 +109,7 @@ No noise-floor slider in the chrome.
 - **Show archive metadata** (checkbox, default **off**) reveals manifest / `exportedAt` / session flags / chunk rows / profile notes. Hide it so the histogram + Frozen / Live / Doctor stay on screen.
 - Same Step / Replay remaining controls, `seq` order.
 - After the last chunk: auto tick with `includeTrailing: true` (growing profiles only — never the full zip profile mid-replay).
-- Loud compare: `Frozen N · Live archived M` (FAIL when N≠M). BLT-shaped replay must land **13 = 13**.
+- Loud compare: `Frozen N · Live archived M` (FAIL when N≠M). Frozen cards are **1-based** (`Frozen 1`…`Frozen 13`) so a 13-count cannot be read as “Snip 12”. BLT-shaped replay must land **13 = 13**.
 - `Stop replay early` commits trailing on audio ingested so far.
 - When optional `snips.json` exists: Live (archived) fills immediately. Slim zip: `hasSnips is a flag only — live ranges were not exported`.
 

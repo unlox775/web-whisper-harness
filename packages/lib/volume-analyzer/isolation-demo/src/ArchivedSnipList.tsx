@@ -33,7 +33,12 @@ function ArchivedSnipList({
         const exportLabel = `live-${index + 1}`;
         const exporting = exportingKey === exportLabel;
         return (
-        <div key={snip.id} className="snip-item archived">
+        <div
+          key={snip.id}
+          className="snip-item archived live-snip-card"
+          data-testid="live-snip-card"
+          data-live-index={index + 1}
+        >
           <div className="snip-item-header">
             <div className="snip-id">
               Live {index + 1} · {snip.id}

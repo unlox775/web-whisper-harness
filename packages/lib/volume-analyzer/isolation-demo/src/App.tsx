@@ -32,6 +32,7 @@ import {
   stepArchiveReplay,
   type ArchiveReplayState,
 } from './archiveReplay';
+import { createStepGate } from './stepGate';
 import { VOLUME_ANALYZER_DEMO_DB, loadTunerSettings, saveTunerSettings } from './demoStore';
 import { appDefaultTunerSettings, tunerMatchesAppDefaults } from './tunerDefaults';
 import {
@@ -91,6 +92,10 @@ function App() {
   const captureHandleRef = useRef<CaptureHandle | null>(null);
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const clockTimerRef = useRef<number | null>(null);
+  const stepGateRef = useRef(createStepGate());
+  const sessionEpochRef = useRef(0);
+  const sourceRef = useRef<DataSource>('fixture');
+  sourceRef.current = source;
 
   const [quietThresholdDb, setQuietThresholdDb] = useState(-40);
   const [autoNoiseFloor, setAutoNoiseFloor] = useState(true);
@@ -504,6 +509,7 @@ function App() {
       storedProfile: ChunkVolumeProfile | null,
       playable: boolean
     ) => {
+      const epoch = sessionEpochRef.current;
       const current = liveRef.current;
       const result = await runLiveTick({
         chunk,
@@ -514,6 +520,7 @@ function App() {
         frozenSnips: current.frozen,
         includeTrailing: false,
       });
+      if (epoch !== sessionEpochRef.current) return;
       applyTickResult(result, chunk.seq);
     },
     [applyTickResult]
@@ -537,9 +544,11 @@ function App() {
   const stepArchiveOnce = useCallback(async (): Promise<boolean> => {
     const index = queueIndexRef.current;
     if (index >= archiveQueue.length) return false;
+    const epoch = sessionEpochRef.current;
     const item = archiveQueue[index];
     const isLast = index === archiveQueue.length - 1;
     let next = await stepArchiveReplay(archiveReplayRef.current, item, isLast);
+    if (epoch !== sessionEpochRef.current) return false;
     if (isLast && next.trailing && !next.includeTrailing) {
       next = commitArchiveReplayTrailing(next);
     }
@@ -561,40 +570,44 @@ function App() {
   }, [archiveQueue, applyReplayState]);
 
   const handleStepNext = useCallback(async () => {
-    if (isBusy) return;
+    if (isBusy || stepGateRef.current.isBusy()) return;
     setIsBusy(true);
     try {
-      if (source === 'fixture') await stepFixtureOnce();
-      else if (source === 'archive') await stepArchiveOnce();
+      await stepGateRef.current.runExclusive(async () => {
+        if (source === 'fixture') await stepFixtureOnce();
+        else if (source === 'archive') await stepArchiveOnce();
+      });
     } finally {
       setIsBusy(false);
     }
   }, [isBusy, source, stepFixtureOnce, stepArchiveOnce]);
 
   const handleReplayRemaining = useCallback(async () => {
-    if (isBusy) return;
+    if (isBusy || stepGateRef.current.isBusy()) return;
     setIsBusy(true);
     stopClock();
     try {
-      if (source === 'fixture') {
-        while (queueIndexRef.current < fixtureSpecs.length) {
-          const more = await stepFixtureOnce();
-          if (!more) break;
+      await stepGateRef.current.runExclusive(async () => {
+        if (source === 'fixture') {
+          while (queueIndexRef.current < fixtureSpecs.length) {
+            const more = await stepFixtureOnce();
+            if (!more) break;
+          }
+        } else if (source === 'archive') {
+          const remaining = archiveQueue.slice(queueIndexRef.current);
+          if (remaining.length > 0) {
+            const next = await replayArchiveLivePath(remaining, archiveReplayRef.current);
+            archiveReplayRef.current = next;
+            applyReplayState(next, [
+              { at: Date.now(), name: 'replayComplete', detail: { frozen: next.frozen.length } },
+            ]);
+            queueIndexRef.current = archiveQueue.length;
+            setQueueIndex(archiveQueue.length);
+            setStoppedCommitted(true);
+            setReplayComplete(true);
+          }
         }
-      } else if (source === 'archive') {
-        const remaining = archiveQueue.slice(queueIndexRef.current);
-        if (remaining.length > 0) {
-          const next = await replayArchiveLivePath(remaining, archiveReplayRef.current);
-          archiveReplayRef.current = next;
-          applyReplayState(next, [
-            { at: Date.now(), name: 'replayComplete', detail: { frozen: next.frozen.length } },
-          ]);
-          queueIndexRef.current = archiveQueue.length;
-          setQueueIndex(archiveQueue.length);
-          setStoppedCommitted(true);
-          setReplayComplete(true);
-        }
-      }
+      });
     } finally {
       setIsBusy(false);
     }
@@ -605,16 +618,19 @@ function App() {
       stopClock();
       return;
     }
+    if (isBusy || stepGateRef.current.isBusy()) return;
     setClockReplay(true);
     clockTimerRef.current = window.setInterval(() => {
-      void (async () => {
-        const more = source === 'archive' ? await stepArchiveOnce() : await stepFixtureOnce();
+      void stepGateRef.current.tryRunExclusive(async () => {
+        const more =
+          sourceRef.current === 'archive' ? await stepArchiveOnce() : await stepFixtureOnce();
         if (!more) stopClock();
-      })();
+      });
     }, 4000);
-  }, [clockReplay, source, stepArchiveOnce, stepFixtureOnce, stopClock]);
+  }, [clockReplay, isBusy, stepArchiveOnce, stepFixtureOnce, stopClock]);
 
   const resetSessionCore = useCallback(() => {
+    sessionEpochRef.current += 1;
     stopClock();
     handleStopPlayback();
     liveRef.current = {
@@ -773,7 +789,9 @@ function App() {
         duration: number;
         blob?: Blob;
       }) => {
-        void ingestLiveChunk(data);
+        void stepGateRef.current.runExclusive(async () => {
+          await ingestLiveChunk(data);
+        });
       });
       handle.on('captureError', (data: { reason?: string }) => {
         setCaptureStatus(`Error: ${data.reason || 'capture_failed'}`);
@@ -1146,6 +1164,7 @@ function App() {
 
   const stepDisabled =
     isBusy ||
+    clockReplay ||
     isCapturing ||
     (source === 'fixture' && queueIndex >= fixtureSpecs.length) ||
     (source === 'archive' && (archiveQueue.length === 0 || queueIndex >= archiveQueue.length)) ||
@@ -1547,7 +1566,7 @@ function App() {
               hatched. Rose dashed = contiguous-repeat; purple = time-overlap.
             </p>
           ) : null}
-          <div className="histogram-container">
+          <div className="histogram-container" data-testid="histogram-container">
             {volumeProfile ? (
               <VolumeHistogram
                 volumeProfile={volumeProfile}
@@ -1622,6 +1641,10 @@ function App() {
               className={`count-match-banner${
                 frozenSnips.length === archivedLiveSnips.length ? ' match' : ' fail'
               }`}
+              data-testid="frozen-live-banner"
+              data-frozen-count={frozenSnips.length}
+              data-live-count={archivedLiveSnips.length}
+              data-match={frozenSnips.length === archivedLiveSnips.length ? 'match' : 'fail'}
               role="status"
               aria-live="polite"
             >

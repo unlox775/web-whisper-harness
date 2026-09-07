@@ -131,21 +131,28 @@ Mark this spec resolved when:
 
 ### Replay match (the hard verify)
 
-Dave’s phone 12-vs-13 was the Isolation Demo finishing the last chunk with `includeTrailing: false` (12 frozen + trailing). Offline check: growing profiles + last-tick `includeTrailing: true` matches live 13; full profile every tick is the 11-wrong path.
+Dave’s phone 12-vs-13 had two Isolation Demo failure modes:
 
-Shipped `archiveReplay.ts`: **one stored chunk profile per tick**, last tick `includeTrailing: true`. `Replay remaining` calls `replayArchiveLivePath`. Queue mapping also matches stored samples by chunkId **or** seq/index.
+1. Last chunk with `includeTrailing: false` → 12 frozen + trailing.
+2. Clock / auto-play `setInterval` firing the next `stepArchiveOnce` / `ingestPreparedChunk` before the previous apply finished. Two ticks read the same snapshot; the later apply overwrites and can drop a newlyClosed freeze (Live #7 92.9–103.4). Serialized `Replay remaining` did not have this race.
+
+Shipped `archiveReplay.ts`: **one stored chunk profile per tick**, last tick `includeTrailing: true`. `Replay remaining` calls `replayArchiveLivePath`. Clock / mic / Step share `createStepGate()` — skip-if-busy for timer fires, await-chain for mic and Replay remaining.
 
 Regression `isolation-demo/src/archiveReplay.test.ts` + fixture `bltLiveReplayFixture.ts` (52 chunks, Dave’s cut times including Live #7 **92.9–103.4**):
 
 - Growing + last `includeTrailing: true` → Frozen **13** = Live archived **13**, ranges within **50ms**
+- Clock-style skip-if-busy (overlapping timer fires) → still Frozen **13** = Live **13**, same ranges
+- Ungated overlapping applies from the same snapshot do **not** reach 13
 - Last tick false only → **12 frozen + trailing** (the phone-count failure mode)
 - Profile length grows 1, then 2 — never the full zip mid-replay
 
-Browser: **Load BLT 13-snip replay fixture** → **Replay remaining** → banner `Frozen 13 · Live archived 13 — MATCH`. Frozen snip 6 = 92.9–103.4s.
+Frozen list labels are **1-based** (`Frozen 1`…`Frozen 13`) with `data-testid="frozen-snip-card"`. Do not claim match unless the DOM card count equals Live.
+
+Browser: **Load BLT 13-snip replay fixture** → **Replay remaining** → banner `Frozen 13 · Live archived 13 — MATCH` and **13 Frozen cards** in the DOM. Frozen 7 = 92.9–103.4s.
 
 ### Layout / metadata / pan / Export
 
-- Center column viewport-capped; histogram max ~360px (desktop) / 280px (narrow)
+- Center column viewport-capped; histogram **fixed 320px** (desktop) / **240px** (narrow). Canvas is not `height: 100%` (that looped to a mile-tall bitmap on Pages).
 - Left/right independently scrollable
 - **Show archive metadata** default off; one-liner `volume-profile.json used · 52 chunks · Live archived 13`
 - Canvas pointer/touch drag pan (`touch-action: none` when zoomed) + scrollbar

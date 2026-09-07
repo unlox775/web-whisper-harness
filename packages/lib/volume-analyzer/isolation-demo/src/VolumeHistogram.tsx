@@ -87,12 +87,15 @@ function drawHistogram(
   if (!ctx) return;
 
   const rect = canvas.getBoundingClientRect();
-  canvas.width = rect.width * window.devicePixelRatio;
-  canvas.height = rect.height * window.devicePixelRatio;
-  ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+  const cssWidth = Math.max(1, rect.width);
+  const cssHeight = Math.max(1, Math.min(rect.height || 280, 360));
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(cssWidth * dpr);
+  canvas.height = Math.floor(cssHeight * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const width = rect.width;
-  const height = rect.height;
+  const width = cssWidth;
+  const height = cssHeight;
   ctx.clearRect(0, 0, width, height);
 
   const padding = HISTOGRAM_PADDING;
@@ -492,7 +495,7 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
       <canvas
         ref={canvasRef}
         className={`histogram-canvas${zoomed ? ' pannable' : ''}`}
-        style={{ width: '100%', height: '100%', touchAction: zoomed ? 'none' : 'auto' }}
+        style={{ touchAction: zoomed ? 'none' : 'auto' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

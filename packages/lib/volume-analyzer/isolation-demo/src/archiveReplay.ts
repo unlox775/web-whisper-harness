@@ -25,6 +25,7 @@ import {
   type LiveTickResult,
   type TickTelemetry,
 } from './livePath';
+import { createStepGate } from './stepGate';
 
 export type ArchiveReplayState = {
   profiles: ChunkVolumeProfile[];
@@ -131,6 +132,58 @@ export async function replayArchiveLivePath(
     state = commitArchiveReplayTrailing(state);
   }
   return state;
+}
+
+/**
+ * Rapid / clock-style replay: extra interval fires while a step is in
+ * flight are skipped (skip the *timer* fire, not a chunk). Must still
+ * land Frozen === Live === 13 on the BLT fixture.
+ */
+export async function replayArchiveClockStyle(
+  items: ReplayQueueItem[],
+  initial: ArchiveReplayState = emptyArchiveReplayState(),
+  options: { extraFiresPerTick?: number } = {}
+): Promise<ArchiveReplayState> {
+  const gate = createStepGate();
+  const box = { state: initial, index: 0 };
+  const extra = Math.max(0, options.extraFiresPerTick ?? 4);
+
+  const fire = () =>
+    gate.tryRunExclusive(async () => {
+      const i = box.index;
+      if (i >= items.length) return;
+      const isLast = i === items.length - 1;
+      let next = await stepArchiveReplay(box.state, items[i], isLast);
+      if (isLast && next.trailing && !next.includeTrailing) {
+        next = commitArchiveReplayTrailing(next);
+      }
+      box.state = next;
+      box.index = i + 1;
+    });
+
+  while (box.index < items.length) {
+    await Promise.all(Array.from({ length: 1 + extra }, () => fire()));
+  }
+  return box.state;
+}
+
+/**
+ * Ungated overlapping fires: every tick captures the same starting snapshot
+ * (the clock race without a mutex). Last apply wins — does not grow the
+ * session and will not reach Frozen 13.
+ */
+export async function replayArchiveUngatedOverlappingFires(
+  items: ReplayQueueItem[]
+): Promise<ArchiveReplayState> {
+  const box = { state: emptyArchiveReplayState() };
+  await Promise.all(
+    items.map(async (item, index) => {
+      const snapshot = box.state;
+      const next = await stepArchiveReplay(snapshot, item, index === items.length - 1);
+      box.state = next;
+    })
+  );
+  return box.state;
 }
 
 /**
