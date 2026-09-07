@@ -21,8 +21,8 @@ This demo is **not** a one-shot “Compute Volume on the whole take.” That is 
 ## Runtime
 
 - **Platform**: Web app (local dev server, factory floor)
-- **Viewport**: Desktop browser, wide split (not phone-shaped)
-- **Layout**: Inputs left / volume profile + reason center / outputs right
+- **Viewport**: Desktop browser, wide split (not phone-shaped). iPhone (~390) is supported for histogram **touch-drag pan** only — diagnosis layout is still the 3-column factory floor.
+- **Layout**: Inputs left / volume profile + reason center / outputs right. **Center is viewport-capped** (histogram fixed 280px desktop / 220px narrow; document stays `100dvh`, no `zoom: 0.5`). Left and right scroll independently when they overflow. Archive manifest/chunk/profile dumps stay behind **Show archive metadata** (default off).
 - **Launch**: `cd packages/lib/volume-analyzer/isolation-demo && npm start`
 
 ## Data Mode
@@ -55,14 +55,16 @@ The demo does **not** open `web-whisper-db`. Chunks / profiles / frozen snips li
 │ Same path as PWA ingestGrowingSession: analyze → incremental propose     │
 └──────────────────────────────────────────────────────────────────────────┘
 ┌─────────────────┬──────────────────────────────┬─────────────────────────┐
-│ INPUTS          │ VOLUME PROFILE / REASON      │ OUTPUTS                 │
-│ Source radios   │ Histogram                    │ Frozen snips            │
+│ INPUTS (scroll) │ VOLUME PROFILE / REASON      │ OUTPUTS (scroll)        │
+│ Source radios   │ Histogram (≤ ~360px)         │ Frozen snips + Export   │
 │ Step / Start    │ Frozen vs trailing           │ Trailing (held)         │
-│ Current window  │ Per-window floor line        │ Live (archived)         │
-│ Archive upload  │ Live overlay + playhead      │ Doctor / boundary       │
-│ ▸ Offline batch │ Zoom / pan                   │ Floor history           │
-│                 │ Reason strip                 │ Events / telemetry      │
+│ Current window  │ Per-window floor line        │ Doctor / boundary       │
+│ Archive 1-liner │ Live overlay + playhead      │ Live (archived)+Export  │
+│ ☐ metadata dump │ Zoom + scrollbar + touch pan │ Floor history           │
+│ ▸ Offline batch │ Reason strip                 │ Events / telemetry      │
 └─────────────────┴──────────────────────────────┴─────────────────────────┘
+Center histogram is a fixed-height box (280px / 220px). The page itself never unlocks to `height: auto` — that was the Pages mile-tall scroll.
+Left / right overflow scrolls inside the column, not the whole page.
 ```
 
 ### 1. Top Chrome Panel (fixed header, full width)
@@ -89,7 +91,7 @@ No noise-floor slider in the chrome.
 - Pattern dropdown (existing patterns; default Breath-paused speech). Changing pattern resets the in-memory session.
 - `Step next chunk` (primary) — append the next ~4s chunk and run **one live tick**.
 - `Replay remaining` — instant remaining ticks.
-- `Replay remaining (4s clock)` — optional wall-clock growth.
+- `Replay remaining (4s clock)` — optional wall-clock growth. Clock fires are **skip-if-busy**: only one archive/fixture step runs at a time (overlapping ticks cannot drop a freeze).
 - `Reset session` — clear chunks, profile, frozen snips, trailing, floor history, playhead.
 
 **Live microphone**
@@ -102,9 +104,12 @@ No noise-floor slider in the chrome.
 **Session archive replay**
 
 - `Upload session archive` (zip). `parseSessionArchive` only.
-- Chunks become a **queue**. Status must say whether `volume-profile.json` samples were used or decode fallback ran.
+- Chunks become a **queue**. After upload, a **one-line** status is enough:
+  `volume-profile.json used · 52 chunks · Live archived 13` (plus `N of M chunks replayed`).
+- **Show archive metadata** (checkbox, default **off**) reveals manifest / `exportedAt` / session flags / chunk rows / profile notes. Hide it so the histogram + Frozen / Live / Doctor stay on screen.
 - Same Step / Replay remaining controls, `seq` order.
-- After the last chunk: auto tick with `includeTrailing: true`.
+- After the last chunk: auto tick with `includeTrailing: true` (growing profiles only — never the full zip profile mid-replay).
+- Loud compare: `Frozen N · Live archived M` (FAIL when N≠M). Frozen cards are **1-based** (`Frozen 1`…`Frozen 13`) so a 13-count cannot be read as “Snip 12”. BLT-shaped replay must land **13 = 13**.
 - `Stop replay early` commits trailing on audio ingested so far.
 - When optional `snips.json` exists: Live (archived) fills immediately. Slim zip: `hasSnips is a flag only — live ranges were not exported`.
 
@@ -126,9 +131,11 @@ No noise-floor slider in the chrome.
 
 **Disclosure (collapsed):** `Offline batch (not the live path)` — see below.
 
-### 3. Volume Histogram Panel (center half)
+### 3. Volume Histogram Panel (center half, viewport-fixed)
 
 **Heading:** `Volume profile (100ms peak dB) · reason`
+
+The center column **does not grow with metadata or snip lists**. Histogram canvas fills available center height and **caps around 280–360px** (not a document-tall waveform).
 
 **Empty:** `Step a chunk, start capture, or upload an archive to replay the live path.`
 
@@ -141,7 +148,7 @@ No noise-floor slider in the chrome.
 - Optional faint historical floor ticks on closed snips
 - **Live (archived)** overlay when present — amber dashed (keep legend)
 - Doctor ticks — rose contiguous-repeat, purple overlap
-- **Window slider + Fit all + horizontal pan** (viewport; not the snip algorithm)
+- **Window slider + Fit all + horizontal pan** (viewport; not the snip algorithm). Pan via **scrollbar and pointer/touch drag** on the canvas (`touch-action: none` when zoomed).
 - **Playhead** — session-relative; pause freezes; stop/ended clears
 
 **Reason strip** (changes every tick), e.g.:
@@ -156,6 +163,7 @@ No noise-floor slider in the chrome.
 
 - Columns: id, chunks, start→end, duration, **floor at close**
 - Play / Pause / Stop (assemble from in-memory blobs; keep)
+- **Export** downloads the same assembled WAV (`snip-<id>-<start>s-<end>s.wav`)
 - Empty: `No frozen snips yet — live path holds the trailing region until a quiet-gap cut or Stop.`
 
 **Trailing (held)**
@@ -167,6 +175,7 @@ No noise-floor slider in the chrome.
 
 - Existing list + transcript text when present
 - `N live cuts from the zip — compare to Frozen snips after incremental replay.`
+- **Export** uses the same assemble path (disabled on doctor-only / no-audio fixtures).
 
 **Doctor / boundary** (keep)
 
@@ -194,7 +203,7 @@ Contains today’s tuner:
 - Noise floor (auto / manual), min snip, max snip, quiet-gap
 - `Reset to app defaults` (persist in demo tuner DB; do not wipe archive/chunks)
 - `Compute Volume` / `Batch propose` / live slider recompute — **full session only**
-- Results headed `Offline batch snips` — must not silently replace Frozen snips
+- Results headed `Offline batch snips` — must not silently replace Frozen snips (rows also have **Export**)
 - Path chip flips to `OFFLINE BATCH — NOT LIVE PATH` only after a batch propose
 - If batch count ≠ incremental count, show both (e.g. live path 13 vs batch 11) and keep the banner
 
@@ -224,7 +233,7 @@ Contains today’s tuner:
 ### After debug-zip upload, before Step
 
 - Chip `LIVE PATH · ARCHIVE REPLAY`
-- Status names `volume-profile.json used` or `decode fallback`
+- One-line status (`volume-profile.json used · N chunks · Live archived M`); **Show archive metadata** off
 - Live (archived) list visible; incremental frozen still empty
 - Queue `0 of M`
 
@@ -251,7 +260,8 @@ Contains today’s tuner:
 | `detectSilenceGaps` | Gap overlay / telemetry |
 | `DEFAULT_SNIP_OPTIONS` | Read-only live defaults; Reset to app defaults in batch |
 | `scanSnipBoundaries` | Doctor panel |
-| Zoom/pan + snip play/playhead | Center / frozen list |
+| Zoom/pan + snip play/playhead | Center / frozen list. Pan = scrollbar + touch/pointer drag |
+| Snip Export | Frozen / Live archived / Offline batch rows (same WAV assemble as Play) |
 | Reset to app defaults | Offline batch only |
 
 Prefer calling real package exports (session APIs against a sandbox, or a shared incremental helper that production also uses). Do not reimplement freeze + `windowStartTime` only inside `App.tsx`.
@@ -276,5 +286,6 @@ Live path calls shared helpers `analyzeVolumeIncremental` + `proposeSnipsIncreme
 - Live tick = volume incremental + propose incremental (`includeTrailing` as above).
 - Archive: prefer stored samples; else decode. Status names which.
 - Offline batch is a collapsed disclosure: `proposeSnipsFromProfile` + sliders + Reset to app defaults.
-- Keep doctor, live overlay, zoom/pan, snip play.
+- Keep doctor, live overlay, zoom/pan, snip play + **Export**.
+- Center column is viewport-fixed; archive metadata is a default-off checkbox.
 - Old batch-first “Compute Volume then sliders” is not the headline.

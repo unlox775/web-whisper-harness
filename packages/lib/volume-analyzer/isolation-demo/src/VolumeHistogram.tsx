@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react';
 import {
   HISTOGRAM_PADDING,
+  POINTER_PAN_THRESHOLD_PX,
   isZoomedIn,
   scrollLeftForViewStart,
   sessionDurationFromProfile,
   timeToX,
+  viewStartFromPointerDelta,
   viewStartFromScrollLeft,
   xToTime,
 } from './histogramViewport';
@@ -85,12 +87,15 @@ function drawHistogram(
   if (!ctx) return;
 
   const rect = canvas.getBoundingClientRect();
-  canvas.width = rect.width * window.devicePixelRatio;
-  canvas.height = rect.height * window.devicePixelRatio;
-  ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+  const cssWidth = Math.max(1, rect.width);
+  const cssHeight = Math.max(1, Math.min(rect.height || 266, 280));
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(cssWidth * dpr);
+  canvas.height = Math.floor(cssHeight * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const width = rect.width;
-  const height = rect.height;
+  const width = cssWidth;
+  const height = cssHeight;
   ctx.clearRect(0, 0, width, height);
 
   const padding = HISTOGRAM_PADDING;
@@ -327,6 +332,12 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const ignoreScrollRef = useRef(false);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    originViewStart: number;
+    moved: boolean;
+  } | null>(null);
 
   const totalDuration = sessionDurationFromProfile(volumeProfile);
   const zoomed = isZoomedIn(totalDuration, windowSeconds);
@@ -397,18 +408,83 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
     );
   };
 
-  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  const activateSnipAtClientX = (clientX: number) => {
     if (!onSnipActivate || !snips || snips.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
+    const x = clientX - rect.left;
     const chartWidth = Math.max(1, rect.width - HISTOGRAM_PADDING.left - HISTOGRAM_PADDING.right);
     const time = xToTime(x, viewStart, windowSeconds, chartWidth, HISTOGRAM_PADDING.left);
     const hit = snips.find((snip) => time >= snip.startTime && time < snip.endTime);
     if (hit) {
       onSnipActivate(hit);
     }
+  };
+
+  const chartWidthFromCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return 1;
+    const rect = canvas.getBoundingClientRect();
+    return Math.max(1, rect.width - HISTOGRAM_PADDING.left - HISTOGRAM_PADDING.right);
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!zoomed) return;
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    canvas?.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      originViewStart: viewStart,
+      moved: false,
+    };
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const totalDx = event.clientX - drag.startX;
+    if (!drag.moved && Math.abs(totalDx) < POINTER_PAN_THRESHOLD_PX) {
+      return;
+    }
+    drag.moved = true;
+    onViewStartChange(
+      viewStartFromPointerDelta(
+        drag.originViewStart,
+        totalDx,
+        windowSeconds,
+        chartWidthFromCanvas(),
+        totalDuration
+      )
+    );
+  };
+
+  const endPointerPan = (event: React.PointerEvent<HTMLCanvasElement>, activate: boolean) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    const canvas = canvasRef.current;
+    if (canvas?.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    if (activate && !drag.moved) {
+      activateSnipAtClientX(event.clientX);
+    }
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    endPointerPan(event, true);
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    endPointerPan(event, false);
+  };
+
+  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (zoomed) return;
+    activateSnipAtClientX(event.clientX);
   };
 
   const scrollInnerWidthPct =
@@ -418,8 +494,12 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
     <div className="histogram-viewport">
       <canvas
         ref={canvasRef}
-        className="histogram-canvas"
-        style={{ width: '100%', height: '100%' }}
+        className={`histogram-canvas${zoomed ? ' pannable' : ''}`}
+        style={{ touchAction: zoomed ? 'none' : 'auto' }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
         onClick={handleCanvasClick}
       />
       {zoomed ? (

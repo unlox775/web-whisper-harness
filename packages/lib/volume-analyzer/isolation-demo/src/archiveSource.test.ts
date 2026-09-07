@@ -10,7 +10,9 @@ import {
   ARCHIVE_PROFILE_NO_SAMPLES,
   archiveLiveRangesStatusNote,
   archiveProfileUsedMessage,
+  buildArchiveMetadataDump,
   buildArchiveReplayQueue,
+  compactArchiveStatusLine,
   describeArchiveProfileStatus,
   mapArchiveChunksToAnalyze,
   mapArchivedLiveSnips,
@@ -396,6 +398,78 @@ describe('archive volume-profile replay mapping', () => {
 
   it('flags decode fallback when volume-profile.json is missing', () => {
     assert.equal(describeArchiveProfileStatus({ chunks: [] }).line, ARCHIVE_PROFILE_MISSING);
+  });
+});
+
+describe('compact archive metadata status', () => {
+  it('hides dump details behind a one-line status', () => {
+    assert.equal(
+      compactArchiveStatusLine({
+        profileMode: 'used',
+        queueCount: 52,
+        liveArchivedCount: 13,
+      }),
+      'volume-profile.json used · 52 chunks · Live archived 13'
+    );
+    assert.equal(
+      compactArchiveStatusLine({
+        profileMode: 'missing',
+        queueCount: 0,
+        liveArchivedCount: 3,
+      }),
+      'no volume-profile.json · 0 chunks · Live archived 3'
+    );
+  });
+
+  it('builds a dump from parse + queue for the metadata checkbox', () => {
+    const parsed = {
+      formatVersion: 1,
+      exportedAt: '2026-09-07T17:35:00.000Z',
+      notes: 'debug export',
+      session: {
+        id: 'ses_blt',
+        duration: 207,
+        chunkCount: 52,
+        hasSnips: true,
+        hasTranscript: true,
+        hasVolumeProfile: true,
+      },
+      volumeProfile: {
+        chunkVolumes: [
+          {
+            chunkId: 'c0',
+            peakDb: -12,
+            avgDb: -20,
+            chunkIndex: 0,
+            samples: [-20, -18],
+          },
+        ],
+      },
+      chunks: [
+        {
+          meta: { id: 'c0', seq: 0, startTime: 0, endTime: 4, duration: 4 },
+          blob: new Blob([new Uint8Array([1])], { type: 'audio/mpeg' }),
+        },
+      ],
+    };
+    const queue = buildArchiveReplayQueue(parsed);
+    const dump = buildArchiveMetadataDump({
+      fileName: 'blt.zip',
+      parsed,
+      queue: queue.items,
+      liveCount: 13,
+    });
+    assert.equal(dump.fileName, 'blt.zip');
+    assert.equal(dump.formatVersion, 1);
+    assert.equal(dump.sessionId, 'ses_blt');
+    assert.equal(dump.queueCount, 1);
+    assert.equal(dump.liveArchivedCount, 13);
+    assert.equal(dump.profileMode, 'used');
+    assert.equal(dump.chunkRows[0].hasSamples, true);
+    assert.equal(
+      compactArchiveStatusLine(dump),
+      'volume-profile.json used · 1 chunks · Live archived 13'
+    );
   });
 });
 

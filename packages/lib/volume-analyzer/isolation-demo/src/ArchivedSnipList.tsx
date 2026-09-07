@@ -12,21 +12,49 @@ function formatClock(seconds: number): string {
 
 interface ArchivedSnipListProps {
   snips: ArchivedLiveSnip[];
+  exportEnabled?: boolean;
+  exportingKey?: string | null;
+  onExport?: (snip: ArchivedLiveSnip, label: string) => void;
 }
 
-function ArchivedSnipList({ snips }: ArchivedSnipListProps) {
+function ArchivedSnipList({
+  snips,
+  exportEnabled = false,
+  exportingKey = null,
+  onExport,
+}: ArchivedSnipListProps) {
   if (snips.length === 0) {
     return <div className="snip-placeholder">No live snips in this archive</div>;
   }
 
   return (
     <div className="snip-list archived-snip-list">
-      {snips.map((snip, index) => (
-        <div key={snip.id} className="snip-item archived">
+      {snips.map((snip, index) => {
+        const exportLabel = `live-${index + 1}`;
+        const exporting = exportingKey === exportLabel;
+        return (
+        <div
+          key={snip.id}
+          className="snip-item archived live-snip-card"
+          data-testid="live-snip-card"
+          data-live-index={index + 1}
+        >
           <div className="snip-item-header">
             <div className="snip-id">
               Live {index + 1} · {snip.id}
             </div>
+            {onExport ? (
+              <div className="snip-play-controls">
+                <button
+                  type="button"
+                  className="snip-export-btn"
+                  onClick={() => onExport(snip, exportLabel)}
+                  disabled={!exportEnabled || exporting}
+                >
+                  {exporting ? 'Exporting…' : 'Export'}
+                </button>
+              </div>
+            ) : null}
           </div>
           <div className="snip-detail">
             Time: {formatClock(snip.startTime)} → {formatClock(snip.endTime)}
@@ -46,9 +74,10 @@ function ArchivedSnipList({ snips }: ArchivedSnipListProps) {
             <p className="archived-snip-text muted">No transcript text in archive</p>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
-};
+}
 
 export default ArchivedSnipList;

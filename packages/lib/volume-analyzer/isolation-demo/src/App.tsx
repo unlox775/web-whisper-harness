@@ -24,15 +24,27 @@ import VolumeHistogram from './VolumeHistogram';
 import SnipList, { type SnipPlaybackStatus } from './SnipList';
 import BoundaryDoctorPanel from './BoundaryDoctorPanel';
 import { BLT_FIXTURE_NOTE, BLT_LIVE_SNIPS, BLT_RECOMPUTED_SNIPS } from './bltBoundaryFixture';
+import { BLT_REPLAY_FIXTURE_NOTE, buildBltReplayQueue } from './bltLiveReplayFixture';
+import {
+  commitArchiveReplayTrailing,
+  emptyArchiveReplayState,
+  replayArchiveLivePath,
+  stepArchiveReplay,
+  type ArchiveReplayState,
+} from './archiveReplay';
+import { createStepGate } from './stepGate';
 import { VOLUME_ANALYZER_DEMO_DB, loadTunerSettings, saveTunerSettings } from './demoStore';
 import { appDefaultTunerSettings, tunerMatchesAppDefaults } from './tunerDefaults';
 import {
   ARCHIVE_ERROR_NO_AUDIO,
   archiveLiveRangesStatusNote,
+  buildArchiveMetadataDump,
   buildArchiveReplayQueue,
+  compactArchiveStatusLine,
   mapArchivedLiveSnips,
   messageForArchiveParseError,
   type ArchivedLiveSnip,
+  type ArchiveMetadataDump,
   type ReplayQueueItem,
 } from './archiveSource';
 import ArchivedSnipList from './ArchivedSnipList';
@@ -45,7 +57,7 @@ import {
   sessionDurationFromProfile,
   viewStartToShowTime,
 } from './histogramViewport';
-import { assembleSnipWavBlob, SNIP_PLAY_ERROR } from './snipPlayback';
+import { assembleSnipWavBlob, SNIP_PLAY_ERROR, snipExportFilename, triggerBlobDownload } from './snipPlayback';
 import {
   formatFloorDb,
   runCommitTick,
@@ -70,6 +82,8 @@ function App() {
   const [archiveStatus, setArchiveStatus] = useState('Upload a session archive zip to replay the live path');
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archiveFileName, setArchiveFileName] = useState<string | null>(null);
+  const [archiveMeta, setArchiveMeta] = useState<ArchiveMetadataDump | null>(null);
+  const [showArchiveMetadata, setShowArchiveMetadata] = useState(false);
   const [replayComplete, setReplayComplete] = useState(false);
   const [stoppedCommitted, setStoppedCommitted] = useState(false);
   const [batchRan, setBatchRan] = useState(false);
@@ -78,6 +92,10 @@ function App() {
   const captureHandleRef = useRef<CaptureHandle | null>(null);
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
   const clockTimerRef = useRef<number | null>(null);
+  const stepGateRef = useRef(createStepGate());
+  const sessionEpochRef = useRef(0);
+  const sourceRef = useRef<DataSource>('fixture');
+  sourceRef.current = source;
 
   const [quietThresholdDb, setQuietThresholdDb] = useState(-40);
   const [autoNoiseFloor, setAutoNoiseFloor] = useState(true);
@@ -124,6 +142,7 @@ function App() {
   const [playbackStatus, setPlaybackStatus] = useState<SnipPlaybackStatus>('idle');
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [playingTrailing, setPlayingTrailing] = useState(false);
+  const [exportingKey, setExportingKey] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -138,6 +157,7 @@ function App() {
     profileReused: false,
     lastSeq: -1,
   });
+  const archiveReplayRef = useRef<ArchiveReplayState>(emptyArchiveReplayState());
 
   const totalDuration = useMemo(
     () => (volumeProfile ? sessionDurationFromProfile(volumeProfile) : 0),
@@ -298,6 +318,30 @@ function App() {
     [stopRaf]
   );
 
+  const handleExportSnip = useCallback(
+    async (snip: Pick<Snip, 'startTime' | 'endTime'>, label: string) => {
+      if (!volumeProfile) {
+        setPlaybackError(SNIP_PLAY_ERROR);
+        return;
+      }
+      setExportingKey(label);
+      setPlaybackError(null);
+      try {
+        const blob = await assembleSnipWavBlob(chunks, volumeProfile, snip);
+        if (!blob) {
+          setPlaybackError(SNIP_PLAY_ERROR);
+          return;
+        }
+        triggerBlobDownload(blob, snipExportFilename(label, snip.startTime, snip.endTime));
+      } catch {
+        setPlaybackError(SNIP_PLAY_ERROR);
+      } finally {
+        setExportingKey(null);
+      }
+    },
+    [chunks, volumeProfile]
+  );
+
   const handlePlaySnip = useCallback(
     async (snip: Snip, trailingPlay = false) => {
       if (!volumeProfile) return;
@@ -378,6 +422,30 @@ function App() {
     }
   }, []);
 
+  const applyReplayState = useCallback((state: ArchiveReplayState, extras: DemoEvent[] = []) => {
+    liveRef.current = {
+      profiles: state.profiles,
+      chunks: state.chunks,
+      frozen: state.frozen,
+      floorHistory: state.floorHistory,
+      profileReused: state.profileReused,
+      lastSeq: state.lastSeq,
+    };
+    setVolumeProfile(state.profiles.length > 0 ? state.profiles : null);
+    setChunks(state.chunks);
+    setFrozenSnips(state.frozen);
+    setTrailing(state.trailing);
+    setWindowStartTime(state.windowStartTime);
+    setIncludeTrailing(state.includeTrailing);
+    setAdaptiveFloorDb(state.adaptiveFloorDb);
+    setFloorHistory(state.floorHistory);
+    setEvents([...state.events, ...extras]);
+    setTelemetry(state.telemetry);
+    setReason(state.reason);
+    setLastSeq(state.lastSeq < 0 ? null : state.lastSeq);
+    setProfileReused(state.profileReused);
+  }, []);
+
   const applyTickResult = useCallback(
     (
       result: Awaited<ReturnType<typeof runLiveTick>>,
@@ -441,6 +509,7 @@ function App() {
       storedProfile: ChunkVolumeProfile | null,
       playable: boolean
     ) => {
+      const epoch = sessionEpochRef.current;
       const current = liveRef.current;
       const result = await runLiveTick({
         chunk,
@@ -451,6 +520,7 @@ function App() {
         frozenSnips: current.frozen,
         includeTrailing: false,
       });
+      if (epoch !== sessionEpochRef.current) return;
       applyTickResult(result, chunk.seq);
     },
     [applyTickResult]
@@ -474,68 +544,93 @@ function App() {
   const stepArchiveOnce = useCallback(async (): Promise<boolean> => {
     const index = queueIndexRef.current;
     if (index >= archiveQueue.length) return false;
+    const epoch = sessionEpochRef.current;
     const item = archiveQueue[index];
-    const chunk: ChunkWithBlob = {
-      ...item.chunk,
-      blob: item.blob ?? new Blob(),
-    };
-    await ingestPreparedChunk(chunk, item.storedProfile, item.playable);
+    const isLast = index === archiveQueue.length - 1;
+    let next = await stepArchiveReplay(archiveReplayRef.current, item, isLast);
+    if (epoch !== sessionEpochRef.current) return false;
+    if (isLast && next.trailing && !next.includeTrailing) {
+      next = commitArchiveReplayTrailing(next);
+    }
+    archiveReplayRef.current = next;
+    applyReplayState(
+      next,
+      isLast
+        ? [{ at: Date.now(), name: 'replayComplete', detail: { frozen: next.frozen.length } }]
+        : []
+    );
+    if (isLast) {
+      setStoppedCommitted(true);
+      setReplayComplete(true);
+    }
     const nextIndex = index + 1;
     queueIndexRef.current = nextIndex;
     setQueueIndex(nextIndex);
-    if (nextIndex >= archiveQueue.length) {
-      commitTrailingNow(true);
-    }
     return nextIndex < archiveQueue.length;
-  }, [archiveQueue, ingestPreparedChunk, commitTrailingNow]);
+  }, [archiveQueue, applyReplayState]);
 
   const handleStepNext = useCallback(async () => {
-    if (isBusy) return;
+    if (isBusy || stepGateRef.current.isBusy()) return;
     setIsBusy(true);
     try {
-      if (source === 'fixture') await stepFixtureOnce();
-      else if (source === 'archive') await stepArchiveOnce();
+      await stepGateRef.current.runExclusive(async () => {
+        if (source === 'fixture') await stepFixtureOnce();
+        else if (source === 'archive') await stepArchiveOnce();
+      });
     } finally {
       setIsBusy(false);
     }
   }, [isBusy, source, stepFixtureOnce, stepArchiveOnce]);
 
   const handleReplayRemaining = useCallback(async () => {
-    if (isBusy) return;
+    if (isBusy || stepGateRef.current.isBusy()) return;
     setIsBusy(true);
     stopClock();
     try {
-      if (source === 'fixture') {
-        while (queueIndexRef.current < fixtureSpecs.length) {
-          const more = await stepFixtureOnce();
-          if (!more) break;
+      await stepGateRef.current.runExclusive(async () => {
+        if (source === 'fixture') {
+          while (queueIndexRef.current < fixtureSpecs.length) {
+            const more = await stepFixtureOnce();
+            if (!more) break;
+          }
+        } else if (source === 'archive') {
+          const remaining = archiveQueue.slice(queueIndexRef.current);
+          if (remaining.length > 0) {
+            const next = await replayArchiveLivePath(remaining, archiveReplayRef.current);
+            archiveReplayRef.current = next;
+            applyReplayState(next, [
+              { at: Date.now(), name: 'replayComplete', detail: { frozen: next.frozen.length } },
+            ]);
+            queueIndexRef.current = archiveQueue.length;
+            setQueueIndex(archiveQueue.length);
+            setStoppedCommitted(true);
+            setReplayComplete(true);
+          }
         }
-      } else if (source === 'archive') {
-        while (queueIndexRef.current < archiveQueue.length) {
-          const more = await stepArchiveOnce();
-          if (!more) break;
-        }
-      }
+      });
     } finally {
       setIsBusy(false);
     }
-  }, [isBusy, source, stepFixtureOnce, stepArchiveOnce, fixtureSpecs.length, archiveQueue.length, stopClock]);
+  }, [isBusy, source, stepFixtureOnce, applyReplayState, fixtureSpecs.length, archiveQueue, stopClock]);
 
   const handleReplayClock = useCallback(() => {
     if (clockReplay) {
       stopClock();
       return;
     }
+    if (isBusy || stepGateRef.current.isBusy()) return;
     setClockReplay(true);
     clockTimerRef.current = window.setInterval(() => {
-      void (async () => {
-        const more = source === 'archive' ? await stepArchiveOnce() : await stepFixtureOnce();
+      void stepGateRef.current.tryRunExclusive(async () => {
+        const more =
+          sourceRef.current === 'archive' ? await stepArchiveOnce() : await stepFixtureOnce();
         if (!more) stopClock();
-      })();
+      });
     }, 4000);
-  }, [clockReplay, source, stepArchiveOnce, stepFixtureOnce, stopClock]);
+  }, [clockReplay, isBusy, stepArchiveOnce, stepFixtureOnce, stopClock]);
 
   const resetSessionCore = useCallback(() => {
+    sessionEpochRef.current += 1;
     stopClock();
     handleStopPlayback();
     liveRef.current = {
@@ -546,6 +641,7 @@ function App() {
       profileReused: false,
       lastSeq: -1,
     };
+    archiveReplayRef.current = emptyArchiveReplayState();
     setChunks([]);
     setVolumeProfile(null);
     setFrozenSnips([]);
@@ -588,6 +684,8 @@ function App() {
       setArchiveFileName(null);
       setArchiveQueue([]);
       setArchivedLiveSnips(null);
+      setArchiveMeta(null);
+      setShowArchiveMetadata(false);
       setArchiveStatus('Upload a session archive zip to replay the live path');
     }
     setSource(next);
@@ -608,6 +706,8 @@ function App() {
     setArchiveFileName(file.name);
     setArchiveError(null);
     setArchivedLiveSnips(null);
+    setArchiveMeta(null);
+    setShowArchiveMetadata(false);
     setArchiveStatus('Reading archive…');
     try {
       const parsed = await parseSessionArchive(file);
@@ -621,6 +721,14 @@ function App() {
       const live = mapArchivedLiveSnips(parsed);
       setArchivedLiveSnips(live.length > 0 ? live : null);
       setArchiveQueue(queue.items);
+      const dump = buildArchiveMetadataDump({
+        fileName: file.name,
+        parsed,
+        queue: queue.items,
+        liveCount: live.length,
+      });
+      setArchiveMeta(dump);
+      setShowArchiveMetadata(false);
       const liveNote = archiveLiveRangesStatusNote(parsed, live.length);
       if (queue.items.length === 0) {
         setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
@@ -681,7 +789,9 @@ function App() {
         duration: number;
         blob?: Blob;
       }) => {
-        void ingestLiveChunk(data);
+        void stepGateRef.current.runExclusive(async () => {
+          await ingestLiveChunk(data);
+        });
       });
       handle.on('captureError', (data: { reason?: string }) => {
         setCaptureStatus(`Error: ${data.reason || 'capture_failed'}`);
@@ -717,6 +827,16 @@ function App() {
 
   const handleStopReplayEarly = () => {
     stopClock();
+    if (source === 'archive') {
+      const next = commitArchiveReplayTrailing(archiveReplayRef.current);
+      archiveReplayRef.current = next;
+      applyReplayState(next, [
+        { at: Date.now(), name: 'replayComplete', detail: { frozen: next.frozen.length } },
+      ]);
+      setStoppedCommitted(true);
+      setReplayComplete(true);
+      return;
+    }
     commitTrailingNow(true);
   };
 
@@ -820,6 +940,56 @@ function App() {
     setArchiveQueue([]);
     setArchivedLiveSnips(BLT_LIVE_SNIPS);
     setBatchSnips(BLT_RECOMPUTED_SNIPS);
+    setShowArchiveMetadata(false);
+    setArchiveMeta({
+      fileName: 'blt-boundary-fixture',
+      notes: BLT_FIXTURE_NOTE,
+      profileMode: 'missing',
+      profileLine: BLT_FIXTURE_NOTE,
+      queueCount: 0,
+      playableCount: 0,
+      profileOnlyCount: 0,
+      liveArchivedCount: BLT_LIVE_SNIPS.length,
+      chunkRows: [],
+    });
+  };
+
+  const handleLoadBltReplayFixture = async () => {
+    await stopCaptureIfRunning();
+    resetSessionCore();
+    const { items, profiles, liveSnips } = buildBltReplayQueue();
+    setSource('archive');
+    setArchiveFileName('blt-13-snip-replay-fixture');
+    setArchiveQueue(items);
+    setArchivedLiveSnips(liveSnips);
+    setShowArchiveMetadata(false);
+    setArchiveMeta({
+      fileName: 'blt-13-snip-replay-fixture',
+      notes: BLT_REPLAY_FIXTURE_NOTE,
+      sessionId: 'ses_1788550979475_fixture',
+      sessionDuration: 207,
+      sessionChunkCount: items.length,
+      hasSnips: true,
+      hasTranscript: true,
+      hasVolumeProfile: true,
+      profileMode: 'used',
+      profileLine: `volume-profile.json used (${profiles.length} chunk profiles, samples present)`,
+      queueCount: items.length,
+      playableCount: items.length,
+      profileOnlyCount: 0,
+      liveArchivedCount: liveSnips.length,
+      chunkRows: items.map((item) => ({
+        seq: item.seq,
+        id: item.chunk.id,
+        startTime: item.chunk.startTime,
+        endTime: item.chunk.endTime,
+        playable: item.playable,
+        hasSamples: item.storedProfile != null,
+      })),
+    });
+    setArchiveStatus(
+      `volume-profile.json used (${profiles.length} chunk profiles, samples present) · 0 of ${items.length} chunks replayed · Live (archived): ${liveSnips.length} snips`
+    );
   };
 
   const handleLoadSyntheticArchive = async () => {
@@ -877,6 +1047,31 @@ function App() {
           text: `Synthetic live cut ${index}`,
         }))
       );
+      setShowArchiveMetadata(false);
+      setArchiveMeta({
+        fileName: 'synthetic-debug-archive',
+        notes: 'Synthetic incremental run encoded as a debug archive (samples + live ranges).',
+        sessionId: 'synthetic-debug-archive',
+        sessionDuration: profiles.reduce((sum, row) => sum + row.samples.length * 0.1, 0),
+        sessionChunkCount: profiles.length,
+        hasSnips: true,
+        hasTranscript: false,
+        hasVolumeProfile: true,
+        profileMode: 'used',
+        profileLine: `volume-profile.json used (${profiles.length} chunk profiles, samples present)`,
+        queueCount: queue.length,
+        playableCount: queue.length,
+        profileOnlyCount: 0,
+        liveArchivedCount: frozen.length,
+        chunkRows: queue.map((item) => ({
+          seq: item.seq,
+          id: item.chunk.id,
+          startTime: item.chunk.startTime,
+          endTime: item.chunk.endTime,
+          playable: item.playable,
+          hasSamples: item.storedProfile != null,
+        })),
+      });
       setArchiveStatus(
         `volume-profile.json used (${profiles.length} chunk profiles, samples present) · 0 of ${queue.length} chunks replayed · Live (archived): ${frozen.length} snips`
       );
@@ -969,6 +1164,7 @@ function App() {
 
   const stepDisabled =
     isBusy ||
+    clockReplay ||
     isCapturing ||
     (source === 'fixture' && queueIndex >= fixtureSpecs.length) ||
     (source === 'archive' && (archiveQueue.length === 0 || queueIndex >= archiveQueue.length)) ||
@@ -1072,8 +1268,71 @@ function App() {
 
           {source === 'archive' ? (
             <div className="control-section">
-              <p className="hint">{archiveStatusWithQueue}</p>
-              {archiveFileName ? <p className="hint archive-filename">{archiveFileName}</p> : null}
+              <p className="hint archive-status-line">
+                {archiveMeta
+                  ? compactArchiveStatusLine(archiveMeta)
+                  : archiveStatusWithQueue}
+              </p>
+              {archiveMeta && archiveQueue.length > 0 && !archiveError ? (
+                <p className="hint">
+                  {queueIndex} of {archiveQueue.length} chunks replayed
+                </p>
+              ) : null}
+              {archiveMeta ? (
+                <label className="metadata-toggle">
+                  <input
+                    type="checkbox"
+                    checked={showArchiveMetadata}
+                    onChange={(e) => setShowArchiveMetadata(e.target.checked)}
+                  />
+                  Show archive metadata
+                </label>
+              ) : null}
+              {showArchiveMetadata && archiveMeta ? (
+                <div className="archive-metadata" aria-label="Archive metadata">
+                  {archiveFileName ? <p className="hint archive-filename">{archiveFileName}</p> : null}
+                  <p className="hint">{archiveStatusWithQueue}</p>
+                  <dl>
+                    <div><dt>formatVersion</dt><dd>{archiveMeta.formatVersion ?? '—'}</dd></div>
+                    <div><dt>exportedAt</dt><dd>{archiveMeta.exportedAt ?? '—'}</dd></div>
+                    <div><dt>session</dt><dd>{archiveMeta.sessionId ?? '—'}</dd></div>
+                    <div>
+                      <dt>duration</dt>
+                      <dd>{archiveMeta.sessionDuration != null ? `${archiveMeta.sessionDuration}s` : '—'}</dd>
+                    </div>
+                    <div>
+                      <dt>flags</dt>
+                      <dd>
+                        hasSnips={String(archiveMeta.hasSnips ?? false)} · hasTranscript=
+                        {String(archiveMeta.hasTranscript ?? false)} · hasVolumeProfile=
+                        {String(archiveMeta.hasVolumeProfile ?? false)}
+                      </dd>
+                    </div>
+                    <div><dt>profile</dt><dd>{archiveMeta.profileLine}</dd></div>
+                    <div>
+                      <dt>chunks</dt>
+                      <dd>
+                        queue {archiveMeta.queueCount} · playable {archiveMeta.playableCount} ·
+                        profile-only {archiveMeta.profileOnlyCount}
+                      </dd>
+                    </div>
+                    {archiveMeta.notes ? (
+                      <div><dt>notes</dt><dd>{archiveMeta.notes}</dd></div>
+                    ) : null}
+                  </dl>
+                  {archiveMeta.chunkRows.length > 0 ? (
+                    <ol className="archive-chunk-rows">
+                      {archiveMeta.chunkRows.map((row) => (
+                        <li key={`${row.seq}-${row.id}`}>
+                          seq {row.seq} · {row.id} · {row.startTime.toFixed(1)}–{row.endTime.toFixed(1)}s
+                          {row.playable ? '' : ' · purged'}
+                          {row.hasSamples ? ' · samples' : ''}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1122,9 +1381,13 @@ function App() {
             <button type="button" className="secondary" onClick={handleLoadBltFixture}>
               Load BLT diagnosis fixture
             </button>
+            <button type="button" className="secondary" onClick={() => void handleLoadBltReplayFixture()}>
+              Load BLT 13-snip replay fixture
+            </button>
             <p className="hint">
               Synthetic archive has volume-profile samples + live ranges from an incremental run.
-              BLT fixture is doctor-only (no audio).
+              BLT diagnosis fixture is doctor-only (no audio). BLT 13-snip replay fixture is
+              Dave’s cut times (including #7 92.9–103.4) with growing samples.
             </p>
             {archiveError ? <p className="error-banner">{archiveError}</p> : null}
           </div>
@@ -1303,7 +1566,7 @@ function App() {
               hatched. Rose dashed = contiguous-repeat; purple = time-overlap.
             </p>
           ) : null}
-          <div className="histogram-container">
+          <div className="histogram-container" data-testid="histogram-container">
             {volumeProfile ? (
               <VolumeHistogram
                 volumeProfile={volumeProfile}
@@ -1366,11 +1629,37 @@ function App() {
             >
               Fit all
             </button>
+            <p className="hint">
+              Drag the waveform to pan (mouse or touch). Scrollbar still works.
+            </p>
           </div>
         </section>
 
         <aside className="snip-list-panel">
-          <h2>Frozen snips</h2>
+          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
+            <div
+              className={`count-match-banner${
+                frozenSnips.length === archivedLiveSnips.length ? ' match' : ' fail'
+              }`}
+              data-testid="frozen-live-banner"
+              data-frozen-count={frozenSnips.length}
+              data-live-count={archivedLiveSnips.length}
+              data-match={frozenSnips.length === archivedLiveSnips.length ? 'match' : 'fail'}
+              role="status"
+              aria-live="polite"
+            >
+              Frozen {frozenSnips.length} · Live archived {archivedLiveSnips.length}
+              {frozenSnips.length === archivedLiveSnips.length
+                ? ' — MATCH'
+                : ' — FAIL count mismatch'}
+            </div>
+          ) : null}
+          <h2>
+            Frozen snips{' '}
+            <span data-testid="frozen-card-count" className="snip-heading-count">
+              ({frozenSnips.length})
+            </span>
+          </h2>
           {frozenSnips.length === 0 ? (
             <p className="snip-placeholder">
               No frozen snips yet — live path holds the trailing region until a quiet-gap cut or Stop.
@@ -1381,9 +1670,12 @@ function App() {
               floors={frozenFloors}
               playbackSnipId={playingTrailing ? null : playbackSnipId}
               playbackStatus={playingTrailing ? 'idle' : playbackStatus}
+              exportEnabled={chunks.some((chunk) => chunk.blob && chunk.blob.size > 0)}
+              exportingKey={exportingKey}
               onPlay={(snip) => void handlePlaySnip(snip)}
               onPause={handlePausePlayback}
               onStop={handleStopPlayback}
+              onExport={(snip, label) => void handleExportSnip(snip, label)}
             />
           )}
 
@@ -1407,17 +1699,6 @@ function App() {
               </p>
             )}
           </section>
-
-          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
-            <section className="archived-live-section">
-              <h2>Live (archived)</h2>
-              <p className="snip-summary archived">
-                {archivedLiveSnips.length} live cuts from the zip — compare to Frozen snips after
-                incremental replay.
-              </p>
-              <ArchivedSnipList snips={archivedLiveSnips} />
-            </section>
-          ) : null}
 
           {showDoctor ? (
             <>
@@ -1455,6 +1736,27 @@ function App() {
             </>
           ) : null}
 
+          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
+            <section className="archived-live-section">
+              <h2>
+                Live (archived){' '}
+                <span data-testid="live-card-count" className="snip-heading-count">
+                  ({archivedLiveSnips.length})
+                </span>
+              </h2>
+              <p className="snip-summary archived">
+                {archivedLiveSnips.length} live cuts from the zip — compare to Frozen snips after
+                incremental replay.
+              </p>
+              <ArchivedSnipList
+                snips={archivedLiveSnips}
+                exportEnabled={chunks.some((chunk) => chunk.blob && chunk.blob.size > 0)}
+                exportingKey={exportingKey}
+                onExport={(snip, label) => void handleExportSnip(snip, label)}
+              />
+            </section>
+          ) : null}
+
           {batchSnips ? (
             <section className="batch-snips">
               <h2>Offline batch snips</h2>
@@ -1464,9 +1766,12 @@ function App() {
                 playbackSnipId={null}
                 playbackStatus="idle"
                 emptyMessage="Offline batch proposed no snips"
+                exportEnabled={chunks.some((chunk) => chunk.blob && chunk.blob.size > 0)}
+                exportingKey={exportingKey}
                 onPlay={(snip) => void handlePlaySnip(snip)}
                 onPause={handlePausePlayback}
                 onStop={handleStopPlayback}
+                onExport={(snip, label) => void handleExportSnip(snip, `batch-${label}`)}
               />
             </section>
           ) : null}

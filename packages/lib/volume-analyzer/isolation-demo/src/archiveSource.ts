@@ -130,13 +130,18 @@ export function buildArchiveReplayQueue(parsed: ParsedSessionArchive): {
   const rawById = new Map(rawRows.map((row) => [String(row.chunkId), row]));
   const storedProfiles = storedVolume ? profilesFromStored(storedVolume) : [];
   const byId = new Map(storedProfiles.map((profile) => [profile.chunkId, profile]));
+  const byIndex = new Map(storedProfiles.map((profile) => [profile.chunkIndex, profile]));
   const entries = [...(parsed.chunks ?? [])].sort((a, b) => a.meta.seq - b.meta.seq);
 
   const items: ReplayQueueItem[] = [];
   for (const entry of entries) {
-    const raw = rawById.get(String(entry.meta.id));
+    const raw =
+      rawById.get(String(entry.meta.id)) ??
+      rawRows.find((row) => Number(row.chunkIndex) === Number(entry.meta.seq));
     const hasSamples = Array.isArray(raw?.samples) && raw.samples.length > 0;
-    const stored = hasSamples ? byId.get(String(entry.meta.id)) ?? null : null;
+    const stored = hasSamples
+      ? byId.get(String(entry.meta.id)) ?? byIndex.get(Number(entry.meta.seq)) ?? null
+      : null;
     const blob = entry.blob;
     if (!blob && !hasSamples) continue;
     items.push({
@@ -273,4 +278,83 @@ export function archiveLiveRangesStatusNote(
     return 'hasSnips is a flag only — live ranges were not exported';
   }
   return null;
+}
+
+export type ArchiveChunkMetaRow = {
+  seq: number;
+  id: string;
+  startTime: number;
+  endTime: number;
+  playable: boolean;
+  hasSamples: boolean;
+};
+
+export type ArchiveMetadataDump = {
+  fileName: string;
+  formatVersion?: number;
+  exportedAt?: string;
+  notes?: string;
+  sessionId?: string;
+  sessionDuration?: number;
+  sessionChunkCount?: number;
+  hasSnips?: boolean;
+  hasTranscript?: boolean;
+  hasVolumeProfile?: boolean;
+  profileMode: ArchiveProfileMode;
+  profileLine: string;
+  queueCount: number;
+  playableCount: number;
+  profileOnlyCount: number;
+  liveArchivedCount: number;
+  chunkRows: ArchiveChunkMetaRow[];
+};
+
+/** One-line status when archive metadata is hidden. */
+export function compactArchiveStatusLine(input: {
+  profileMode: ArchiveProfileMode;
+  queueCount: number;
+  liveArchivedCount: number;
+}): string {
+  const profile =
+    input.profileMode === 'used'
+      ? 'volume-profile.json used'
+      : input.profileMode === 'present_no_samples'
+        ? 'volume-profile.json present but no samples'
+        : 'no volume-profile.json';
+  return `${profile} · ${input.queueCount} chunks · Live archived ${input.liveArchivedCount}`;
+}
+
+export function buildArchiveMetadataDump(input: {
+  fileName: string;
+  parsed: ParsedSessionArchive;
+  queue: ReplayQueueItem[];
+  liveCount: number;
+}): ArchiveMetadataDump {
+  const { mode, line } = describeArchiveProfileStatus(input.parsed);
+  return {
+    fileName: input.fileName,
+    formatVersion: input.parsed.formatVersion,
+    exportedAt: input.parsed.exportedAt,
+    notes: input.parsed.notes,
+    sessionId: input.parsed.session?.id,
+    sessionDuration: input.parsed.session?.duration,
+    sessionChunkCount: input.parsed.session?.chunkCount,
+    hasSnips: input.parsed.session?.hasSnips,
+    hasTranscript: input.parsed.session?.hasTranscript,
+    hasVolumeProfile: input.parsed.session?.hasVolumeProfile,
+    profileMode: mode,
+    profileLine: line,
+    queueCount: input.queue.length,
+    playableCount: input.queue.filter((item) => item.playable).length,
+    profileOnlyCount: input.queue.filter((item) => !item.playable && item.storedProfile).length,
+    liveArchivedCount: input.liveCount,
+    chunkRows: input.queue.map((item) => ({
+      seq: item.seq,
+      id: item.chunk.id,
+      startTime: item.chunk.startTime,
+      endTime: item.chunk.endTime,
+      playable: item.playable,
+      hasSamples: item.storedProfile != null,
+    })),
+  };
 }
