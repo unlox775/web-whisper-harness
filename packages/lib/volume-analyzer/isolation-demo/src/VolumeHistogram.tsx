@@ -88,7 +88,7 @@ function drawHistogram(
 
   const rect = canvas.getBoundingClientRect();
   const cssWidth = Math.max(1, rect.width);
-  const cssHeight = Math.max(1, Math.min(rect.height || 280, 360));
+  const cssHeight = Math.max(1, Math.min(rect.height || 266, 280));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.floor(cssWidth * dpr);
   canvas.height = Math.floor(cssHeight * dpr);

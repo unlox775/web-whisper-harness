@@ -1654,7 +1654,12 @@ function App() {
                 : ' — FAIL count mismatch'}
             </div>
           ) : null}
-          <h2>Frozen snips</h2>
+          <h2>
+            Frozen snips{' '}
+            <span data-testid="frozen-card-count" className="snip-heading-count">
+              ({frozenSnips.length})
+            </span>
+          </h2>
           {frozenSnips.length === 0 ? (
             <p className="snip-placeholder">
               No frozen snips yet — live path holds the trailing region until a quiet-gap cut or Stop.
@@ -1733,7 +1738,12 @@ function App() {
 
           {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
             <section className="archived-live-section">
-              <h2>Live (archived)</h2>
+              <h2>
+                Live (archived){' '}
+                <span data-testid="live-card-count" className="snip-heading-count">
+                  ({archivedLiveSnips.length})
+                </span>
+              </h2>
               <p className="snip-summary archived">
                 {archivedLiveSnips.length} live cuts from the zip — compare to Frozen snips after
                 incremental replay.

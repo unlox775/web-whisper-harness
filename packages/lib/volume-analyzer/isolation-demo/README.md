@@ -22,7 +22,7 @@ This demo is **not** a one-shot “Compute Volume on the whole take.” That is 
 
 - **Platform**: Web app (local dev server, factory floor)
 - **Viewport**: Desktop browser, wide split (not phone-shaped). iPhone (~390) is supported for histogram **touch-drag pan** only — diagnosis layout is still the 3-column factory floor.
-- **Layout**: Inputs left / volume profile + reason center / outputs right. **Center is viewport-capped** (histogram ~280–360px, no page-tall canvas). Left and right scroll independently when they overflow. Archive manifest/chunk/profile dumps stay behind **Show archive metadata** (default off).
+- **Layout**: Inputs left / volume profile + reason center / outputs right. **Center is viewport-capped** (histogram fixed 280px desktop / 220px narrow; document stays `100dvh`, no `zoom: 0.5`). Left and right scroll independently when they overflow. Archive manifest/chunk/profile dumps stay behind **Show archive metadata** (default off).
 - **Launch**: `cd packages/lib/volume-analyzer/isolation-demo && npm start`
 
 ## Data Mode
@@ -63,7 +63,7 @@ The demo does **not** open `web-whisper-db`. Chunks / profiles / frozen snips li
 │ ☐ metadata dump │ Zoom + scrollbar + touch pan │ Floor history           │
 │ ▸ Offline batch │ Reason strip                 │ Events / telemetry      │
 └─────────────────┴──────────────────────────────┴─────────────────────────┘
-Center column is locked to the remaining viewport (no mile-tall canvas).
+Center histogram is a fixed-height box (280px / 220px). The page itself never unlocks to `height: auto` — that was the Pages mile-tall scroll.
 Left / right overflow scrolls inside the column, not the whole page.
 ```
 

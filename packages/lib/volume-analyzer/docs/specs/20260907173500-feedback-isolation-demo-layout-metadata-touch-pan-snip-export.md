@@ -152,7 +152,7 @@ Browser: **Load BLT 13-snip replay fixture** → **Replay remaining** → banner
 
 ### Layout / metadata / pan / Export
 
-- Center column viewport-capped; histogram **fixed 320px** (desktop) / **240px** (narrow). Canvas is not `height: 100%` (that looped to a mile-tall bitmap on Pages).
+- Center histogram is a **fixed 280px** (desktop) / **220px** (narrow) box. Document stays `100dvh` / `overflow: hidden` on iPhone (left/right scroll in their panes). `html { zoom: 0.5 }` from compact-mobile is overridden so Pages cannot become a mile-tall canvas.
 - Left/right independently scrollable
 - **Show archive metadata** default off; one-liner `volume-profile.json used · 52 chunks · Live archived 13`
 - Canvas pointer/touch drag pan (`touch-action: none` when zoomed) + scrollbar
