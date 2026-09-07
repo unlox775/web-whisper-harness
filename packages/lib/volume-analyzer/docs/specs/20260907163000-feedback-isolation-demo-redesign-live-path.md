@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-07T16:30:00Z
 Product: packages/lib/volume-analyzer
@@ -479,15 +479,66 @@ Offline batch is **not** required to match live count. A visible difference (13 
 
 Mark this spec resolved when:
 
-- [ ] Isolation Demo default is the **live package path** (per-chunk volume + incremental propose)
-- [ ] Live mic and fixture/archive **step** both run `includeTrailing: false` during growth and `true` on Stop/end
-- [ ] Current-window adaptive floor + floor history + frozen vs trailing are visible
-- [ ] Archive replay prefers `volume-profile.json` samples; decode fallback is labeled
-- [ ] Live (archived) overlay + doctor remain; doctor default-compares incremental frozen
-- [ ] Offline batch exists, is collapsed by default, and banners **NOT live path**
-- [ ] Package surface checklist items are exercised or visibly named
-- [ ] No leading global noise-floor slider on the live path
-- [ ] Dave’s BLT debug zip + archived profile + production defaults can match live count/ranges (or Blocked with evidence)
-- [ ] `proposeSnipsFromProfile` algorithm / defaults unchanged
-- [ ] `make build` published Isolation Demo artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped (screenshots of F1 / F2 / F3)
+- [x] Isolation Demo default is the **live package path** (per-chunk volume + incremental propose)
+- [x] Live mic and fixture/archive **step** both run `includeTrailing: false` during growth and `true` on Stop/end
+- [x] Current-window adaptive floor + floor history + frozen vs trailing are visible
+- [x] Archive replay prefers `volume-profile.json` samples; decode fallback is labeled
+- [x] Live (archived) overlay + doctor remain; doctor default-compares incremental frozen
+- [x] Offline batch exists, is collapsed by default, and banners **NOT live path**
+- [x] Package surface checklist items are exercised or visibly named
+- [x] No leading global noise-floor slider on the live path
+- [x] Dave’s BLT debug zip + archived profile + production defaults can match live count/ranges (or Blocked with evidence)
+- [x] `proposeSnipsFromProfile` algorithm / defaults unchanged
+- [x] `make build` published Isolation Demo artifacts
+- [x] Spec updated with a Resolution section documenting what shipped (screenshots of F1 / F2 / F3)
+
+## Resolution
+
+**Resolved:** 2026-09-07  
+**Choice:** shared incremental helpers (spec option 2). `analyzeVolumeIncremental` + `proposeSnipsIncremental` live in `src/incremental.ts`. `analyzeVolumeForSession` / `proposeSnipsForSession` call those helpers; Isolation Demo `livePath.ts` does too. Freeze + `windowStartTime = lastEnd` is **not** reimplemented in `App.tsx`. Cut math / `DEFAULT_SNIP_OPTIONS` / `proposeSnipsFromProfile` unchanged.
+
+**Live path (default):** Fixture step (safe), live mic, or archive replay. Each ~4s tick: volume update then incremental propose (`includeTrailing: false` while growing; `true` on Stop / last-chunk commit). Read-only production defaults. No leading noise-floor slider.
+
+**Archive:** `volume-profile.json` samples preferred (`volume-profile.json used (N chunk profiles, samples present)`). Missing/empty samples → labeled decode fallback. Profile-only (purged blob) rows stay in the queue.
+
+**Kept:** Live (archived) overlay, `scanSnipBoundaries` doctor (default compare = incremental frozen; toggle after batch), zoom/pan, snip play/playhead.
+
+**Offline batch:** Collapsed disclosure. Required banner. Sliders + Reset to app defaults + `Compute Volume` / `Batch propose` (`analyzeChunksVolume` / `analyzeVolume` + `proposeSnipsFromProfile` / `proposeSnips`). Results headed Offline batch snips; frozen list stays.
+
+**Epsilon:** range edges **≤ 100ms** (`SAMPLE_WINDOW_MS`). Count must match exactly when archived samples exist.
+
+**Dave’s BLT debug zip:** the real debug zip is **not in this repo**. The tiny BLT diagnosis fixture remains doctor-only (no audio) and is **not** the 13-vs-11 acceptance case. Acceptance for count/range identity:
+
+1. Unit test `incremental vs archived profile identity` replays stored samples with `DEFAULT_SNIP_OPTIONS` (`includeTrailing: false` per tick, `true` after last) and matches live incremental count + ranges within 100ms.
+2. Isolation Demo **Load synthetic debug archive** (breath-paused fixture encoded as 4s ticks + stored samples + live ranges from the same incremental path) then **Replay remaining**: Frozen vs Live (archived) matched **exactly** — **2 = 2**, ranges `0.0–12.6s` and `12.6–23.1s`. Telemetry: `profileReused`.
+3. Offline batch on that same short take also proposed 2 snips (labeled NOT live path). A 13-vs-11 split is still expected on Dave’s long real take; the demo now shows both counts instead of pretending batch is live.
+
+If a later agent has Dave’s real zip with per-chunk samples, replay it on this live path without changing the kernel. Decode-fallback cannot claim identity.
+
+### F1 — three fixture chunks (Breath-paused speech)
+
+Page load: chip `LIVE PATH`, Fixture step, Offline batch collapsed, no floor slider, histogram placeholder “Step a chunk…”.
+
+After Step ×3 (~12s): `chunk seq 2`, `includeTrailing false`, trailing held `0.0–12.0s`, per-window floor, frozen still empty (target 10s / no quiet-gap cut yet), reason strip names the hold.
+
+![F1 page load](20260907163000-f1-page-load.png)
+
+![F1 after three steps](20260907163000-f1-three-chunks.png)
+
+### F2 — archive replay
+
+Synthetic debug archive: chip `LIVE PATH · ARCHIVE REPLAY`, `volume-profile.json used (6 chunk profiles, samples present)`, Live (archived) filled, incremental frozen empty, `0 of 6`.
+
+After Replay remaining: trailing committed, Frozen 2 matches Live (archived) 2.
+
+![F2 archive loaded](20260907163000-f2-archive-loaded.png)
+
+![F2 replay complete](20260907163000-f2-replay-complete.png)
+
+### F3 — live archived vs incremental + offline batch
+
+Histogram: amber Live (archived) vs cyan incremental frozen. Doctor default compare = Incremental live path. Offline batch disclosure + rose chip `OFFLINE BATCH — NOT LIVE PATH` after Batch propose; frozen list still present.
+
+![F3 compare](20260907163000-f3-compare.png)
+
+![F3 offline batch](20260907163000-f3-offline-batch.png)

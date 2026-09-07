@@ -118,6 +118,40 @@ export interface SnipResult {
   error?: string;
 }
 
+/** Stored volume-profile.json / session-store volume profile shape. */
+export interface StoredChunkVolume {
+  chunkId: string;
+  peakDb?: number;
+  avgDb?: number;
+  chunkIndex?: number;
+  samples?: number[];
+}
+
+export interface StoredVolumeProfile {
+  chunkVolumes?: StoredChunkVolume[];
+}
+
+/** Incremental volume merge (analyzeVolumeForSession core). */
+export interface IncrementalVolumeResult {
+  mergedProfiles: ChunkVolumeProfile[];
+  newChunksDecoded: number;
+  profileReused: number;
+}
+
+/** Incremental propose (proposeSnipsForSession core). */
+export interface IncrementalProposeResult {
+  frozen: Snip[];
+  newlyClosed: Snip[];
+  trailing: Snip | null;
+  committedThisTick: Snip[];
+  allCommitted: Snip[];
+  windowStartTime: number;
+  adaptiveFloorDb: number | null;
+  windowSampleCount: number;
+  gapCount: number;
+  includeTrailing: boolean;
+}
+
 /** Silence gap detection result */
 export interface SilenceGap {
   startTime: number;

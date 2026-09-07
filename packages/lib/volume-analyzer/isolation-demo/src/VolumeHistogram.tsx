@@ -16,10 +16,19 @@ import {
 import type { ArchivedLiveSnip } from './archiveSource';
 import type { FlaggedBoundaryTime } from './volumeAnalyzer';
 
+export type FloorWindow = {
+  startTime: number;
+  endTime: number;
+  db: number;
+};
+
 interface VolumeHistogramProps {
   volumeProfile: ChunkVolumeProfile[];
   threshold: number;
   snips: Snip[] | null;
+  trailing?: { startTime: number; endTime: number } | null;
+  floorWindow?: FloorWindow | null;
+  historicalFloors?: FloorWindow[] | null;
   archivedSnips?: ArchivedLiveSnip[] | null;
   flaggedBoundaryTimes?: FlaggedBoundaryTime[] | null;
   viewStart: number;
@@ -28,6 +37,22 @@ interface VolumeHistogramProps {
   playheadTime: number | null;
   onViewStartChange: (start: number) => void;
   onSnipActivate?: (snip: Snip) => void;
+}
+
+function hatchCanvas(): HTMLCanvasElement {
+  const tile = document.createElement('canvas');
+  tile.width = 8;
+  tile.height = 8;
+  const tileCtx = tile.getContext('2d');
+  if (tileCtx) {
+    tileCtx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
+    tileCtx.lineWidth = 1;
+    tileCtx.beginPath();
+    tileCtx.moveTo(0, 8);
+    tileCtx.lineTo(8, 0);
+    tileCtx.stroke();
+  }
+  return tile;
 }
 
 function flattenSamples(volumeProfile: ChunkVolumeProfile[]): { time: number; db: number }[] {
@@ -47,6 +72,9 @@ function drawHistogram(
   volumeProfile: ChunkVolumeProfile[],
   threshold: number,
   snips: Snip[] | null,
+  trailing: { startTime: number; endTime: number } | null,
+  floorWindow: FloorWindow | null,
+  historicalFloors: FloorWindow[] | null,
   archivedSnips: ArchivedLiveSnip[] | null,
   flaggedBoundaryTimes: FlaggedBoundaryTime[] | null,
   viewStart: number,
@@ -113,6 +141,29 @@ function drawHistogram(
       ctx.textAlign = 'left';
       ctx.fillText(`L${index + 1} ${snip.duration.toFixed(1)}s`, x1 + 4, padding.top + 14);
     });
+  }
+
+  if (trailing && trailing.endTime > trailing.startTime) {
+    if (!(trailing.endTime < viewStart || trailing.startTime > viewEnd)) {
+      const x1 = toX(trailing.startTime);
+      const x2 = toX(trailing.endTime);
+      ctx.fillStyle = 'rgba(14, 165, 233, 0.08)';
+      ctx.fillRect(x1, padding.top, Math.max(2, x2 - x1), chartHeight);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(x1, padding.top, Math.max(2, x2 - x1), chartHeight);
+      ctx.setLineDash([]);
+      const hatch = ctx.createPattern(hatchCanvas(), 'repeat');
+      if (hatch) {
+        ctx.fillStyle = hatch;
+        ctx.fillRect(x1, padding.top, Math.max(2, x2 - x1), chartHeight);
+      }
+      ctx.fillStyle = '#0369a1';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText('Trailing (not committed)', x1 + 4, padding.top + chartHeight - 8);
+    }
   }
 
   if (snips && snips.length > 0) {
@@ -204,23 +255,49 @@ function drawHistogram(
     ctx.fillText(`${db}`, padding.left - 8, y + 4);
   }
 
-  const thresholdY = dbToY(threshold);
-  ctx.strokeStyle = '#7c3aed';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 4]);
-  ctx.beginPath();
-  ctx.moveTo(padding.left, thresholdY);
-  ctx.lineTo(padding.left + chartWidth, thresholdY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle = '#7c3aed';
-  ctx.font = 'bold 12px sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(
-    `Noise floor ${threshold.toFixed(0)} dB`,
-    padding.left + 8,
-    Math.max(padding.top + 12, thresholdY - 6)
-  );
+  if (historicalFloors) {
+    historicalFloors.forEach((floor) => {
+      if (floor.endTime < viewStart || floor.startTime > viewEnd) return;
+      const y = dbToY(floor.db);
+      const x1 = toX(floor.startTime);
+      const x2 = toX(floor.endTime);
+      ctx.strokeStyle = 'rgba(124, 58, 237, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x1, y);
+      ctx.lineTo(x2, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+
+  const activeFloor = floorWindow ?? (Number.isFinite(threshold) ? {
+    startTime: viewStart,
+    endTime: viewEnd,
+    db: threshold,
+  } : null);
+  if (activeFloor && floorWindow) {
+    const thresholdY = dbToY(activeFloor.db);
+    const x1 = toX(Math.max(activeFloor.startTime, viewStart));
+    const x2 = toX(Math.min(activeFloor.endTime, viewEnd));
+    ctx.strokeStyle = '#7c3aed';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x1, thresholdY);
+    ctx.lineTo(Math.max(x1 + 4, x2), thresholdY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#7c3aed';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(
+      `Window floor ${activeFloor.db.toFixed(1)} dB`,
+      x1 + 6,
+      Math.max(padding.top + 12, thresholdY - 6)
+    );
+  }
 
   ctx.fillStyle = '#6b7280';
   ctx.font = '11px sans-serif';
@@ -236,6 +313,9 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
   volumeProfile,
   threshold,
   snips,
+  trailing = null,
+  floorWindow = null,
+  historicalFloors = null,
   archivedSnips = null,
   flaggedBoundaryTimes = null,
   viewStart,
@@ -259,6 +339,9 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
       volumeProfile,
       threshold,
       snips,
+      trailing,
+      floorWindow,
+      historicalFloors,
       archivedSnips,
       flaggedBoundaryTimes,
       viewStart,
@@ -269,6 +352,9 @@ const VolumeHistogram: React.FC<VolumeHistogramProps> = ({
     volumeProfile,
     threshold,
     snips,
+    trailing,
+    floorWindow,
+    historicalFloors,
     archivedSnips,
     flaggedBoundaryTimes,
     viewStart,

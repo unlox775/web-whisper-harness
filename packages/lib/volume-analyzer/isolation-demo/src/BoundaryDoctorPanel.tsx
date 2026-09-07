@@ -109,9 +109,16 @@ function FlaggedPairs({ result }: { result: BoundaryScanResult }) {
 interface BoundaryDoctorPanelProps {
   liveScan: BoundaryScanResult | null;
   recomputedScan: BoundaryScanResult | null;
+  recomputedTitle?: string;
+  compareNote?: string;
 }
 
-function BoundaryDoctorPanel({ liveScan, recomputedScan }: BoundaryDoctorPanelProps) {
+function BoundaryDoctorPanel({
+  liveScan,
+  recomputedScan,
+  recomputedTitle = 'Incremental live path',
+  compareNote,
+}: BoundaryDoctorPanelProps) {
   const both = liveScan != null && recomputedScan != null;
   const anyContiguous =
     (liveScan?.contiguousRepeatCount ?? 0) + (recomputedScan?.contiguousRepeatCount ?? 0) > 0;
@@ -134,15 +141,17 @@ function BoundaryDoctorPanel({ liveScan, recomputedScan }: BoundaryDoctorPanelPr
         </p>
       ) : null}
 
+      {compareNote ? <p className="doctor-copy">{compareNote}</p> : null}
+
       {both ? (
         <div className="doctor-compare">
           <ScanCounts title="Live (archived)" result={liveScan} tone="live" />
-          <ScanCounts title="Recomputed" result={recomputedScan} tone="recomputed" />
+          <ScanCounts title={recomputedTitle} result={recomputedScan} tone="recomputed" />
         </div>
       ) : liveScan ? (
         <ScanCounts title="Live (archived)" result={liveScan} tone="live" />
       ) : recomputedScan ? (
-        <ScanCounts title="Recomputed" result={recomputedScan} tone="recomputed" />
+        <ScanCounts title={recomputedTitle} result={recomputedScan} tone="recomputed" />
       ) : null}
 
       {both ? (

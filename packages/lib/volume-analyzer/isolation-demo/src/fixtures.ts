@@ -140,25 +140,93 @@ function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-export async function generateFixturePattern(pattern: FixturePattern) {
-  const chunks = [];
-  let currentTime = 0;
+export const FIXTURE_CHUNK_SECONDS = 4;
 
-  for (let i = 0; i < pattern.chunks.length; i++) {
-    const chunkSpec = pattern.chunks[i];
-    const blob = await generateFixtureChunk(chunkSpec.duration, chunkSpec.loudness);
+export type FixtureTickSpec = {
+  seq: number;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  pieces: Array<{ duration: number; loudness: 'quiet' | 'loud' }>;
+};
 
-    chunks.push({
-      id: `fixture-chunk-${i}`,
-      seq: i,
-      blob,
-      startTime: currentTime,
-      endTime: currentTime + chunkSpec.duration,
-      duration: chunkSpec.duration,
-    });
+export function fixtureTotalDuration(pattern: FixturePattern): number {
+  return pattern.chunks.reduce((sum, chunk) => sum + chunk.duration, 0);
+}
 
-    currentTime += chunkSpec.duration;
+function piecesInRange(
+  pattern: FixturePattern,
+  start: number,
+  end: number
+): Array<{ duration: number; loudness: 'quiet' | 'loud' }> {
+  const pieces: Array<{ duration: number; loudness: 'quiet' | 'loud' }> = [];
+  let cursor = 0;
+  for (const segment of pattern.chunks) {
+    const segmentEnd = cursor + segment.duration;
+    const overlapStart = Math.max(start, cursor);
+    const overlapEnd = Math.min(end, segmentEnd);
+    if (overlapEnd > overlapStart + 1e-9) {
+      pieces.push({ duration: overlapEnd - overlapStart, loudness: segment.loudness });
+    }
+    cursor = segmentEnd;
   }
+  return pieces;
+}
 
+/** Pack fixture patterns into ~4s ticks (same cadence as capture-engine chunkEncoded). */
+export function fixtureTickSpecs(pattern: FixturePattern): FixtureTickSpec[] {
+  const total = fixtureTotalDuration(pattern);
+  const ticks: FixtureTickSpec[] = [];
+  let t = 0;
+  let seq = 0;
+  while (t < total - 1e-9) {
+    const end = Math.min(t + FIXTURE_CHUNK_SECONDS, total);
+    ticks.push({
+      seq,
+      startTime: t,
+      endTime: end,
+      duration: end - t,
+      pieces: piecesInRange(pattern, t, end),
+    });
+    t = end;
+    seq += 1;
+  }
+  return ticks;
+}
+
+export async function generateFixtureTick(spec: FixtureTickSpec) {
+  const sampleRate = 48000;
+  const frameCount = Math.max(1, Math.round(sampleRate * spec.duration));
+  const audioContext = new OfflineAudioContext(1, frameCount, sampleRate);
+  let offset = 0;
+  for (const piece of spec.pieces) {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    oscillator.frequency.value = 440;
+    oscillator.type = 'sine';
+    gainNode.gain.value = piece.loudness === 'quiet' ? 0.002 : 0.2;
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    oscillator.start(offset);
+    oscillator.stop(offset + piece.duration);
+    offset += piece.duration;
+  }
+  const audioBuffer = await audioContext.startRendering();
+  return {
+    id: `fixture-chunk-${spec.seq}`,
+    seq: spec.seq,
+    blob: audioBufferToWav(audioBuffer),
+    startTime: spec.startTime,
+    endTime: spec.endTime,
+    duration: spec.duration,
+  };
+}
+
+export async function generateFixturePattern(pattern: FixturePattern) {
+  const ticks = fixtureTickSpecs(pattern);
+  const chunks = [];
+  for (const spec of ticks) {
+    chunks.push(await generateFixtureTick(spec));
+  }
   return chunks;
 }

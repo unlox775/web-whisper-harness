@@ -2,13 +2,19 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { startCapture, CaptureError, type CaptureHandle } from '@web-whisper/capture-engine';
 import { parseSessionArchive } from '@web-whisper/session-store';
 import './App.css';
-import { FIXTURE_PATTERNS, generateFixturePattern } from './fixtures';
+import {
+  FIXTURE_PATTERNS,
+  fixtureTickSpecs,
+  generateFixtureTick,
+  type FixtureTickSpec,
+} from './fixtures';
 import {
   analyzeChunksVolume,
-  proposeSnipsFromProfile,
-  computeAdaptiveQuietThresholdDb,
+  analyzeVolume,
   DEFAULT_SNIP_OPTIONS,
   flaggedBoundaryTimes,
+  proposeSnips,
+  proposeSnipsFromProfile,
   scanSnipBoundaries,
   type ChunkWithBlob,
   type ChunkVolumeProfile,
@@ -17,24 +23,17 @@ import {
 import VolumeHistogram from './VolumeHistogram';
 import SnipList, { type SnipPlaybackStatus } from './SnipList';
 import BoundaryDoctorPanel from './BoundaryDoctorPanel';
-import {
-  BLT_FIXTURE_NOTE,
-  BLT_LIVE_SNIPS,
-  BLT_RECOMPUTED_SNIPS,
-} from './bltBoundaryFixture';
-import {
-  VOLUME_ANALYZER_DEMO_DB,
-  loadTunerSettings,
-  saveTunerSettings,
-} from './demoStore';
+import { BLT_FIXTURE_NOTE, BLT_LIVE_SNIPS, BLT_RECOMPUTED_SNIPS } from './bltBoundaryFixture';
+import { VOLUME_ANALYZER_DEMO_DB, loadTunerSettings, saveTunerSettings } from './demoStore';
 import { appDefaultTunerSettings, tunerMatchesAppDefaults } from './tunerDefaults';
 import {
   ARCHIVE_ERROR_NO_AUDIO,
   archiveLiveRangesStatusNote,
-  mapArchiveChunksToAnalyze,
+  buildArchiveReplayQueue,
   mapArchivedLiveSnips,
   messageForArchiveParseError,
   type ArchivedLiveSnip,
+  type ReplayQueueItem,
 } from './archiveSource';
 import ArchivedSnipList from './ArchivedSnipList';
 import {
@@ -47,25 +46,38 @@ import {
   viewStartToShowTime,
 } from './histogramViewport';
 import { assembleSnipWavBlob, SNIP_PLAY_ERROR } from './snipPlayback';
+import {
+  formatFloorDb,
+  runCommitTick,
+  runLiveTick,
+  sampleWindowLabel,
+  sessionEndFromChunks,
+  type DemoEvent,
+  type FloorHistoryRow,
+  type TickTelemetry,
+} from './livePath';
 
-// Storage: live/fixture/archive chunks in RAM; tuner settings in isolated
-// IndexedDB `web-whisper-volume-analyzer-demo-db` (see demoStore.ts). Must
-// never open `web-whisper-db`. Archive parse uses session-store
-// parseSessionArchive only — no zip/manifest reimplementation.
+type DataSource = 'fixture' | 'mic' | 'archive';
+type CompareTarget = 'incremental' | 'batch';
 
-type DataMode = 'live' | 'fixture' | 'archive';
+const LIVE_DEFAULTS_LINE = `min ${DEFAULT_SNIP_OPTIONS.minSnipDuration}s · target ${DEFAULT_SNIP_OPTIONS.targetSnipDuration}s · max ${DEFAULT_SNIP_OPTIONS.maxSnipDuration}s · gap ${DEFAULT_SNIP_OPTIONS.minSilenceGapDuration}s · adaptive floor`;
 
 function App() {
+  const [source, setSource] = useState<DataSource>('fixture');
   const [selectedPattern, setSelectedPattern] = useState(FIXTURE_PATTERNS[0].id);
-  const [dataMode, setDataMode] = useState<DataMode>('live');
   const [isCapturing, setIsCapturing] = useState(false);
-  const [captureStatus, setCaptureStatus] = useState('Idle — tap Start Capture and speak');
-  const [archiveStatus, setArchiveStatus] = useState('Pick a session archive zip to analyze');
+  const [captureStatus, setCaptureStatus] = useState('Idle — tap Start capture and speak');
+  const [archiveStatus, setArchiveStatus] = useState('Upload a session archive zip to replay the live path');
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archiveFileName, setArchiveFileName] = useState<string | null>(null);
+  const [replayComplete, setReplayComplete] = useState(false);
+  const [stoppedCommitted, setStoppedCommitted] = useState(false);
+  const [batchRan, setBatchRan] = useState(false);
+  const [clockReplay, setClockReplay] = useState(false);
+
   const captureHandleRef = useRef<CaptureHandle | null>(null);
   const archiveInputRef = useRef<HTMLInputElement | null>(null);
-  const liveCaptureEnabled = dataMode === 'live';
+  const clockTimerRef = useRef<number | null>(null);
 
   const [quietThresholdDb, setQuietThresholdDb] = useState(-40);
   const [autoNoiseFloor, setAutoNoiseFloor] = useState(true);
@@ -74,16 +86,34 @@ function App() {
   const [minSilenceGapDuration, setMinSilenceGapDuration] = useState(
     DEFAULT_SNIP_OPTIONS.minSilenceGapDuration
   );
+  const [settingsReady, setSettingsReady] = useState(false);
+  const [showDefaultsBanner, setShowDefaultsBanner] = useState(false);
+
+  const [fixtureSpecs, setFixtureSpecs] = useState<FixtureTickSpec[]>(() =>
+    fixtureTickSpecs(FIXTURE_PATTERNS[0])
+  );
+  const [archiveQueue, setArchiveQueue] = useState<ReplayQueueItem[]>([]);
+  const [queueIndex, setQueueIndex] = useState(0);
+  const queueIndexRef = useRef(0);
 
   const [chunks, setChunks] = useState<ChunkWithBlob[]>([]);
   const [volumeProfile, setVolumeProfile] = useState<ChunkVolumeProfile[] | null>(null);
-  const [snips, setSnips] = useState<Snip[] | null>(null);
-  const [archivedLiveSnips, setArchivedLiveSnips] = useState<ArchivedLiveSnip[] | null>(null);
-  const [computedFloorDb, setComputedFloorDb] = useState<number | null>(null);
+  const [frozenSnips, setFrozenSnips] = useState<Snip[]>([]);
+  const [trailing, setTrailing] = useState<Snip | null>(null);
+  const [windowStartTime, setWindowStartTime] = useState(0);
+  const [includeTrailing, setIncludeTrailing] = useState(false);
+  const [adaptiveFloorDb, setAdaptiveFloorDb] = useState<number | null>(null);
+  const [floorHistory, setFloorHistory] = useState<FloorHistoryRow[]>([]);
+  const [events, setEvents] = useState<DemoEvent[]>([]);
+  const [telemetry, setTelemetry] = useState<TickTelemetry | null>(null);
+  const [reason, setReason] = useState('');
+  const [lastSeq, setLastSeq] = useState<number | null>(null);
+  const [profileReused, setProfileReused] = useState(false);
 
-  const [isComputing, setIsComputing] = useState(false);
-  const [settingsReady, setSettingsReady] = useState(false);
-  const [showDefaultsBanner, setShowDefaultsBanner] = useState(false);
+  const [batchSnips, setBatchSnips] = useState<Snip[] | null>(null);
+  const [archivedLiveSnips, setArchivedLiveSnips] = useState<ArchivedLiveSnip[] | null>(null);
+  const [compareAgainst, setCompareAgainst] = useState<CompareTarget>('incremental');
+  const [isBusy, setIsBusy] = useState(false);
 
   const [windowSeconds, setWindowSeconds] = useState(MIN_WINDOW_SECONDS);
   const [viewStart, setViewStart] = useState(0);
@@ -93,16 +123,29 @@ function App() {
   const [playbackSnipId, setPlaybackSnipId] = useState<number | null>(null);
   const [playbackStatus, setPlaybackStatus] = useState<SnipPlaybackStatus>('idle');
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [playingTrailing, setPlayingTrailing] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
   const rafRef = useRef<number | null>(null);
   const playingSnipRef = useRef<Snip | null>(null);
 
+  const liveRef = useRef({
+    profiles: [] as ChunkVolumeProfile[],
+    chunks: [] as ChunkWithBlob[],
+    frozen: [] as Snip[],
+    floorHistory: [] as FloorHistoryRow[],
+    profileReused: false,
+    lastSeq: -1,
+  });
+
   const totalDuration = useMemo(
     () => (volumeProfile ? sessionDurationFromProfile(volumeProfile) : 0),
     [volumeProfile]
   );
+
+  const queueLength =
+    source === 'archive' ? archiveQueue.length : source === 'fixture' ? fixtureSpecs.length : 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -142,37 +185,19 @@ function App() {
   ]);
 
   useEffect(() => {
-    if (dataMode !== 'fixture') {
-      return;
-    }
-    const pattern = FIXTURE_PATTERNS.find((p) => p.id === selectedPattern);
-    if (pattern) {
-      generateFixturePattern(pattern).then(setChunks);
-    }
-  }, [selectedPattern, dataMode]);
-
-  useEffect(() => {
     return () => {
       const handle = captureHandleRef.current;
       captureHandleRef.current = null;
-      if (handle) {
-        void handle.stop().catch(() => {});
-      }
+      if (handle) void handle.stop().catch(() => {});
+      if (clockTimerRef.current != null) window.clearInterval(clockTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
     return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current);
-      }
-      const audio = audioRef.current;
-      if (audio) {
-        audio.pause();
-      }
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-      }
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      audioRef.current?.pause();
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     };
   }, []);
 
@@ -184,11 +209,9 @@ function App() {
       setViewStart(0);
       return;
     }
-    const firstProfile = !hadProfileRef.current;
     hadProfileRef.current = true;
-    if (firstProfile && !zoomUserSet) {
-      const next = defaultWindowSeconds(totalDuration);
-      setWindowSeconds(next);
+    if (!zoomUserSet) {
+      setWindowSeconds(defaultWindowSeconds(totalDuration));
       setViewStart(0);
       return;
     }
@@ -227,6 +250,7 @@ function App() {
     setPlayheadTime(null);
     setPlaybackSnipId(null);
     setPlaybackStatus('idle');
+    setPlayingTrailing(false);
   }, [releaseAudio]);
 
   const startPlayheadLoop = useCallback(() => {
@@ -248,12 +272,8 @@ function App() {
     const audio = audioRef.current;
     const snip = playingSnipRef.current;
     stopRaf();
-    if (audio && !audio.paused) {
-      audio.pause();
-    }
-    if (audio && snip) {
-      setPlayheadTime(playheadSessionTime(snip.startTime, audio.currentTime));
-    }
+    if (audio && !audio.paused) audio.pause();
+    if (audio && snip) setPlayheadTime(playheadSessionTime(snip.startTime, audio.currentTime));
     setPlaybackStatus('paused');
   }, [stopRaf]);
 
@@ -265,18 +285,13 @@ function App() {
         setPlayheadTime(null);
         setPlaybackSnipId(null);
         setPlaybackStatus('idle');
+        setPlayingTrailing(false);
       };
-      const onPause = () => {
+      audio.addEventListener('ended', onEnded);
+      audio.addEventListener('pause', () => {
         if (audio.ended) return;
         const current = playingSnipRef.current;
         if (!current) return;
-        setPlayheadTime(playheadSessionTime(current.startTime, audio.currentTime));
-      };
-      audio.addEventListener('ended', onEnded);
-      audio.addEventListener('pause', onPause);
-      audio.addEventListener('timeupdate', () => {
-        const current = playingSnipRef.current;
-        if (!current || audio.ended) return;
         setPlayheadTime(playheadSessionTime(current.startTime, audio.currentTime));
       });
     },
@@ -284,14 +299,10 @@ function App() {
   );
 
   const handlePlaySnip = useCallback(
-    async (snip: Snip) => {
+    async (snip: Snip, trailingPlay = false) => {
       if (!volumeProfile) return;
       const existing = audioRef.current;
-      if (
-        existing &&
-        playingSnipRef.current?.snipId === snip.snipId &&
-        playbackStatus === 'paused'
-      ) {
+      if (existing && playingSnipRef.current?.snipId === snip.snipId && playbackStatus === 'paused') {
         try {
           await existing.play();
           setPlaybackStatus('playing');
@@ -302,20 +313,18 @@ function App() {
         }
         return;
       }
-
       handleStopPlayback();
       setPlaybackError(null);
       setPlaybackSnipId(snip.snipId);
+      setPlayingTrailing(trailingPlay);
       setPlaybackStatus('loading');
       playingSnipRef.current = snip;
       setPlayheadTime(snip.startTime);
       setViewStart((start) => {
         const shown = viewStartToShowTime(snip.startTime, totalDuration, windowSeconds);
-        const alreadyVisible =
-          snip.startTime >= start && snip.startTime <= start + windowSeconds;
+        const alreadyVisible = snip.startTime >= start && snip.startTime <= start + windowSeconds;
         return alreadyVisible ? start : shown;
       });
-
       try {
         const blob = await assembleSnipWavBlob(chunks, volumeProfile, snip);
         if (!blob) {
@@ -348,15 +357,13 @@ function App() {
     ]
   );
 
-  const clearAnalysis = useCallback(() => {
-    handleStopPlayback();
-    setVolumeProfile(null);
-    setSnips(null);
-    setComputedFloorDb(null);
-    setViewStart(0);
-    setZoomUserSet(false);
-    setPlaybackError(null);
-  }, [handleStopPlayback]);
+  const stopClock = useCallback(() => {
+    if (clockTimerRef.current != null) {
+      window.clearInterval(clockTimerRef.current);
+      clockTimerRef.current = null;
+    }
+    setClockReplay(false);
+  }, []);
 
   const stopCaptureIfRunning = useCallback(async () => {
     const handle = captureHandleRef.current;
@@ -371,30 +378,235 @@ function App() {
     }
   }, []);
 
-  const handleToggleLiveCapture = async (enabled: boolean) => {
-    await stopCaptureIfRunning();
-    clearAnalysis();
-    setArchiveError(null);
-    setArchiveFileName(null);
-    setShowDefaultsBanner(false);
-    setArchivedLiveSnips(null);
-    if (enabled) {
-      setDataMode('live');
-      setChunks([]);
-      setCaptureStatus('Idle — tap Start Capture and speak');
-    } else {
-      setDataMode('fixture');
+  const applyTickResult = useCallback(
+    (
+      result: Awaited<ReturnType<typeof runLiveTick>>,
+      seq: number,
+      extras: DemoEvent[] = []
+    ) => {
+      liveRef.current = {
+        profiles: result.profiles,
+        chunks: result.chunks,
+        frozen: result.propose.allCommitted,
+        floorHistory: [...liveRef.current.floorHistory, ...result.newFloorRows],
+        profileReused: result.telemetry.profileReused || liveRef.current.profileReused,
+        lastSeq: seq,
+      };
+      setVolumeProfile(result.profiles);
+      setChunks(result.chunks);
+      setFrozenSnips(result.propose.allCommitted);
+      setTrailing(result.propose.trailing);
+      setWindowStartTime(result.propose.windowStartTime);
+      setIncludeTrailing(result.propose.includeTrailing);
+      setAdaptiveFloorDb(result.propose.adaptiveFloorDb);
+      setFloorHistory(liveRef.current.floorHistory);
+      setEvents((prev) => [...prev, ...result.events, ...extras]);
+      setTelemetry(result.telemetry);
+      setReason(result.reason);
+      setLastSeq(seq);
+      setProfileReused(liveRef.current.profileReused);
+    },
+    []
+  );
+
+  const commitTrailingNow = useCallback(
+    (markReplayComplete: boolean) => {
+      const current = liveRef.current;
+      if (current.profiles.length === 0) {
+        setStoppedCommitted(true);
+        if (markReplayComplete) setReplayComplete(true);
+        return;
+      }
+      const result = runCommitTick({
+        profiles: current.profiles,
+        chunks: current.chunks,
+        frozenSnips: current.frozen,
+        lastSeq: current.lastSeq,
+        profileReused: current.profileReused,
+      });
+      applyTickResult(result, current.lastSeq, markReplayComplete ? [{
+        at: Date.now(),
+        name: 'replayComplete',
+        detail: { frozen: result.propose.allCommitted.length },
+      }] : []);
+      setStoppedCommitted(true);
+      if (markReplayComplete) setReplayComplete(true);
+    },
+    [applyTickResult]
+  );
+
+  const ingestPreparedChunk = useCallback(
+    async (
+      chunk: ChunkWithBlob,
+      storedProfile: ChunkVolumeProfile | null,
+      playable: boolean
+    ) => {
+      const current = liveRef.current;
+      const result = await runLiveTick({
+        chunk,
+        blob: playable ? chunk.blob : null,
+        storedProfile,
+        existingProfiles: current.profiles,
+        existingChunks: current.chunks,
+        frozenSnips: current.frozen,
+        includeTrailing: false,
+      });
+      applyTickResult(result, chunk.seq);
+    },
+    [applyTickResult]
+  );
+
+  const stepFixtureOnce = useCallback(async (): Promise<boolean> => {
+    const index = queueIndexRef.current;
+    if (index >= fixtureSpecs.length) return false;
+    const spec = fixtureSpecs[index];
+    const chunk = await generateFixtureTick(spec);
+    await ingestPreparedChunk(chunk, null, true);
+    const nextIndex = index + 1;
+    queueIndexRef.current = nextIndex;
+    setQueueIndex(nextIndex);
+    if (nextIndex >= fixtureSpecs.length) {
+      commitTrailingNow(true);
     }
+    return nextIndex < fixtureSpecs.length;
+  }, [fixtureSpecs, ingestPreparedChunk, commitTrailingNow]);
+
+  const stepArchiveOnce = useCallback(async (): Promise<boolean> => {
+    const index = queueIndexRef.current;
+    if (index >= archiveQueue.length) return false;
+    const item = archiveQueue[index];
+    const chunk: ChunkWithBlob = {
+      ...item.chunk,
+      blob: item.blob ?? new Blob(),
+    };
+    await ingestPreparedChunk(chunk, item.storedProfile, item.playable);
+    const nextIndex = index + 1;
+    queueIndexRef.current = nextIndex;
+    setQueueIndex(nextIndex);
+    if (nextIndex >= archiveQueue.length) {
+      commitTrailingNow(true);
+    }
+    return nextIndex < archiveQueue.length;
+  }, [archiveQueue, ingestPreparedChunk, commitTrailingNow]);
+
+  const handleStepNext = useCallback(async () => {
+    if (isBusy) return;
+    setIsBusy(true);
+    try {
+      if (source === 'fixture') await stepFixtureOnce();
+      else if (source === 'archive') await stepArchiveOnce();
+    } finally {
+      setIsBusy(false);
+    }
+  }, [isBusy, source, stepFixtureOnce, stepArchiveOnce]);
+
+  const handleReplayRemaining = useCallback(async () => {
+    if (isBusy) return;
+    setIsBusy(true);
+    stopClock();
+    try {
+      if (source === 'fixture') {
+        while (queueIndexRef.current < fixtureSpecs.length) {
+          const more = await stepFixtureOnce();
+          if (!more) break;
+        }
+      } else if (source === 'archive') {
+        while (queueIndexRef.current < archiveQueue.length) {
+          const more = await stepArchiveOnce();
+          if (!more) break;
+        }
+      }
+    } finally {
+      setIsBusy(false);
+    }
+  }, [isBusy, source, stepFixtureOnce, stepArchiveOnce, fixtureSpecs.length, archiveQueue.length, stopClock]);
+
+  const handleReplayClock = useCallback(() => {
+    if (clockReplay) {
+      stopClock();
+      return;
+    }
+    setClockReplay(true);
+    clockTimerRef.current = window.setInterval(() => {
+      void (async () => {
+        const more = source === 'archive' ? await stepArchiveOnce() : await stepFixtureOnce();
+        if (!more) stopClock();
+      })();
+    }, 4000);
+  }, [clockReplay, source, stepArchiveOnce, stepFixtureOnce, stopClock]);
+
+  const resetSessionCore = useCallback(() => {
+    stopClock();
+    handleStopPlayback();
+    liveRef.current = {
+      profiles: [],
+      chunks: [],
+      frozen: [],
+      floorHistory: [],
+      profileReused: false,
+      lastSeq: -1,
+    };
+    setChunks([]);
+    setVolumeProfile(null);
+    setFrozenSnips([]);
+    setTrailing(null);
+    setWindowStartTime(0);
+    setIncludeTrailing(false);
+    setAdaptiveFloorDb(null);
+    setFloorHistory([]);
+    setEvents([]);
+    setTelemetry(null);
+    setReason('');
+    setLastSeq(null);
+    setProfileReused(false);
+    setBatchSnips(null);
+    setBatchRan(false);
+    setCompareAgainst('incremental');
+    queueIndexRef.current = 0;
+    setQueueIndex(0);
+    setReplayComplete(false);
+    setStoppedCommitted(false);
+    setViewStart(0);
+    setZoomUserSet(false);
+    setPlaybackError(null);
+  }, [handleStopPlayback, stopClock]);
+
+  const handleResetSession = useCallback(() => {
+    void stopCaptureIfRunning();
+    resetSessionCore();
+    if (source === 'mic') {
+      setCaptureStatus('Idle — tap Start capture and speak');
+    }
+  }, [resetSessionCore, source, stopCaptureIfRunning]);
+
+  const handleSourceChange = async (next: DataSource) => {
+    await stopCaptureIfRunning();
+    resetSessionCore();
+    setArchiveError(null);
+    setShowDefaultsBanner(false);
+    if (next !== 'archive') {
+      setArchiveFileName(null);
+      setArchiveQueue([]);
+      setArchivedLiveSnips(null);
+      setArchiveStatus('Upload a session archive zip to replay the live path');
+    }
+    setSource(next);
+  };
+
+  const handlePatternChange = (id: string) => {
+    const pattern = FIXTURE_PATTERNS.find((item) => item.id === id) ?? FIXTURE_PATTERNS[0];
+    setSelectedPattern(pattern.id);
+    setFixtureSpecs(fixtureTickSpecs(pattern));
+    resetSessionCore();
   };
 
   const handleArchiveUpload = async (file: File | undefined) => {
     if (!file) return;
     await stopCaptureIfRunning();
-    clearAnalysis();
-    setDataMode('archive');
+    resetSessionCore();
+    setSource('archive');
     setArchiveFileName(file.name);
     setArchiveError(null);
-    setChunks([]);
     setArchivedLiveSnips(null);
     setArchiveStatus('Reading archive…');
     try {
@@ -405,51 +617,54 @@ function App() {
         setArchiveStatus(message);
         return;
       }
-      const mapped = mapArchiveChunksToAnalyze(parsed);
+      const queue = buildArchiveReplayQueue(parsed);
       const live = mapArchivedLiveSnips(parsed);
       setArchivedLiveSnips(live.length > 0 ? live : null);
-      setChunks(mapped);
-      const sessionId = parsed.session?.id ? `session ${parsed.session.id}` : 'session archive';
-      const skipped = (parsed.chunks?.length ?? 0) - mapped.length;
+      setArchiveQueue(queue.items);
       const liveNote = archiveLiveRangesStatusNote(parsed, live.length);
-      if (mapped.length === 0) {
+      if (queue.items.length === 0) {
         setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
-        setArchiveStatus(
-          `${ARCHIVE_ERROR_NO_AUDIO}` + (liveNote ? ` · ${liveNote}` : '')
-        );
+        setArchiveStatus(`${ARCHIVE_ERROR_NO_AUDIO}` + (liveNote ? ` · ${liveNote}` : ''));
         return;
       }
       setArchiveStatus(
-        `${mapped.length} playable chunk${mapped.length === 1 ? '' : 's'} from ${sessionId}` +
-          (skipped > 0 ? ` (${skipped} purged skipped)` : '') +
+        `${queue.statusLine} · 0 of ${queue.items.length} chunks replayed` +
           (liveNote ? ` · ${liveNote}` : '')
       );
-      if (
-        !tunerMatchesAppDefaults({
-          autoNoiseFloor,
-          minSnipDuration,
-          maxSnipDuration,
-          minSilenceGapDuration,
-        })
-      ) {
-        setShowDefaultsBanner(true);
-      } else {
-        setShowDefaultsBanner(false);
-      }
     } catch {
       setArchiveError(messageForArchiveParseError('not_a_zip'));
       setArchiveStatus(messageForArchiveParseError('not_a_zip'));
     } finally {
-      if (archiveInputRef.current) {
-        archiveInputRef.current.value = '';
-      }
+      if (archiveInputRef.current) archiveInputRef.current.value = '';
     }
   };
 
+  const ingestLiveChunk = useCallback(
+    async (data: {
+      seq: number;
+      startTime: number;
+      endTime: number;
+      duration: number;
+      blob?: Blob;
+    }) => {
+      if (!data.blob) return;
+      const chunk: ChunkWithBlob = {
+        id: `live-chunk-${data.seq}`,
+        seq: data.seq,
+        startTime: data.startTime,
+        endTime: data.endTime,
+        duration: data.duration,
+        blob: data.blob,
+      };
+      await ingestPreparedChunk(chunk, null, true);
+    },
+    [ingestPreparedChunk]
+  );
+
   const handleStartCapture = async () => {
     await stopCaptureIfRunning();
-    clearAnalysis();
-    setChunks([]);
+    resetSessionCore();
+    setSource('mic');
     setCaptureStatus('Requesting microphone…');
     try {
       const handle = await startCapture(`iso-volume-${Date.now()}`, {
@@ -466,20 +681,9 @@ function App() {
         duration: number;
         blob?: Blob;
       }) => {
-        if (!data.blob) return;
-        setChunks((prev) => [
-          ...prev,
-          {
-            id: `live-chunk-${data.seq}`,
-            seq: data.seq,
-            startTime: data.startTime,
-            endTime: data.endTime,
-            duration: data.duration,
-            blob: data.blob,
-          },
-        ]);
+        void ingestLiveChunk(data);
       });
-      handle.on('captureError', (data: { reason?: string; details?: string }) => {
+      handle.on('captureError', (data: { reason?: string }) => {
         setCaptureStatus(`Error: ${data.reason || 'capture_failed'}`);
         setIsCapturing(false);
       });
@@ -508,6 +712,12 @@ function App() {
   const handleStopCapture = async () => {
     setCaptureStatus('Stopping…');
     await stopCaptureIfRunning();
+    commitTrailingNow(false);
+  };
+
+  const handleStopReplayEarly = () => {
+    stopClock();
+    commitTrailingNow(true);
   };
 
   const snipOptions = useMemo(
@@ -521,88 +731,6 @@ function App() {
     [autoNoiseFloor, quietThresholdDb, minSnipDuration, maxSnipDuration, minSilenceGapDuration]
   );
 
-  const recomputeSnips = useCallback(
-    (profiles: ChunkVolumeProfile[], chunkList: ChunkWithBlob[]) => {
-      const allSamples = profiles.flatMap((profile) => Array.from(profile.samples));
-      const adaptive = computeAdaptiveQuietThresholdDb(allSamples);
-      setComputedFloorDb(adaptive);
-
-      const chunkMetadata = chunkList.map((c) => ({
-        id: c.id,
-        seq: c.seq,
-        startTime: c.startTime,
-        endTime: c.endTime,
-        duration: c.duration,
-      }));
-
-      const proposed = proposeSnipsFromProfile(profiles, chunkMetadata, {
-        ...snipOptions,
-        quietThreshold: autoNoiseFloor ? undefined : quietThresholdDb,
-      });
-      setSnips(proposed);
-      return adaptive;
-    },
-    [autoNoiseFloor, quietThresholdDb, snipOptions]
-  );
-
-  const handleComputeVolume = useCallback(async () => {
-    if (chunks.length === 0) {
-      if (dataMode === 'archive') {
-        setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
-        setArchiveStatus(ARCHIVE_ERROR_NO_AUDIO);
-      }
-      return;
-    }
-
-    setIsComputing(true);
-    try {
-      const profiles = await analyzeChunksVolume(chunks);
-      setVolumeProfile(profiles);
-      const adaptive = recomputeSnips(profiles, chunks);
-      if (autoNoiseFloor) {
-        setQuietThresholdDb(Math.round(adaptive));
-      }
-      if (
-        dataMode === 'archive' &&
-        !tunerMatchesAppDefaults({
-          autoNoiseFloor,
-          minSnipDuration,
-          maxSnipDuration,
-          minSilenceGapDuration,
-        })
-      ) {
-        setShowDefaultsBanner(true);
-      }
-    } catch (error) {
-      console.error('Volume computation failed:', error);
-      alert('Failed to compute volume. Check console for details.');
-    } finally {
-      setIsComputing(false);
-    }
-  }, [
-    chunks,
-    recomputeSnips,
-    autoNoiseFloor,
-    dataMode,
-    minSnipDuration,
-    maxSnipDuration,
-    minSilenceGapDuration,
-  ]);
-
-  useEffect(() => {
-    if (volumeProfile) {
-      recomputeSnips(volumeProfile, chunks);
-    }
-  }, [volumeProfile, chunks, recomputeSnips]);
-
-  useEffect(() => {
-    if (playbackSnipId === null || !snips) return;
-    const stillThere = snips.some((snip) => snip.snipId === playbackSnipId);
-    if (!stillThere) {
-      handleStopPlayback();
-    }
-  }, [snips, playbackSnipId, handleStopPlayback]);
-
   const handleResetToAppDefaults = useCallback(() => {
     const next = appDefaultTunerSettings(quietThresholdDb);
     setAutoNoiseFloor(next.autoNoiseFloor);
@@ -613,45 +741,157 @@ function App() {
     setShowDefaultsBanner(false);
   }, [quietThresholdDb]);
 
-  const handleReset = () => {
-    void stopCaptureIfRunning();
-    handleStopPlayback();
-    setVolumeProfile(null);
-    setSnips(null);
-    setComputedFloorDb(null);
-    setAutoNoiseFloor(true);
-    setMinSnipDuration(DEFAULT_SNIP_OPTIONS.minSnipDuration);
-    setMaxSnipDuration(DEFAULT_SNIP_OPTIONS.maxSnipDuration);
-    setMinSilenceGapDuration(DEFAULT_SNIP_OPTIONS.minSilenceGapDuration);
-    void saveTunerSettings(appDefaultTunerSettings(quietThresholdDb));
-    setShowDefaultsBanner(false);
-    setViewStart(0);
-    setZoomUserSet(false);
-    setPlaybackError(null);
-    if (dataMode === 'live') {
-      setChunks([]);
-      setCaptureStatus('Idle — tap Start Capture and speak');
+  const handleBatchCompute = async () => {
+    setIsBusy(true);
+    try {
+      let working = chunks;
+      if (source === 'fixture' && working.length < fixtureSpecs.length) {
+        const generated: ChunkWithBlob[] = [];
+        for (const spec of fixtureSpecs) {
+          generated.push(await generateFixtureTick(spec));
+        }
+        working = generated;
+        setChunks(working);
+      } else if (source === 'archive' && working.length === 0 && archiveQueue.length > 0) {
+        const storedAll = archiveQueue
+          .map((item) => item.storedProfile)
+          .filter((row): row is ChunkVolumeProfile => row != null);
+        if (storedAll.length === archiveQueue.length) {
+          setVolumeProfile(storedAll);
+          const named = await analyzeVolume(
+            archiveQueue
+              .filter((item) => item.playable && item.blob)
+              .map((item) => ({ ...item.chunk, blob: item.blob as Blob }))
+          );
+          void named;
+          return;
+        }
+        working = archiveQueue
+          .filter((item) => item.playable && item.blob)
+          .map((item) => ({ ...item.chunk, blob: item.blob as Blob }));
+        setChunks(working);
+      }
+      if (working.length === 0) {
+        if (source === 'archive') {
+          setArchiveError(ARCHIVE_ERROR_NO_AUDIO);
+        }
+        return;
+      }
+      const profiles = await analyzeChunksVolume(working);
+      void (await analyzeVolume(working));
+      setVolumeProfile(profiles);
+    } finally {
+      setIsBusy(false);
     }
   };
 
-  const handleWindowChange = (next: number) => {
-    setZoomUserSet(true);
-    const clamped = clampWindowSeconds(next, totalDuration || next);
-    setWindowSeconds(clamped);
-    setViewStart((start) => clampViewStart(start, totalDuration, clamped));
+  const handleBatchPropose = () => {
+    if (!volumeProfile || volumeProfile.length === 0) return;
+    const proposed = proposeSnipsFromProfile(volumeProfile, chunks, snipOptions);
+    void proposeSnips(chunks, volumeProfile, snipOptions);
+    setBatchSnips(proposed);
+    setBatchRan(true);
+    if (
+      source === 'archive' &&
+      !tunerMatchesAppDefaults({
+        autoNoiseFloor,
+        minSnipDuration,
+        maxSnipDuration,
+        minSilenceGapDuration,
+      })
+    ) {
+      setShowDefaultsBanner(true);
+    }
   };
 
-  const handleFitAll = () => {
-    setZoomUserSet(true);
-    const next = Math.max(MIN_WINDOW_SECONDS, totalDuration || MIN_WINDOW_SECONDS);
-    setWindowSeconds(next);
-    setViewStart(0);
+  useEffect(() => {
+    if (batchRan && volumeProfile) {
+      const proposed = proposeSnipsFromProfile(volumeProfile, chunks, snipOptions);
+      setBatchSnips(proposed);
+    }
+  }, [batchRan, volumeProfile, chunks, snipOptions]);
+
+  const handleLoadBltFixture = () => {
+    void stopCaptureIfRunning();
+    resetSessionCore();
+    setSource('archive');
+    setArchiveFileName('blt-boundary-fixture');
+    setArchiveStatus(BLT_FIXTURE_NOTE);
+    setArchiveQueue([]);
+    setArchivedLiveSnips(BLT_LIVE_SNIPS);
+    setBatchSnips(BLT_RECOMPUTED_SNIPS);
   };
 
-  const handleViewStartChange = (start: number) => {
-    setZoomUserSet(true);
-    setViewStart(clampViewStart(start, totalDuration, windowSeconds));
+  const handleLoadSyntheticArchive = async () => {
+    await stopCaptureIfRunning();
+    resetSessionCore();
+    setIsBusy(true);
+    try {
+      const pattern = FIXTURE_PATTERNS[0];
+      const specs = fixtureTickSpecs(pattern);
+      const generated: ChunkWithBlob[] = [];
+      let profiles: ChunkVolumeProfile[] = [];
+      let frozen: Snip[] = [];
+      for (let i = 0; i < specs.length; i++) {
+        const chunk = await generateFixtureTick(specs[i]);
+        generated.push(chunk);
+        const result = await runLiveTick({
+          chunk,
+          blob: chunk.blob,
+          existingProfiles: profiles,
+          existingChunks: generated.slice(0, -1),
+          frozenSnips: frozen,
+          includeTrailing: false,
+        });
+        profiles = result.profiles;
+        frozen = result.propose.allCommitted;
+      }
+      const committed = runCommitTick({
+        profiles,
+        chunks: generated,
+        frozenSnips: frozen,
+        lastSeq: specs.length - 1,
+        profileReused: false,
+      });
+      frozen = committed.propose.allCommitted;
+      const queue: ReplayQueueItem[] = generated.map((chunk, index) => ({
+        seq: chunk.seq,
+        chunk,
+        blob: chunk.blob,
+        storedProfile: profiles[index] ?? null,
+        playable: true,
+      }));
+      setSource('archive');
+      setArchiveFileName('synthetic-debug-archive');
+      setArchiveQueue(queue);
+      setArchivedLiveSnips(
+        frozen.map((snip, index) => ({
+          id: `live-${index}`,
+          startTime: snip.startTime,
+          endTime: snip.endTime,
+          duration: snip.duration,
+          chunkIds: snip.chunkRefs,
+          startChunkIndex: snip.startChunkIndex,
+          endChunkIndex: snip.endChunkIndex,
+          confidence: snip.confidence,
+          text: `Synthetic live cut ${index}`,
+        }))
+      );
+      setArchiveStatus(
+        `volume-profile.json used (${profiles.length} chunk profiles, samples present) · 0 of ${queue.length} chunks replayed · Live (archived): ${frozen.length} snips`
+      );
+    } finally {
+      setIsBusy(false);
+    }
   };
+
+  useEffect(() => {
+    if (playbackSnipId === null) return;
+    const stillThere =
+      frozenSnips.some((snip) => snip.snipId === playbackSnipId) ||
+      (trailing && trailing.snipId === playbackSnipId);
+    if (!stillThere) handleStopPlayback();
+  }, [frozenSnips, trailing, playbackSnipId, handleStopPlayback]);
 
   const matchesAppDefaults = tunerMatchesAppDefaults({
     autoNoiseFloor,
@@ -661,28 +901,8 @@ function App() {
   });
 
   useEffect(() => {
-    if (matchesAppDefaults) {
-      setShowDefaultsBanner(false);
-    }
+    if (matchesAppDefaults) setShowDefaultsBanner(false);
   }, [matchesAppDefaults]);
-
-  const handleLoadBltFixture = () => {
-    void stopCaptureIfRunning();
-    handleStopPlayback();
-    setVolumeProfile(null);
-    setComputedFloorDb(null);
-    setViewStart(0);
-    setZoomUserSet(false);
-    setPlaybackError(null);
-    setArchiveError(null);
-    setShowDefaultsBanner(false);
-    setDataMode('archive');
-    setArchiveFileName('blt-boundary-fixture');
-    setArchiveStatus(BLT_FIXTURE_NOTE);
-    setChunks([]);
-    setArchivedLiveSnips(BLT_LIVE_SNIPS);
-    setSnips(BLT_RECOMPUTED_SNIPS);
-  };
 
   const liveScan = useMemo(
     () =>
@@ -692,111 +912,136 @@ function App() {
     [archivedLiveSnips]
   );
 
-  const recomputedScan = useMemo(
-    () => (snips && snips.length > 0 ? scanSnipBoundaries(snips) : null),
-    [snips]
+  const incrementalScan = useMemo(
+    () => (frozenSnips.length > 0 ? scanSnipBoundaries(frozenSnips) : null),
+    [frozenSnips]
   );
+  const batchScan = useMemo(
+    () => (batchSnips && batchSnips.length > 0 ? scanSnipBoundaries(batchSnips) : null),
+    [batchSnips]
+  );
+  const doctorRecomputed = compareAgainst === 'batch' && batchScan ? batchScan : incrementalScan;
 
   const histogramFlags = useMemo(() => {
     const flags = [];
     if (liveScan) flags.push(...flaggedBoundaryTimes(liveScan));
-    if (recomputedScan) flags.push(...flaggedBoundaryTimes(recomputedScan));
+    if (doctorRecomputed) flags.push(...flaggedBoundaryTimes(doctorRecomputed));
     return flags;
-  }, [liveScan, recomputedScan]);
+  }, [liveScan, doctorRecomputed]);
 
-  const showDoctor = liveScan != null || recomputedScan != null;
+  const showDoctor = liveScan != null || incrementalScan != null || batchScan != null;
 
-  const effectiveThreshold = autoNoiseFloor ? (computedFloorDb ?? quietThresholdDb) : quietThresholdDb;
-  const avgSnip =
-    snips && snips.length > 0
-      ? snips.reduce((sum, snip) => sum + snip.duration, 0) / snips.length
+  const pathChip = batchRan
+    ? 'OFFLINE BATCH — NOT LIVE PATH'
+    : source === 'archive' && (archiveQueue.length > 0 || archivedLiveSnips)
+      ? 'LIVE PATH · ARCHIVE REPLAY'
+      : source === 'mic'
+        ? 'LIVE PATH · MIC'
+        : 'LIVE PATH';
+
+  const replayState = (() => {
+    if (isCapturing) return 'Recording (includeTrailing: false)';
+    if (replayComplete) return 'Replay complete — trailing committed.';
+    if (stoppedCommitted) return 'Stopped (trailing committed)';
+    if (queueLength > 0 && queueIndex > 0 && queueIndex < queueLength) {
+      return `Replay paused at chunk ${queueIndex} of ${queueLength}`;
+    }
+    return 'Idle';
+  })();
+
+  const sessionEnd = chunks.length > 0 ? sessionEndFromChunks(chunks) : totalDuration;
+  const floorWindow =
+    adaptiveFloorDb != null && sessionEnd > windowStartTime
+      ? { startTime: windowStartTime, endTime: sessionEnd, db: adaptiveFloorDb }
       : null;
+  const historicalFloors = floorHistory.map((row) => ({
+    startTime: row.windowStart,
+    endTime: row.closedAt,
+    db: row.floorDb ?? adaptiveFloorDb ?? -40,
+  }));
+
+  const frozenFloors = frozenSnips.map((snip) => {
+    const row = floorHistory.find(
+      (item) => Math.abs(item.closedAt - snip.endTime) < 0.05
+    );
+    return row?.floorDb ?? null;
+  });
+
+  const stepDisabled =
+    isBusy ||
+    isCapturing ||
+    (source === 'fixture' && queueIndex >= fixtureSpecs.length) ||
+    (source === 'archive' && (archiveQueue.length === 0 || queueIndex >= archiveQueue.length)) ||
+    source === 'mic';
+
+  const archiveStatusWithQueue =
+    source === 'archive' && archiveQueue.length > 0 && !archiveError
+      ? archiveStatus.replace(/\d+ of \d+ chunks replayed/, `${queueIndex} of ${archiveQueue.length} chunks replayed`)
+      : archiveStatus;
 
   return (
     <div className="app">
       <header className="top-chrome">
-        <h1>Volume Analyzer Isolation Demo</h1>
-        <div
-          className={`data-mode-chip${dataMode === 'live' ? ' live' : ''}${dataMode === 'archive' ? ' archive' : ''}`}
-        >
-          {dataMode === 'live'
-            ? 'LIVE FROM CAPTURE (in-memory)'
-            : dataMode === 'archive'
-              ? 'SESSION ARCHIVE'
-              : 'FIXTURE AUDIO'}
+        <div className="chrome-row">
+          <h1>Volume Analyzer Isolation Demo</h1>
+          <div
+            className={`data-mode-chip${pathChip.startsWith('LIVE') ? ' live' : ' batch'}${
+              pathChip.includes('ARCHIVE') ? ' archive' : ''
+            }`}
+          >
+            {pathChip}
+          </div>
+          <div className="replay-state">{replayState}</div>
         </div>
-        <div className="db-chip" title="Isolated from the PWA and other package demos">
-          IDB {VOLUME_ANALYZER_DEMO_DB}
-        </div>
-        <div className="live-capture-toggle">
-          <input
-            type="checkbox"
-            id="live-capture"
-            checked={liveCaptureEnabled}
-            disabled={isCapturing}
-            onChange={(e) => {
-              void handleToggleLiveCapture(e.target.checked);
-            }}
-          />
-          <label htmlFor="live-capture">Live microphone</label>
-        </div>
+        <p className="chrome-subline">
+          Same path as PWA ingestGrowingSession: analyze volume → incremental propose. Frozen snips
+          stay frozen. Adaptive floor is per window.
+        </p>
       </header>
 
       <main className="main-content">
         <aside className="control-panel">
-          {dataMode === 'live' ? (
-            <div className="control-section">
-              <p className="hint">{captureStatus}</p>
-              <p className="hint">
-                {chunks.length} live chunk{chunks.length === 1 ? '' : 's'} in RAM
-              </p>
-              <button
-                className="primary"
-                type="button"
-                onClick={() => void handleStartCapture()}
+          <h2>Inputs</h2>
+          <div className="control-section source-radios" role="radiogroup" aria-label="Data source">
+            <label>
+              <input
+                type="radio"
+                name="source"
+                checked={source === 'fixture'}
                 disabled={isCapturing}
-              >
-                Start Capture
-              </button>
-              <button
-                className="secondary"
-                type="button"
-                onClick={() => void handleStopCapture()}
-                disabled={!isCapturing}
-              >
-                Stop Capture
-              </button>
-            </div>
-          ) : dataMode === 'archive' ? (
+                onChange={() => void handleSourceChange('fixture')}
+              />
+              Fixture step
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="source"
+                checked={source === 'mic'}
+                disabled={isCapturing}
+                onChange={() => void handleSourceChange('mic')}
+              />
+              Live microphone
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="source"
+                checked={source === 'archive'}
+                disabled={isCapturing}
+                onChange={() => void handleSourceChange('archive')}
+              />
+              Session archive replay
+            </label>
+          </div>
+
+          {source === 'fixture' ? (
             <div className="control-section">
-              <p className="hint">{archiveStatus}</p>
-              {archiveFileName ? (
-                <p className="hint archive-filename">{archiveFileName}</p>
-              ) : null}
-              <p className="hint">
-                {chunks.length} archive chunk{chunks.length === 1 ? '' : 's'} in RAM
-              </p>
-              <button
-                className="secondary"
-                type="button"
-                onClick={() => void handleToggleLiveCapture(false)}
-              >
-                Use fixture instead
-              </button>
-            </div>
-          ) : (
-            <div className="control-section">
-              <label htmlFor="fixture-pattern">Fixture Pattern (optional)</label>
+              <label htmlFor="fixture-pattern">Fixture pattern</label>
               <select
                 id="fixture-pattern"
                 value={selectedPattern}
-                onChange={(e) => {
-                  setSelectedPattern(e.target.value);
-                  handleStopPlayback();
-                  setVolumeProfile(null);
-                  setSnips(null);
-                  setComputedFloorDb(null);
-                }}
+                onChange={(e) => handlePatternChange(e.target.value)}
               >
                 {FIXTURE_PATTERNS.map((pattern) => (
                   <option key={pattern.id} value={pattern.id}>
@@ -807,8 +1052,59 @@ function App() {
               <p className="hint">
                 {FIXTURE_PATTERNS.find((p) => p.id === selectedPattern)?.description}
               </p>
+              <p className="hint">
+                {queueIndex} of {fixtureSpecs.length} chunks replayed
+              </p>
             </div>
-          )}
+          ) : null}
+
+          {source === 'mic' ? (
+            <div className="control-section">
+              <p className="hint">{captureStatus}</p>
+              <button className="primary" type="button" onClick={() => void handleStartCapture()} disabled={isCapturing}>
+                Start capture
+              </button>
+              <button className="secondary" type="button" onClick={() => void handleStopCapture()} disabled={!isCapturing}>
+                Stop capture
+              </button>
+            </div>
+          ) : null}
+
+          {source === 'archive' ? (
+            <div className="control-section">
+              <p className="hint">{archiveStatusWithQueue}</p>
+              {archiveFileName ? <p className="hint archive-filename">{archiveFileName}</p> : null}
+            </div>
+          ) : null}
+
+          {source !== 'mic' ? (
+            <div className="control-section">
+              <button className="primary" type="button" disabled={stepDisabled} onClick={() => void handleStepNext()}>
+                Step next chunk
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                disabled={stepDisabled}
+                onClick={() => void handleReplayRemaining()}
+              >
+                Replay remaining
+              </button>
+              <button
+                className="secondary"
+                type="button"
+                disabled={stepDisabled && !clockReplay}
+                onClick={handleReplayClock}
+              >
+                {clockReplay ? 'Stop 4s clock' : 'Replay remaining (4s clock)'}
+              </button>
+              {source === 'archive' && queueIndex > 0 && !replayComplete ? (
+                <button className="secondary" type="button" onClick={handleStopReplayEarly}>
+                  Stop replay early
+                </button>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="control-section">
             <label htmlFor="session-archive">Upload session archive</label>
@@ -818,56 +1114,102 @@ function App() {
               type="file"
               accept=".zip,application/zip,application/x-zip-compressed"
               disabled={isCapturing}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                void handleArchiveUpload(file);
-              }}
+              onChange={(e) => void handleArchiveUpload(e.target.files?.[0])}
             />
-            <p className="hint">
-              Spec-1 zip from session-store export. Parsed with parseSessionArchive; same Compute
-              Volume path as live/fixture.
-            </p>
+            <button type="button" className="secondary" onClick={() => void handleLoadSyntheticArchive()}>
+              Load synthetic debug archive
+            </button>
             <button type="button" className="secondary" onClick={handleLoadBltFixture}>
               Load BLT diagnosis fixture
             </button>
             <p className="hint">
-              Dave’s 1:55→2:11 / 2:11→2:30 BLT cuts plus sample recomputed ranges. No Groq, no
-              audio — opens the doctor panel.
+              Synthetic archive has volume-profile samples + live ranges from an incremental run.
+              BLT fixture is doctor-only (no audio).
             </p>
             {archiveError ? <p className="error-banner">{archiveError}</p> : null}
-            {dataMode === 'archive' && showDefaultsBanner ? (
+          </div>
+
+          <section className="window-card" aria-label="Current window">
+            <h3>Current window</h3>
+            <dl>
+              <div><dt>chunk seq</dt><dd>{lastSeq == null ? '—' : lastSeq}</dd></div>
+              <div><dt>session t</dt><dd>{sessionEnd > 0 ? `0.0s → ${sessionEnd.toFixed(1)}s` : '—'}</dd></div>
+              <div><dt>windowStartTime</dt><dd>{lastSeq == null ? '—' : `${windowStartTime.toFixed(1)}s`}</dd></div>
+              <div><dt>includeTrailing</dt><dd>{lastSeq == null ? '—' : String(includeTrailing)}</dd></div>
+              <div>
+                <dt>adaptive floor</dt>
+                <dd>
+                  {adaptiveFloorDb == null
+                    ? '—'
+                    : `${formatFloorDb(adaptiveFloorDb)} · window ${sampleWindowLabel(windowStartTime, sessionEnd)}`}
+                  <span className="floor-note">Per-window floor — not a global slider.</span>
+                </dd>
+              </div>
+              <div><dt>frozen</dt><dd>{frozenSnips.length}</dd></div>
+              <div>
+                <dt>trailing</dt>
+                <dd>
+                  {trailing
+                    ? `held ${trailing.startTime.toFixed(1)}–${trailing.endTime.toFixed(1)}s`
+                    : 'none'}
+                </dd>
+              </div>
+              <div>
+                <dt>profile</dt>
+                <dd>{profileReused ? 'volume-profile.json samples reused' : lastSeq == null ? '—' : 'decoded this session'}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <p className="defaults-line">{LIVE_DEFAULTS_LINE}</p>
+          <p className="hint inspector">
+            Live tick: <code>analyzeVolumeForSession</code> / <code>analyzeVolumeIncremental</code> then{' '}
+            <code>proposeSnipsForSession</code> / <code>proposeSnipsIncremental</code>. Kernel:{' '}
+            <code>proposeSnipsFromProfile</code> + <code>computeAdaptiveQuietThresholdDb</code>.
+          </p>
+
+          <button className="secondary" type="button" onClick={handleResetSession}>
+            Reset session
+          </button>
+          <p className="hint">
+            Clears in-memory chunks, profile, frozen snips, trailing, floor history, playhead. Does not
+            open Offline batch.
+          </p>
+
+          <details className="offline-batch">
+            <summary>Offline batch (not the live path)</summary>
+            <div className="batch-banner" role="status">
+              <p>
+                <strong>Not the live path.</strong> The PWA does <strong>not</strong> record this way.
+                This panel batch-runs <code>proposeSnipsFromProfile</code> over the <strong>entire</strong>{' '}
+                volume profile with one global adaptive floor (and optional aggressiveness sliders). Use it
+                only to explore the kernel. Live path (left / default) is how production records:{' '}
+                <code>analyzeVolumeForSession</code> + <code>proposeSnipsForSession</code> per chunk, frozen
+                snips, <code>windowStartTime = lastEnd</code>.
+              </p>
+            </div>
+            {batchRan && batchSnips ? (
+              <p className="count-compare">
+                Incremental live path: {frozenSnips.length} · Offline batch: {batchSnips.length}
+                {frozenSnips.length !== batchSnips.length
+                  ? ' — counts may differ (Dave’s case: live 13 vs batch 11).'
+                  : ''}
+              </p>
+            ) : null}
+            {showDefaultsBanner ? (
               <div className="defaults-banner" role="status">
                 <p>
-                  Saved Isolation Demo sliders differ from the PWA / DEFAULT_SNIP_OPTIONS, so
-                  recomputed snips will not match live Session Detail cuts.
+                  Saved Isolation Demo sliders differ from the PWA / DEFAULT_SNIP_OPTIONS, so batch snips
+                  will not match live Session Detail cuts.
                 </p>
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={handleResetToAppDefaults}
-                >
+                <button type="button" className="primary" onClick={handleResetToAppDefaults}>
                   Reset to app defaults
                 </button>
-                <button
-                  type="button"
-                  className="linkish"
-                  onClick={() => setShowDefaultsBanner(false)}
-                >
+                <button type="button" className="linkish" onClick={() => setShowDefaultsBanner(false)}>
                   Keep current sliders
                 </button>
               </div>
             ) : null}
-          </div>
-
-          <button
-            className="primary"
-            onClick={handleComputeVolume}
-            disabled={isComputing || chunks.length === 0}
-          >
-            {isComputing ? 'Computing...' : volumeProfile ? 'Recompute Volume' : 'Compute Volume'}
-          </button>
-
-          <div className="control-section">
             <label htmlFor="noise-floor">
               Noise floor {autoNoiseFloor ? '(auto)' : '(manual)'}
             </label>
@@ -877,27 +1219,15 @@ function App() {
               min="-70"
               max="-20"
               step="1"
-              value={Math.round(effectiveThreshold)}
+              value={Math.round(autoNoiseFloor ? (adaptiveFloorDb ?? quietThresholdDb) : quietThresholdDb)}
               onChange={(e) => {
                 setAutoNoiseFloor(false);
                 setQuietThresholdDb(Number(e.target.value));
               }}
             />
-            <div className="threshold-value">
-              {effectiveThreshold.toFixed(0)} dB
-              {autoNoiseFloor && computedFloorDb !== null ? ' · percentile floor' : ''}
-            </div>
-            <button
-              type="button"
-              className="linkish"
-              onClick={() => setAutoNoiseFloor(true)}
-              disabled={autoNoiseFloor}
-            >
+            <button type="button" className="linkish" onClick={() => setAutoNoiseFloor(true)} disabled={autoNoiseFloor}>
               Reset to auto noise floor
             </button>
-          </div>
-
-          <div className="control-section">
             <label htmlFor="min-snip">Min snip length</label>
             <input
               type="range"
@@ -909,9 +1239,6 @@ function App() {
               onChange={(e) => setMinSnipDuration(Number(e.target.value))}
             />
             <div className="threshold-value">{minSnipDuration.toFixed(1)} s</div>
-          </div>
-
-          <div className="control-section">
             <label htmlFor="max-snip">Max snip length</label>
             <input
               type="range"
@@ -923,9 +1250,6 @@ function App() {
               onChange={(e) => setMaxSnipDuration(Number(e.target.value))}
             />
             <div className="threshold-value">{maxSnipDuration.toFixed(0)} s</div>
-          </div>
-
-          <div className="control-section">
             <label htmlFor="quiet-gap">Quiet-gap duration</label>
             <input
               type="range"
@@ -937,9 +1261,6 @@ function App() {
               onChange={(e) => setMinSilenceGapDuration(Number(e.target.value))}
             />
             <div className="threshold-value">{minSilenceGapDuration.toFixed(1)} s</div>
-          </div>
-
-          <div className="control-section">
             <button
               type="button"
               className="secondary"
@@ -948,14 +1269,70 @@ function App() {
             >
               Reset to app defaults
             </button>
+            <button className="secondary" type="button" disabled={isBusy} onClick={() => void handleBatchCompute()}>
+              Compute Volume
+            </button>
+            <button className="primary" type="button" disabled={!volumeProfile} onClick={handleBatchPropose}>
+              Batch propose
+            </button>
             <p className="hint">
-              Restore PWA / DEFAULT_SNIP_OPTIONS: adaptive noise floor, min {DEFAULT_SNIP_OPTIONS.minSnipDuration}s,
-              max {DEFAULT_SNIP_OPTIONS.maxSnipDuration}s, quiet-gap {DEFAULT_SNIP_OPTIONS.minSilenceGapDuration}s.
-              Persists in this demo&apos;s tuner store. Does not delete uploaded archive or in-memory chunks.
+              Compute Volume / Batch propose call <code>analyzeChunksVolume</code> / <code>analyzeVolume</code>{' '}
+              and <code>proposeSnipsFromProfile</code> / <code>proposeSnips</code> on the whole session.
+              Tuner persists in IDB {VOLUME_ANALYZER_DEMO_DB}. Does not wipe archive or frozen snips.
             </p>
-          </div>
+          </details>
+        </aside>
 
-          <div className="control-section">
+        <section className="histogram-panel">
+          <h2>Volume profile (100ms peak dB) · reason</h2>
+          {playbackStatus !== 'idle' && playheadTime !== null ? (
+            <p className="playhead-readout">
+              Playhead {playheadTime.toFixed(2)}s
+              {playbackStatus === 'paused' ? ' (paused)' : ''}
+              {playingTrailing ? ' · trailing (not committed)' : ''}
+              {playbackSnipId !== null && !playingTrailing ? ` · snip ${playbackSnipId}` : ''}
+            </p>
+          ) : (
+            <p className="playhead-readout muted">Playhead idle — play a frozen snip to inspect the cut</p>
+          )}
+          {playbackError ? <p className="error-banner">{playbackError}</p> : null}
+          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
+            <p className="overlay-legend">
+              <span className="overlay-legend-live">Live (archived)</span> amber dashed ·{' '}
+              <span className="overlay-legend-recomputed">Incremental frozen</span> cyan fill · trailing
+              hatched. Rose dashed = contiguous-repeat; purple = time-overlap.
+            </p>
+          ) : null}
+          <div className="histogram-container">
+            {volumeProfile ? (
+              <VolumeHistogram
+                volumeProfile={volumeProfile}
+                threshold={adaptiveFloorDb ?? -40}
+                snips={frozenSnips}
+                trailing={includeTrailing ? null : trailing}
+                floorWindow={floorWindow}
+                historicalFloors={historicalFloors}
+                archivedSnips={archivedLiveSnips}
+                flaggedBoundaryTimes={histogramFlags}
+                viewStart={viewStart}
+                windowSeconds={windowSeconds}
+                playheadTime={playheadTime}
+                onViewStartChange={(start) => {
+                  setZoomUserSet(true);
+                  setViewStart(clampViewStart(start, totalDuration, windowSeconds));
+                }}
+                onSnipActivate={(snip) => {
+                  void handlePlaySnip(snip);
+                }}
+              />
+            ) : (
+              <div className="histogram-placeholder">
+                Step a chunk, start capture, or upload an archive to replay the live path.
+              </div>
+            )}
+          </div>
+          <p className="reason-strip">{reason || 'No ticks yet.'}</p>
+          <div className="control-section zoom-row">
             <label htmlFor="histogram-window">
               Window:{' '}
               {volumeProfile && windowSeconds >= totalDuration - 0.001
@@ -970,122 +1347,192 @@ function App() {
               step="1"
               value={Math.round(windowSeconds)}
               disabled={!volumeProfile}
-              onChange={(e) => handleWindowChange(Number(e.target.value))}
+              onChange={(e) => {
+                setZoomUserSet(true);
+                const next = clampWindowSeconds(Number(e.target.value), totalDuration || Number(e.target.value));
+                setWindowSeconds(next);
+                setViewStart((start) => clampViewStart(start, totalDuration, next));
+              }}
             />
-            <div className="threshold-value">
-              {volumeProfile
-                ? `${windowSeconds.toFixed(0)}s visible · ${totalDuration.toFixed(1)}s total`
-                : 'Compute volume to zoom'}
-            </div>
             <button
               type="button"
               className="linkish"
-              onClick={handleFitAll}
+              onClick={() => {
+                setZoomUserSet(true);
+                setWindowSeconds(Math.max(MIN_WINDOW_SECONDS, totalDuration || MIN_WINDOW_SECONDS));
+                setViewStart(0);
+              }}
               disabled={!volumeProfile || windowSeconds >= totalDuration - 0.001}
             >
               Fit all
             </button>
-            <p className="hint">
-              Seconds visible across the histogram width. Zoom in, then pan the scrollbar under the
-              waveform. Slider recomputes do not reset the pan.
-            </p>
-          </div>
-
-          <p className="hint">
-            Target snip {DEFAULT_SNIP_OPTIONS.targetSnipDuration}s (original). Sliders recompute snips
-            live after volume is computed. Defaults copied from unlox775/web-whisper.
-          </p>
-
-          <button className="secondary" onClick={handleReset}>
-            Reset
-          </button>
-          <p className="hint">
-            Clear analysis and live chunks. Distinct from Reset to app defaults, which only restores
-            sliders.
-          </p>
-        </aside>
-
-        <section className="histogram-panel">
-          <h2>Waveform + snip overlay (100ms peak dB)</h2>
-          {playbackStatus !== 'idle' && playheadTime !== null ? (
-            <p className="playhead-readout">
-              Playhead {playheadTime.toFixed(2)}s
-              {playbackStatus === 'paused' ? ' (paused)' : ''}
-              {playbackSnipId !== null ? ` · snip ${playbackSnipId}` : ''}
-            </p>
-          ) : (
-            <p className="playhead-readout muted">Playhead idle — play a snip to inspect the cut</p>
-          )}
-          {playbackError ? <p className="error-banner">{playbackError}</p> : null}
-          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
-            <p className="overlay-legend">
-              <span className="overlay-legend-live">Live (archived)</span> amber dashed ·{' '}
-              <span className="overlay-legend-recomputed">Recomputed</span> cyan fill. Compute /
-              sliders do not drop the live set. Rose dashed = contiguous-repeat; purple =
-              time-overlap.
-            </p>
-          ) : null}
-          <div className="histogram-container">
-            {volumeProfile ? (
-              <VolumeHistogram
-                volumeProfile={volumeProfile}
-                threshold={effectiveThreshold}
-                snips={snips}
-                archivedSnips={archivedLiveSnips}
-                flaggedBoundaryTimes={histogramFlags}
-                viewStart={viewStart}
-                windowSeconds={windowSeconds}
-                playheadTime={playheadTime}
-                onViewStartChange={handleViewStartChange}
-                onSnipActivate={(snip) => {
-                  void handlePlaySnip(snip);
-                }}
-              />
-            ) : (
-              <div className="histogram-placeholder">
-                Click &quot;Compute Volume&quot; to generate profile
-              </div>
-            )}
           </div>
         </section>
 
         <aside className="snip-list-panel">
-          {showDoctor ? (
-            <BoundaryDoctorPanel liveScan={liveScan} recomputedScan={recomputedScan} />
-          ) : null}
+          <h2>Frozen snips</h2>
+          {frozenSnips.length === 0 ? (
+            <p className="snip-placeholder">
+              No frozen snips yet — live path holds the trailing region until a quiet-gap cut or Stop.
+            </p>
+          ) : (
+            <SnipList
+              snips={frozenSnips}
+              floors={frozenFloors}
+              playbackSnipId={playingTrailing ? null : playbackSnipId}
+              playbackStatus={playingTrailing ? 'idle' : playbackStatus}
+              onPlay={(snip) => void handlePlaySnip(snip)}
+              onPause={handlePausePlayback}
+              onStop={handleStopPlayback}
+            />
+          )}
+
+          <section className="trailing-callout">
+            <h2>Trailing (held)</h2>
+            {trailing && !includeTrailing ? (
+              <>
+                <p>
+                  {trailing.startTime.toFixed(1)}s – {trailing.endTime.toFixed(1)}s ·{' '}
+                  {trailing.duration.toFixed(1)}s · includeTrailing: false
+                </p>
+                <button type="button" className="snip-play-btn" onClick={() => void handlePlaySnip(trailing, true)}>
+                  Play trailing (not committed)
+                </button>
+              </>
+            ) : (
+              <p className="hint">
+                {stoppedCommitted || replayComplete
+                  ? 'No trailing region (committed on Stop).'
+                  : 'none'}
+              </p>
+            )}
+          </section>
+
           {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
             <section className="archived-live-section">
               <h2>Live (archived)</h2>
               <p className="snip-summary archived">
-                {archivedLiveSnips.length} live cut
-                {archivedLiveSnips.length === 1 ? '' : 's'} from the zip — kept when you recompute
+                {archivedLiveSnips.length} live cuts from the zip — compare to Frozen snips after
+                incremental replay.
               </p>
               <ArchivedSnipList snips={archivedLiveSnips} />
             </section>
           ) : null}
-          <h2>Proposed Snips</h2>
-          {avgSnip !== null && (
-            <p className="snip-summary">
-              {snips!.length} snip{snips!.length === 1 ? '' : 's'} · avg {avgSnip.toFixed(1)}s
-              {avgSnip >= 5 ? ' (longer than 4–5 words)' : ''}
-            </p>
-          )}
-          {snips !== null ? (
-            <SnipList
-              snips={snips}
-              playbackSnipId={playbackSnipId}
-              playbackStatus={playbackStatus}
-              onPlay={(snip) => {
-                void handlePlaySnip(snip);
-              }}
-              onPause={handlePausePlayback}
-              onStop={handleStopPlayback}
-            />
-          ) : (
-            <div className="snip-placeholder">
-              Click &quot;Compute Volume&quot; — snips propose automatically
-            </div>
-          )}
+
+          {showDoctor ? (
+            <>
+              {batchRan ? (
+                <div className="compare-toggle">
+                  <span>Compare against:</span>
+                  <label>
+                    <input
+                      type="radio"
+                      name="compare"
+                      checked={compareAgainst === 'incremental'}
+                      onChange={() => setCompareAgainst('incremental')}
+                    />
+                    Incremental live path
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="compare"
+                      checked={compareAgainst === 'batch'}
+                      onChange={() => setCompareAgainst('batch')}
+                    />
+                    Offline batch
+                  </label>
+                </div>
+              ) : null}
+              <BoundaryDoctorPanel
+                liveScan={liveScan}
+                recomputedScan={doctorRecomputed}
+                recomputedTitle={
+                  compareAgainst === 'batch' && batchRan ? 'Offline batch' : 'Incremental live path'
+                }
+                compareNote="Default compare is incremental frozen vs Live (archived), not offline batch."
+              />
+            </>
+          ) : null}
+
+          {batchSnips ? (
+            <section className="batch-snips">
+              <h2>Offline batch snips</h2>
+              <p className="hint">Not the live path. Frozen snips above are unchanged.</p>
+              <SnipList
+                snips={batchSnips}
+                playbackSnipId={null}
+                playbackStatus="idle"
+                emptyMessage="Offline batch proposed no snips"
+                onPlay={(snip) => void handlePlaySnip(snip)}
+                onPause={handlePausePlayback}
+                onStop={handleStopPlayback}
+              />
+            </section>
+          ) : null}
+
+          <section className="floor-history">
+            <h2>Floor history</h2>
+            {floorHistory.length === 0 ? (
+              <p className="hint">Grows when a snip closes (or on Stop commit).</p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>snip #</th>
+                    <th>closed at t</th>
+                    <th>windowStart</th>
+                    <th>window samples</th>
+                    <th>floor dB</th>
+                    <th>includeTrailing</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {floorHistory.map((row) => (
+                    <tr key={`${row.snipId}-${row.closedAt}`}>
+                      <td>{row.snipId}</td>
+                      <td>{row.closedAt.toFixed(1)}</td>
+                      <td>{row.windowStart.toFixed(1)}</td>
+                      <td>{row.windowSamples}</td>
+                      <td>{formatFloorDb(row.floorDb)}</td>
+                      <td>{String(row.includeTrailing)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <details className="events-telemetry">
+            <summary>Events / telemetry</summary>
+            {telemetry ? (
+              <ul className="telemetry">
+                <li>analyze {telemetry.analyzeMs.toFixed(1)}ms · propose {telemetry.proposeMs.toFixed(1)}ms</li>
+                <li>floor {formatFloorDb(telemetry.floorDb)} · windowStart {telemetry.windowStartTime.toFixed(1)}s</li>
+                <li>window samples {telemetry.windowSampleCount} · gaps in window: {telemetry.gapCount}</li>
+                <li>
+                  {telemetry.profileReused ? 'profileReused' : 'newChunksDecoded'} · decoded{' '}
+                  {telemetry.newChunksDecoded}
+                </li>
+                <li>{telemetry.analyzeFn}</li>
+                <li>{telemetry.proposeFn}</li>
+                <li>{telemetry.volumeFn}</li>
+                {telemetry.error ? <li className="error-banner">{telemetry.error}</li> : null}
+              </ul>
+            ) : (
+              <p className="hint">Telemetry appears after the first tick.</p>
+            )}
+            <ol className="event-feed">
+              {events.map((event, index) => (
+                <li key={`${event.at}-${index}`}>
+                  <strong>{event.name}</strong>{' '}
+                  {Object.entries(event.detail)
+                    .map(([key, value]) => `${key}=${String(value)}`)
+                    .join(' ')}
+                </li>
+              ))}
+            </ol>
+          </details>
         </aside>
       </main>
     </div>

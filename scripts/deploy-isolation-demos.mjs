@@ -39,7 +39,7 @@ const DEMOS = [
     react: true,
     storage: 'Live/fixture chunks in RAM; tuner settings in isolated IndexedDB',
     namespace: 'web-whisper-volume-analyzer-demo-db',
-    blurb: 'Live mic → volume profile + snip proposals (in-memory). Fixtures optional. Isolated tuner DB.',
+    blurb: 'Live package path: step fixture/archive or mic (~4s ticks). Offline batch is advanced, not how the PWA records.',
   },
   {
     id: 'transcription-client',
