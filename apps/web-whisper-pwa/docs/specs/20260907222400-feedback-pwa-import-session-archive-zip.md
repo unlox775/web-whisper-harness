@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-07T22:24:00Z
+Resolved: 2026-09-07T22:40:00Z
 Product: apps/web-whisper-pwa
 
 # Feedback: PWA import session archive zip into session-store
@@ -98,11 +99,45 @@ Do not crash. Reset the file input so the same file can be retried.
 
 Mark this spec resolved when:
 
-- [ ] Home and Settings show **Import session zip**
-- [ ] Choosing a v1 web-whisper zip writes a new-id session into `web-whisper-db` (chunks; optionals when present)
-- [ ] App navigates to that session’s detail
-- [ ] Slim zip still imports and is playable; extras absent until re-analyzed
-- [ ] Debug zip restores snips + transcripts + profile when those files exist
-- [ ] Bad zip / wrong `kind` / unsupported `formatVersion` shows Isolation-Demo-style copy
-- [ ] Existing session ids are never overwritten silently
-- [ ] iPhone DevTools screenshots + `make build` + Resolution section
+- [x] Home and Settings show **Import session zip**
+- [x] Choosing a v1 web-whisper zip writes a new-id session into `web-whisper-db` (chunks; optionals when present)
+- [x] App navigates to that session’s detail
+- [x] Slim zip still imports and is playable; extras absent until re-analyzed
+- [x] Debug zip restores snips + transcripts + profile when those files exist
+- [x] Bad zip / wrong `kind` / unsupported `formatVersion` shows Isolation-Demo-style copy
+- [x] Existing session ids are never overwritten silently
+- [x] iPhone DevTools screenshots + `make build` + Resolution section
+
+## Resolution
+
+**Resolved:** 2026-09-07T22:40:00Z  
+**Phase:** Phase 07 — PWA import session archive zip into session-store  
+**Runner:** Cursor Cloud Agent (not Codex)
+
+### What shipped
+
+PWA consumes session-store `importSessionArchive` / `parseSessionArchive` only. No second zip schema.
+
+- **Home** LIBRARY card + **Settings → App → Session archive**: **Import session zip** (hidden file input, `accept` `.zip` / zip MIME aliases).
+- Import writes into the current PWA DB (`web-whisper-db`). **Always new IDs** (store default; PWA never passes `preserveIds` / `overwrite`). Existing sessions are never overwritten.
+- After a successful import the list refreshes and Session Detail opens.
+- **Slim zip:** chunks + manifest → playable session; snips / transcripts / volume profile absent until re-analyzed.
+- **Debug zip:** restores snips + transcripts + volume profile when those JSON files are present.
+- Errors reuse Isolation Demo wording (`Import failed: unsupported formatVersion (this app reads v1 only).` / `Import failed: {code}. Choose a web-whisper session zip.`). Inline status + toast.
+
+### Proof (iPhone 12 Pro DevTools, 390×844)
+
+- `documentation/qa/pwa-import-session-zip-home.png` — Home **Import session zip**
+- `documentation/qa/pwa-import-session-zip-settings.png` — Settings import control
+- `documentation/qa/pwa-import-session-zip-detail.png` — Session Detail after BLT debug zip (transcript)
+- `documentation/qa/pwa-import-session-zip-chunks.png` — Debug **CHUNKS (3)**
+- `documentation/qa/pwa-import-session-zip-snips.png` — Debug **SNIPS (2)** with BLT text
+- `documentation/qa/pwa-import-session-zip-home-list.png` — session appears in the list
+- `documentation/qa/pwa-import-session-zip-error.png` — `not_a_zip` Isolation Demo copy
+- `documentation/qa/pwa-import-session-zip-slim-vs-debug.png` — slim (no extras) + debug (READY + transcript) as two new-id sessions
+
+Fixtures: `documentation/qa/web-whisper-blt-debug-import.zip`, `documentation/qa/web-whisper-blt-slim-import.zip`.
+
+### Automated proof
+
+`npm test --prefix apps/web-whisper-pwa`
