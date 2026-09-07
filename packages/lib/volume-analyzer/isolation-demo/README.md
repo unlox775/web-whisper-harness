@@ -108,7 +108,8 @@ No noise-floor slider in the chrome.
   `volume-profile.json used · 52 chunks · Live archived 13` (plus `N of M chunks replayed`).
 - **Show archive metadata** (checkbox, default **off**) reveals manifest / `exportedAt` / session flags / chunk rows / profile notes. Hide it so the histogram + Frozen / Live / Doctor stay on screen.
 - Same Step / Replay remaining controls, `seq` order.
-- After the last chunk: auto tick with `includeTrailing: true`.
+- After the last chunk: auto tick with `includeTrailing: true` (growing profiles only — never the full zip profile mid-replay).
+- Loud compare: `Frozen N · Live archived M` (FAIL when N≠M). BLT-shaped replay must land **13 = 13**.
 - `Stop replay early` commits trailing on audio ingested so far.
 - When optional `snips.json` exists: Live (archived) fills immediately. Slim zip: `hasSnips is a flag only — live ranges were not exported`.
 

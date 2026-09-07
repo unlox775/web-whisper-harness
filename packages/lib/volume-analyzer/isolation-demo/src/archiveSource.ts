@@ -130,13 +130,18 @@ export function buildArchiveReplayQueue(parsed: ParsedSessionArchive): {
   const rawById = new Map(rawRows.map((row) => [String(row.chunkId), row]));
   const storedProfiles = storedVolume ? profilesFromStored(storedVolume) : [];
   const byId = new Map(storedProfiles.map((profile) => [profile.chunkId, profile]));
+  const byIndex = new Map(storedProfiles.map((profile) => [profile.chunkIndex, profile]));
   const entries = [...(parsed.chunks ?? [])].sort((a, b) => a.meta.seq - b.meta.seq);
 
   const items: ReplayQueueItem[] = [];
   for (const entry of entries) {
-    const raw = rawById.get(String(entry.meta.id));
+    const raw =
+      rawById.get(String(entry.meta.id)) ??
+      rawRows.find((row) => Number(row.chunkIndex) === Number(entry.meta.seq));
     const hasSamples = Array.isArray(raw?.samples) && raw.samples.length > 0;
-    const stored = hasSamples ? byId.get(String(entry.meta.id)) ?? null : null;
+    const stored = hasSamples
+      ? byId.get(String(entry.meta.id)) ?? byIndex.get(Number(entry.meta.seq)) ?? null
+      : null;
     const blob = entry.blob;
     if (!blob && !hasSamples) continue;
     items.push({

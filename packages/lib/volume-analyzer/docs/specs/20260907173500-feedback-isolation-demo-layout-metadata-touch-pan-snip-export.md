@@ -14,6 +14,16 @@ Dave browser-verified a real BLT session zip on the live-path Isolation Demo (PR
 3. Horizontal pan on the waveform works via scrollbar but **not touch-drag on iPhone**.
 4. He needs **Export (download)** for an individual snip’s assembled audio so he can listen to Live #9 / #10 BLT edges himself (same assemble path as Play).
 
+**Add-on (hard verify):** Dave reproduced the BLT debug zip on phone. Isolation Demo Frozen came out **12**, Live (archived) **13**. BLT shifted (Frozen 8/9 ≈ Live 9/10). Offline replay of `proposeSnipsIncremental` against `ses_1788550979475` volume-profile + manifest:
+
+- Growing profiles per tick + final `includeTrailing: true` → **13 Frozen, exact range match to snips.json**
+- Full stored profile on every tick while chunks grow → **11 wrong**
+- After last tick with `includeTrailing` false only → **12 frozen + trailing**
+
+Dave’s screenshot: Frozen Snip 7 = 103.4–115.4 (= Live #8). Live #7 (92.9–103.4 “so”) never froze; trailing became #12.
+
+Do **not** claim an exact 13 match without a regression test and UI proof. Prior “delta 0” copy without this proof is rejected.
+
 Doctor already reports **0 time overlaps + contiguous repeats** (cook, italian chicken, BLT, cheese quesadilla). Layout currently buries that.
 
 This is a **diagnosis UI** fix only. Do **not** change snip cut math, `proposeSnipsFromProfile`, hangover, or ASR.
@@ -73,6 +83,13 @@ On **Frozen**, **Live (archived)**, and **Offline batch** snip rows: an **Export
 
 Especially useful for Live #9 and #10 around BLT. Disable when there is no playable audio (BLT doctor-only fixture).
 
+### E. Archive replay must match live 13
+
+- Extract the archive replay loop (`stepArchiveReplay` / `replayArchiveLivePath`). Grow **one stored chunk profile per tick**. Never pass the full zip profile while chunks are still growing.
+- Last tick: `includeTrailing: true` (not “last tick false only”).
+- Regression test: fixture from Dave’s archived ranges (including Live #7 92.9–103.4). Replay must yield **Frozen count === Live archived count === 13** and start/end within **50ms**. Fail the PR if not.
+- Loud count compare on the outputs column: `Frozen N · Live archived M` with **FAIL** styling when N≠M. Never bury it.
+
 ## Notes For Phase 07
 
 - Cursor Cloud Agent only — never Codex.
@@ -99,6 +116,8 @@ Mark this spec resolved when:
 - [ ] Archive metadata is hidden by default after upload; one-line status + replay controls remain
 - [ ] Histogram pans by scrollbar **and** pointer/touch drag
 - [ ] Frozen / Live archived / batch rows can Export assembled WAV (same path as Play)
+- [ ] Archive live-path replay of the BLT-shaped fixture yields Frozen === Live archived === 13 within 50ms
+- [ ] `Frozen N · Live archived M` is visible with FAIL styling when N≠M
 - [ ] `proposeSnipsFromProfile` / core snip algorithm unchanged
 - [ ] Isolation Demo README layout notes updated
 - [ ] `make build` published `docs/isolation-demos/volume-analyzer/`

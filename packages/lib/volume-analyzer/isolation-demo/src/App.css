@@ -251,6 +251,28 @@ body {
   color: #9f1239;
 }
 
+.count-match-banner {
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1.35;
+  border-radius: 6px;
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.75rem;
+  letter-spacing: 0.01em;
+}
+
+.count-match-banner.match {
+  color: #065f46;
+  background: #d1fae5;
+  border: 2px solid #059669;
+}
+
+.count-match-banner.fail {
+  color: #9f1239;
+  background: #ffe4e6;
+  border: 2px solid #e11d48;
+}
+
 .reason-strip {
   margin-top: 0.65rem;
   font-size: 0.78rem;

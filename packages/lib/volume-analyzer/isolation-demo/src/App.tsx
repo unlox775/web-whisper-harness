@@ -24,6 +24,14 @@ import VolumeHistogram from './VolumeHistogram';
 import SnipList, { type SnipPlaybackStatus } from './SnipList';
 import BoundaryDoctorPanel from './BoundaryDoctorPanel';
 import { BLT_FIXTURE_NOTE, BLT_LIVE_SNIPS, BLT_RECOMPUTED_SNIPS } from './bltBoundaryFixture';
+import { BLT_REPLAY_FIXTURE_NOTE, buildBltReplayQueue } from './bltLiveReplayFixture';
+import {
+  commitArchiveReplayTrailing,
+  emptyArchiveReplayState,
+  replayArchiveLivePath,
+  stepArchiveReplay,
+  type ArchiveReplayState,
+} from './archiveReplay';
 import { VOLUME_ANALYZER_DEMO_DB, loadTunerSettings, saveTunerSettings } from './demoStore';
 import { appDefaultTunerSettings, tunerMatchesAppDefaults } from './tunerDefaults';
 import {
@@ -144,6 +152,7 @@ function App() {
     profileReused: false,
     lastSeq: -1,
   });
+  const archiveReplayRef = useRef<ArchiveReplayState>(emptyArchiveReplayState());
 
   const totalDuration = useMemo(
     () => (volumeProfile ? sessionDurationFromProfile(volumeProfile) : 0),
@@ -408,6 +417,30 @@ function App() {
     }
   }, []);
 
+  const applyReplayState = useCallback((state: ArchiveReplayState, extras: DemoEvent[] = []) => {
+    liveRef.current = {
+      profiles: state.profiles,
+      chunks: state.chunks,
+      frozen: state.frozen,
+      floorHistory: state.floorHistory,
+      profileReused: state.profileReused,
+      lastSeq: state.lastSeq,
+    };
+    setVolumeProfile(state.profiles.length > 0 ? state.profiles : null);
+    setChunks(state.chunks);
+    setFrozenSnips(state.frozen);
+    setTrailing(state.trailing);
+    setWindowStartTime(state.windowStartTime);
+    setIncludeTrailing(state.includeTrailing);
+    setAdaptiveFloorDb(state.adaptiveFloorDb);
+    setFloorHistory(state.floorHistory);
+    setEvents([...state.events, ...extras]);
+    setTelemetry(state.telemetry);
+    setReason(state.reason);
+    setLastSeq(state.lastSeq < 0 ? null : state.lastSeq);
+    setProfileReused(state.profileReused);
+  }, []);
+
   const applyTickResult = useCallback(
     (
       result: Awaited<ReturnType<typeof runLiveTick>>,
@@ -505,19 +538,27 @@ function App() {
     const index = queueIndexRef.current;
     if (index >= archiveQueue.length) return false;
     const item = archiveQueue[index];
-    const chunk: ChunkWithBlob = {
-      ...item.chunk,
-      blob: item.blob ?? new Blob(),
-    };
-    await ingestPreparedChunk(chunk, item.storedProfile, item.playable);
+    const isLast = index === archiveQueue.length - 1;
+    let next = await stepArchiveReplay(archiveReplayRef.current, item, isLast);
+    if (isLast && next.trailing && !next.includeTrailing) {
+      next = commitArchiveReplayTrailing(next);
+    }
+    archiveReplayRef.current = next;
+    applyReplayState(
+      next,
+      isLast
+        ? [{ at: Date.now(), name: 'replayComplete', detail: { frozen: next.frozen.length } }]
+        : []
+    );
+    if (isLast) {
+      setStoppedCommitted(true);
+      setReplayComplete(true);
+    }
     const nextIndex = index + 1;
     queueIndexRef.current = nextIndex;
     setQueueIndex(nextIndex);
-    if (nextIndex >= archiveQueue.length) {
-      commitTrailingNow(true);
-    }
     return nextIndex < archiveQueue.length;
-  }, [archiveQueue, ingestPreparedChunk, commitTrailingNow]);
+  }, [archiveQueue, applyReplayState]);
 
   const handleStepNext = useCallback(async () => {
     if (isBusy) return;
@@ -541,15 +582,23 @@ function App() {
           if (!more) break;
         }
       } else if (source === 'archive') {
-        while (queueIndexRef.current < archiveQueue.length) {
-          const more = await stepArchiveOnce();
-          if (!more) break;
+        const remaining = archiveQueue.slice(queueIndexRef.current);
+        if (remaining.length > 0) {
+          const next = await replayArchiveLivePath(remaining, archiveReplayRef.current);
+          archiveReplayRef.current = next;
+          applyReplayState(next, [
+            { at: Date.now(), name: 'replayComplete', detail: { frozen: next.frozen.length } },
+          ]);
+          queueIndexRef.current = archiveQueue.length;
+          setQueueIndex(archiveQueue.length);
+          setStoppedCommitted(true);
+          setReplayComplete(true);
         }
       }
     } finally {
       setIsBusy(false);
     }
-  }, [isBusy, source, stepFixtureOnce, stepArchiveOnce, fixtureSpecs.length, archiveQueue.length, stopClock]);
+  }, [isBusy, source, stepFixtureOnce, applyReplayState, fixtureSpecs.length, archiveQueue, stopClock]);
 
   const handleReplayClock = useCallback(() => {
     if (clockReplay) {
@@ -576,6 +625,7 @@ function App() {
       profileReused: false,
       lastSeq: -1,
     };
+    archiveReplayRef.current = emptyArchiveReplayState();
     setChunks([]);
     setVolumeProfile(null);
     setFrozenSnips([]);
@@ -759,6 +809,16 @@ function App() {
 
   const handleStopReplayEarly = () => {
     stopClock();
+    if (source === 'archive') {
+      const next = commitArchiveReplayTrailing(archiveReplayRef.current);
+      archiveReplayRef.current = next;
+      applyReplayState(next, [
+        { at: Date.now(), name: 'replayComplete', detail: { frozen: next.frozen.length } },
+      ]);
+      setStoppedCommitted(true);
+      setReplayComplete(true);
+      return;
+    }
     commitTrailingNow(true);
   };
 
@@ -874,6 +934,44 @@ function App() {
       liveArchivedCount: BLT_LIVE_SNIPS.length,
       chunkRows: [],
     });
+  };
+
+  const handleLoadBltReplayFixture = async () => {
+    await stopCaptureIfRunning();
+    resetSessionCore();
+    const { items, profiles, liveSnips } = buildBltReplayQueue();
+    setSource('archive');
+    setArchiveFileName('blt-13-snip-replay-fixture');
+    setArchiveQueue(items);
+    setArchivedLiveSnips(liveSnips);
+    setShowArchiveMetadata(false);
+    setArchiveMeta({
+      fileName: 'blt-13-snip-replay-fixture',
+      notes: BLT_REPLAY_FIXTURE_NOTE,
+      sessionId: 'ses_1788550979475_fixture',
+      sessionDuration: 207,
+      sessionChunkCount: items.length,
+      hasSnips: true,
+      hasTranscript: true,
+      hasVolumeProfile: true,
+      profileMode: 'used',
+      profileLine: `volume-profile.json used (${profiles.length} chunk profiles, samples present)`,
+      queueCount: items.length,
+      playableCount: items.length,
+      profileOnlyCount: 0,
+      liveArchivedCount: liveSnips.length,
+      chunkRows: items.map((item) => ({
+        seq: item.seq,
+        id: item.chunk.id,
+        startTime: item.chunk.startTime,
+        endTime: item.chunk.endTime,
+        playable: item.playable,
+        hasSamples: item.storedProfile != null,
+      })),
+    });
+    setArchiveStatus(
+      `volume-profile.json used (${profiles.length} chunk profiles, samples present) · 0 of ${items.length} chunks replayed · Live (archived): ${liveSnips.length} snips`
+    );
   };
 
   const handleLoadSyntheticArchive = async () => {
@@ -1264,9 +1362,13 @@ function App() {
             <button type="button" className="secondary" onClick={handleLoadBltFixture}>
               Load BLT diagnosis fixture
             </button>
+            <button type="button" className="secondary" onClick={() => void handleLoadBltReplayFixture()}>
+              Load BLT 13-snip replay fixture
+            </button>
             <p className="hint">
               Synthetic archive has volume-profile samples + live ranges from an incremental run.
-              BLT fixture is doctor-only (no audio).
+              BLT diagnosis fixture is doctor-only (no audio). BLT 13-snip replay fixture is
+              Dave’s cut times (including #7 92.9–103.4) with growing samples.
             </p>
             {archiveError ? <p className="error-banner">{archiveError}</p> : null}
           </div>
@@ -1515,6 +1617,20 @@ function App() {
         </section>
 
         <aside className="snip-list-panel">
+          {archivedLiveSnips && archivedLiveSnips.length > 0 ? (
+            <div
+              className={`count-match-banner${
+                frozenSnips.length === archivedLiveSnips.length ? ' match' : ' fail'
+              }`}
+              role="status"
+              aria-live="polite"
+            >
+              Frozen {frozenSnips.length} · Live archived {archivedLiveSnips.length}
+              {frozenSnips.length === archivedLiveSnips.length
+                ? ' — MATCH'
+                : ' — FAIL count mismatch'}
+            </div>
+          ) : null}
           <h2>Frozen snips</h2>
           {frozenSnips.length === 0 ? (
             <p className="snip-placeholder">
