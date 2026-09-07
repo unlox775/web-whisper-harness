@@ -1,6 +1,8 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-07T06:05:00Z
+Updated: 2026-09-07T06:25:00Z
+Resolved: 2026-09-07T06:25:00Z
 Product: apps/web-whisper-pwa
 
 # Feedback: Settings shows build commit / version
@@ -63,9 +65,39 @@ Screenshot Settings showing the new lines (iPhone DevTools ~390px or device). Re
 
 Mark this spec resolved when:
 
-- [ ] Vite build injects version, git SHA (or `unknown`), and build time
-- [ ] Settings **App** section shows muted Version / Build / Built lines
-- [ ] Fallback is `unknown` — never a fabricated SHA
-- [ ] iPhone DevTools screenshot of Settings showing the new lines
-- [ ] `make build` published `docs/` PWA artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Vite build injects version, git SHA (or `unknown`), and build time
+- [x] Settings **App** section shows muted Version / Build / Built lines
+- [x] Fallback is `unknown` — never a fabricated SHA
+- [x] iPhone DevTools screenshot of Settings showing the new lines
+- [x] `make build` published `docs/` PWA artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-07T06:25:00Z on branch `cursor/settings-build-commit-version-d1ab` (draft PR).
+
+### What shipped
+
+- `apps/web-whisper-pwa/vite.config.ts` injects via Vite `define`:
+  - `import.meta.env.VITE_APP_VERSION` from `package.json` (`0.1.0`)
+  - `import.meta.env.VITE_GIT_SHA` / `VITE_GIT_SHA_FULL` from `git rev-parse --short HEAD` / `HEAD`
+  - `import.meta.env.VITE_BUILD_TIME` ISO timestamp
+  - Git missing or empty → `unknown` (never a fabricated SHA)
+- Settings **App** section footer (`SettingsModal.tsx`) renders muted `Version` / `Build` / `Built` lines via `buildIdentity.ts`.
+- Unit tests cover unknown fallback and line formatting (`src/buildIdentity.test.ts`).
+- `make build` refreshed `docs/` PWA artifacts only (`index.html`, `pwa-assets/`). New hashed bundle: `docs/pwa-assets/index-DLqeZ9Uc.js`.
+
+### Baked identity in this publish
+
+- Version `0.1.0`
+- Build `3dfe949` (`3dfe9491b4f9fc5cebd7ba79cede00cd3b9cdd77`)
+- Built `2026-09-07T06:07:46.049Z` (Settings shows local-friendly `Built Today at 6:07 AM`)
+
+### Proof shot (iPhone 12 Pro DevTools, 390×844)
+
+- `documentation/qa/settings-build-commit-version.png`
+- Notes: `documentation/qa/settings-build-commit-version.md`
+
+### Untouched
+
+Service worker / update prompt, storage-clear UI, snip algorithm, export defaults.
