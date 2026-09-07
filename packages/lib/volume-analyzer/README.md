@@ -85,7 +85,7 @@ See `docs/specs/` for detailed implementation specs and work orders.
 
 - `docs/specs/20260826152037-initial-product-spec.md` - Initial product spec
 - `docs/specs/20260828180200-feedback-snip-noise-floor.md` - Dave feedback: copy original noise-floor / quiet-gap constants
-- `docs/specs/20260907163000-feedback-isolation-demo-redesign-live-path.md` - Isolation Demo redesign: live package path (unresolved; implement after specs merge)
+- `docs/specs/20260907163000-feedback-isolation-demo-redesign-live-path.md` - Isolation Demo redesign: live package path (resolved)
 
 ## Customers
 

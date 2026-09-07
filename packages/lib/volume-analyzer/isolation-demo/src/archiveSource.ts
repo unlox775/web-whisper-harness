@@ -56,7 +56,20 @@ export type ParsedSessionArchive = {
   snips?: Array<Record<string, unknown>>;
   transcripts?: Array<{ snipId?: string; text?: string }>;
   snipsWithTranscripts?: Array<Record<string, unknown>>;
-  volumeProfile?: {
+  volumeProfile?: unknown;
+};
+
+function asStoredVolumeProfile(value: unknown): {
+  chunkVolumes?: Array<{
+    chunkId: string;
+    peakDb?: number;
+    avgDb?: number;
+    chunkIndex?: number;
+    samples?: number[];
+  }>;
+} | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  return value as {
     chunkVolumes?: Array<{
       chunkId: string;
       peakDb?: number;
@@ -65,7 +78,7 @@ export type ParsedSessionArchive = {
       samples?: number[];
     }>;
   };
-};
+}
 
 export type ArchiveProfileMode = 'used' | 'present_no_samples' | 'missing';
 
@@ -89,7 +102,7 @@ export function describeArchiveProfileStatus(parsed: ParsedSessionArchive): {
   mode: ArchiveProfileMode;
   line: string;
 } {
-  const stored = parsed.volumeProfile;
+  const stored = asStoredVolumeProfile(parsed.volumeProfile);
   if (!stored?.chunkVolumes || stored.chunkVolumes.length === 0) {
     return { mode: 'missing', line: ARCHIVE_PROFILE_MISSING };
   }
@@ -112,9 +125,10 @@ export function buildArchiveReplayQueue(parsed: ParsedSessionArchive): {
   statusLine: string;
 } {
   const { mode, line } = describeArchiveProfileStatus(parsed);
-  const rawRows = parsed.volumeProfile?.chunkVolumes ?? [];
+  const storedVolume = asStoredVolumeProfile(parsed.volumeProfile);
+  const rawRows = storedVolume?.chunkVolumes ?? [];
   const rawById = new Map(rawRows.map((row) => [String(row.chunkId), row]));
-  const storedProfiles = parsed.volumeProfile ? profilesFromStored(parsed.volumeProfile) : [];
+  const storedProfiles = storedVolume ? profilesFromStored(storedVolume) : [];
   const byId = new Map(storedProfiles.map((profile) => [profile.chunkId, profile]));
   const entries = [...(parsed.chunks ?? [])].sort((a, b) => a.meta.seq - b.meta.seq);
 

@@ -209,9 +209,8 @@ function App() {
       setViewStart(0);
       return;
     }
-    const firstProfile = !hadProfileRef.current;
     hadProfileRef.current = true;
-    if (firstProfile && !zoomUserSet) {
+    if (!zoomUserSet) {
       setWindowSeconds(defaultWindowSeconds(totalDuration));
       setViewStart(0);
       return;

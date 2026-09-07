@@ -205,7 +205,7 @@ export function proposeSnipsIncremental(
       (snip) =>
         !newlyClosed.some((closed) => Math.abs(closed.startTime - snip.startTime) < SNIP_START_EPSILON)
     )
-    .at(-1);
+      .slice(-1)[0];
 
   const audioEnd = sessionEndTime(chunks, volumeProfile);
   const trailing =

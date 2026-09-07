@@ -33,7 +33,7 @@ const SnipList: React.FC<SnipListProps> = ({
 
   return (
     <div className="snip-list">
-      {snips.map((snip) => {
+      {snips.map((snip, index) => {
         const active = playbackSnipId === snip.snipId;
         const playing = active && playbackStatus === 'playing';
         const paused = active && playbackStatus === 'paused';

@@ -93,7 +93,7 @@ export function reasonForTick(
   const floor = formatFloorDb(propose.adaptiveFloorDb);
   const window = propose.windowStartTime.toFixed(1);
   if (stopped && propose.includeTrailing) {
-    const committed = propose.committedThisTick.at(-1);
+    const committed = propose.committedThisTick[propose.committedThisTick.length - 1];
     if (committed) {
       return `Stop: includeTrailing true — committed trailing ${committed.startTime.toFixed(1)}–${committed.endTime.toFixed(1)}s as snip #${committed.snipId}.`;
     }

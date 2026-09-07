@@ -17,7 +17,7 @@ Need a **significant Isolation Demo redesign** documented at Phase-1 detail (pan
    - Path: `packages/lib/volume-analyzer/docs/specs/20260907163000-feedback-isolation-demo-redesign-live-path.md`  
    - Visual contract: `packages/lib/volume-analyzer/isolation-demo/README.md`  
    - Prompt: `docs/ai-product-slice-harness/cloud-agents/phase-07-volume-analyzer-isolation-demo-redesign-live-path.md`  
-   - Status: **unresolved** — implement **after this specs PR merges**  
+   - Status: **resolved** in the Isolation Demo live-path implementation PR (shared incremental helpers + factory-floor redesign)  
    - Product ownership: volume-analyzer Isolation Demo (+ optional narrow session helper / sandbox adapter).  
    - Scope: Live path default (mic or step-through of fixture/archive chunks); same logical path as PWA `ingestGrowingSession`; per-window floor + frozen vs trailing; archive prefers `volume-profile.json` samples; keep overlay / doctor / zoom / play; Offline batch disclosure labeled NOT live path; package surface checklist.  
    - Out of scope for the implementer: snip-algorithm change; BLT hangover/ASR product fix; PWA recording UX; opening `web-whisper-db`.  
