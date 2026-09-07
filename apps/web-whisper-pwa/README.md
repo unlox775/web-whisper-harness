@@ -30,4 +30,4 @@ The PWA does not implement capture, volume analysis, transcription, or playback 
 - `packages/lib/volume-analyzer` for volume profiles and snips
 - `packages/lib/transcription-client` for Groq Whisper
 - `packages/lib/playback-engine` for playback
-- `packages/datastore/session-store` for durable data
+- `packages/datastore/session-store` for durable data (including session archive zip export / import)
