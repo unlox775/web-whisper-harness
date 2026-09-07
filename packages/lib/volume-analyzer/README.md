@@ -65,19 +65,19 @@ Planning names (not frozen APIs). Each interface states caller, input, output, s
 
 ## Isolation Demo
 
-See `isolation-demo/README.md` for the package-local runnable demo.
+See `isolation-demo/README.md` for the package-local runnable demo (**visual contract**).
 
-**Purpose**: Prove that volume-analyzer works independently without the production PWA.
+**Purpose**: Operate volume-analyzer the same way the PWA records — incremental volume + snip propose per ~4s chunk — without launching the production app.
 
-**Runtime**: Web app (local dev server), desktop browser viewport (factory floor operating surface, not phone-shaped)
+**Runtime**: Web app (local dev server), desktop browser viewport (factory floor: inputs left / profile+reason center / outputs right)
 
 **Launch**: `cd packages/lib/volume-analyzer/isolation-demo && npm start` (or `npm run dev`)
 
-**Data mode**: Fixture audio by default (simulated chunks with known volume patterns: quiet → loud → quiet → loud → quiet). Optionally, live audio from capture-engine (in-memory only, not persisted). No real session-store reads (fixture chunks are generated in-demo).
+**Data mode**: **Live package path** by default (`analyzeVolumeForSession` + `proposeSnipsForSession` style: freeze saved snips, `windowStartTime = lastEnd`, per-window adaptive floor, `includeTrailing: false` while growing). Data source is fixture step (safe default, no mic), live microphone, or session-archive replay (prefer archived `volume-profile.json` samples). Offline batch (`proposeSnipsFromProfile` over the whole session + sliders) is a labeled advanced disclosure — **not** how the PWA records.
 
-**Safe default**: Fixture audio with known volume pattern (no mic permission, no capture-engine dependency).
+**Safe default**: Fixture step-through on the live path (no mic permission).
 
-**Walkthrough value**: Proves volume computation works (histogram shows expected peaks), silence detection works (threshold slider changes snip boundaries), snip proposal works (snip list updates when threshold changes), edge cases handled correctly (all-quiet → zero snips, all-loud → one snip).
+**Walkthrough value**: Proves hidden live-path decisions (window start, per-window floor, frozen vs trailing), archive incremental replay can aim at live archived cuts, and offline batch is available without pretending it is production.
 
 ## Product Specs
 
@@ -85,6 +85,7 @@ See `docs/specs/` for detailed implementation specs and work orders.
 
 - `docs/specs/20260826152037-initial-product-spec.md` - Initial product spec
 - `docs/specs/20260828180200-feedback-snip-noise-floor.md` - Dave feedback: copy original noise-floor / quiet-gap constants
+- `docs/specs/20260907163000-feedback-isolation-demo-redesign-live-path.md` - Isolation Demo redesign: live package path (unresolved; implement after specs merge)
 
 ## Customers
 

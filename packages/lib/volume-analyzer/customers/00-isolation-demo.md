@@ -2,6 +2,8 @@
 
 The Isolation Demo is a standing founder/developer customer that operates volume-analyzer by itself, without the production PWA.
 
+**Visual contract (Phase 07-06):** `packages/lib/volume-analyzer/isolation-demo/README.md` and spec `docs/specs/20260907163000-feedback-isolation-demo-redesign-live-path.md`. Those documents are the UI source of truth for the **live package path** redesign (incremental propose, per-window floor, frozen vs trailing). Sections below still describe the first Isolation Demo (batch `Compute Volume` + sliders) and must not override that contract when implementing the redesign.
+
 ## Producer's Understanding of This Customer
 
 Volume-analyzer understands that the Isolation Demo is a human founder/developer operating the package independently to prove it works before PWA integration. This is the package factory floor: a separately launchable UI for testing every volume-analyzer capability without requiring session-store, capture-engine, or the production app.
