@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { validateKey } from '@web-whisper/transcription-client';
+import { buildIdentityLines, readBuildIdentity } from '../buildIdentity';
 import { useApp } from '../context';
 import { isolationDemosHref } from '../isolationDemos';
 
@@ -155,6 +156,11 @@ export function SettingsModal() {
               Maximum storage for session data. When this limit is reached, audio
               (and waveforms) for already-transcribed snips is removed so recording
               can continue. Transcripts are kept.
+            </p>
+            <p className="build-identity" aria-label="App build identity">
+              {buildIdentityLines(readBuildIdentity()).map((line) => (
+                <span key={line}>{line}</span>
+              ))}
             </p>
           </section>
         </div>
