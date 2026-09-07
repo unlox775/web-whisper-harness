@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { validateKey } from '@web-whisper/transcription-client';
 import { buildIdentityLines, readBuildIdentity } from '../buildIdentity';
+import { ImportSessionZipControl } from '../components/ImportSessionZipControl';
 import { useApp } from '../context';
 import { isolationDemosHref } from '../isolationDemos';
 
@@ -111,6 +112,10 @@ export function SettingsModal() {
 
           <section className="section">
             <h3>App</h3>
+            <div className="settings-import-block">
+              <h4 className="settings-import-heading">Session archive</h4>
+              <ImportSessionZipControl variant="settings" />
+            </div>
             <label className="check-row">
               <input
                 type="checkbox"

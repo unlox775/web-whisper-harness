@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
+import { ImportSessionZipControl } from '../components/ImportSessionZipControl';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { useApp } from '../context';
 import { transcribeSession } from '../orchestration';
@@ -222,6 +223,11 @@ export function HomeScreen() {
           <p className="status-line">
             Recorder idle — tap start to begin a durable session.
           </p>
+        </section>
+
+        <section className="card" aria-label="Import session archive">
+          <p className="kicker">LIBRARY</p>
+          <ImportSessionZipControl variant="home" />
         </section>
 
         {sessions.length === 0 ? (

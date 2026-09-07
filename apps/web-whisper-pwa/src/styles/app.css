@@ -974,6 +974,50 @@ a.isolation-demos-head-link {
   color: var(--text-secondary);
 }
 
+.import-session {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.import-session-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.import-session-help {
+  margin-top: 10px;
+}
+
+.import-session-status {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.import-session-status-ok {
+  color: var(--accent-primary);
+}
+
+.settings-import-block {
+  margin: 4px 0 16px;
+}
+
+.settings-import-heading {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 .build-identity {
   display: flex;
   flex-direction: column;
