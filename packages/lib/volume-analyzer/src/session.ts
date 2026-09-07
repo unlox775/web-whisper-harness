@@ -11,48 +11,17 @@ import type {
   SnipOptions,
   SnipResult,
 } from './types.js';
-import { analyzeChunksVolume } from './volume.js';
-import { proposeSnipsFromProfile } from './snips.js';
+import {
+  analyzeVolumeIncremental,
+  profilesFromStored,
+  proposeSnipsIncremental,
+  storedFromProfiles,
+} from './incremental.js';
 
 async function loadStore() {
   // session-store is JS without types; the PWA Vite alias resolves this at bundle time.
   // @ts-expect-error -- no declaration file for session-store
   return import('../../../datastore/session-store/src/index.js');
-}
-
-const SNIP_START_EPSILON = 0.05;
-
-function profilesFromStored(volumeProfile: {
-  chunkVolumes?: Array<{
-    chunkId: string;
-    peakDb?: number;
-    avgDb?: number;
-    chunkIndex?: number;
-    samples?: number[];
-  }>;
-}): ChunkVolumeProfile[] {
-  return (volumeProfile.chunkVolumes || []).map((entry, index) => ({
-    chunkId: entry.chunkId,
-    chunkIndex: entry.chunkIndex ?? index,
-    avgDb: entry.avgDb ?? entry.peakDb ?? -100,
-    peakDb: entry.peakDb ?? -100,
-    quietSampleCount: 0,
-    samples: Float32Array.from(entry.samples || [entry.peakDb ?? -100]),
-  }));
-}
-
-function storedFromProfiles(profiles: ChunkVolumeProfile[]) {
-  return {
-    chunkVolumes: [...profiles]
-      .sort((a, b) => a.chunkIndex - b.chunkIndex)
-      .map((profile) => ({
-        chunkId: profile.chunkId,
-        peakDb: profile.peakDb,
-        avgDb: profile.avgDb,
-        chunkIndex: profile.chunkIndex,
-        samples: Array.from(profile.samples),
-      })),
-  };
 }
 
 function summaryFromProfiles(profiles: ChunkVolumeProfile[]): AnalysisResult {
@@ -130,10 +99,11 @@ export async function analyzeVolumeForSession(sessionId: string): Promise<Analys
 
     let chunkProfiles = existingProfiles;
     if (newChunks.length > 0) {
-      const added = await analyzeChunksVolume(newChunks);
-      chunkProfiles = [...existingProfiles, ...added].sort(
-        (a, b) => a.chunkIndex - b.chunkIndex
+      const added = await analyzeVolumeIncremental(
+        existingProfiles,
+        newChunks.map((chunk) => ({ chunk }))
       );
+      chunkProfiles = added.mergedProfiles;
       const written = await store.writeVolumeProfile(sessionId, storedFromProfiles(chunkProfiles));
       if (written.error) {
         return { success: false, error: 'session_store_write_failed' };
@@ -188,25 +158,15 @@ export async function proposeSnipsForSession(
 
     const existingResult = await store.getSnipsForSession(sessionId);
     const existing = existingResult.error ? [] : existingResult.snips || [];
-    const lastEnd =
-      existing.length > 0
-        ? Math.max(...existing.map((snip: { endTime: number }) => snip.endTime))
-        : 0;
-
     const volumeProfile = profilesFromStored(storedProfile);
-    const proposed = proposeSnipsFromProfile(volumeProfile, chunks, {
-      ...options,
-      windowStartTime: lastEnd,
-    });
+    const incremental = proposeSnipsIncremental(
+      volumeProfile,
+      chunks,
+      mapStoredSnips(existing),
+      options
+    );
 
-    for (const snip of proposed) {
-      const alreadyHave = existing.some(
-        (stored: { startTime: number }) =>
-          Math.abs(stored.startTime - snip.startTime) < SNIP_START_EPSILON
-      );
-      if (alreadyHave || snip.startTime < lastEnd - SNIP_START_EPSILON) {
-        continue;
-      }
+    for (const snip of incremental.committedThisTick) {
       const written = await store.writeSnip(sessionId, {
         startChunkIndex: snip.startChunkIndex,
         endChunkIndex: snip.endChunkIndex,
@@ -222,7 +182,9 @@ export async function proposeSnipsForSession(
     }
 
     const next = await store.getSnipsForSession(sessionId);
-    const snips = next.error ? [...mapStoredSnips(existing), ...proposed] : mapStoredSnips(next.snips || []);
+    const snips = next.error
+      ? incremental.allCommitted
+      : mapStoredSnips(next.snips || []);
     return { success: true, snips };
   } catch (error) {
     return {

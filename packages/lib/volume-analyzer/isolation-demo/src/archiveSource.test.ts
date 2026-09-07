@@ -6,7 +6,12 @@ import {
   ARCHIVE_ERROR_CANNOT_READ,
   ARCHIVE_ERROR_NO_AUDIO,
   ARCHIVE_ERROR_UNSUPPORTED,
+  ARCHIVE_PROFILE_MISSING,
+  ARCHIVE_PROFILE_NO_SAMPLES,
   archiveLiveRangesStatusNote,
+  archiveProfileUsedMessage,
+  buildArchiveReplayQueue,
+  describeArchiveProfileStatus,
   mapArchiveChunksToAnalyze,
   mapArchivedLiveSnips,
   messageForArchiveParseError,
@@ -326,3 +331,71 @@ describe('parseSessionArchive is the only archive parser', () => {
     assert.equal(archived[0].text, 'archived live text');
   });
 });
+
+describe('archive volume-profile replay mapping', () => {
+  it('prefers stored samples and does not require decode', () => {
+    const parsed = {
+      volumeProfile: {
+        chunkVolumes: [
+          {
+            chunkId: 'c0',
+            peakDb: -12,
+            avgDb: -20,
+            chunkIndex: 0,
+            samples: [-20, -18, -12],
+          },
+          {
+            chunkId: 'c1',
+            peakDb: -14,
+            avgDb: -22,
+            chunkIndex: 1,
+            samples: [-22, -14],
+          },
+        ],
+      },
+      chunks: [
+        {
+          meta: { id: 'c0', seq: 0, startTime: 0, endTime: 4, duration: 4 },
+          blob: new Blob([new Uint8Array([1])], { type: 'audio/mpeg' }),
+        },
+        {
+          meta: { id: 'c1', seq: 1, startTime: 4, endTime: 8, duration: 4 },
+          blob: null,
+        },
+      ],
+    };
+    const status = describeArchiveProfileStatus(parsed);
+    assert.equal(status.mode, 'used');
+    assert.equal(status.line, archiveProfileUsedMessage(2));
+    const queue = buildArchiveReplayQueue(parsed);
+    assert.equal(queue.profileMode, 'used');
+    assert.equal(queue.items.length, 2);
+    assert.equal(queue.items[0].storedProfile?.samples.length, 3);
+    assert.equal(queue.items[1].playable, false);
+    assert.equal(queue.items[1].storedProfile?.samples.length, 2);
+  });
+
+  it('flags decode fallback when volume-profile.json has no per-chunk samples', () => {
+    const parsed = {
+      volumeProfile: {
+        chunkVolumes: [{ chunkId: 'c0', peakDb: -12, chunkIndex: 0 }],
+      },
+      chunks: [
+        {
+          meta: { id: 'c0', seq: 0, startTime: 0, endTime: 4, duration: 4 },
+          blob: new Blob([new Uint8Array([1])], { type: 'audio/mpeg' }),
+        },
+      ],
+    };
+    assert.equal(describeArchiveProfileStatus(parsed).line, ARCHIVE_PROFILE_NO_SAMPLES);
+    const queue = buildArchiveReplayQueue(parsed);
+    assert.equal(queue.profileMode, 'present_no_samples');
+    assert.equal(queue.items[0].storedProfile, null);
+    assert.equal(queue.items[0].playable, true);
+  });
+
+  it('flags decode fallback when volume-profile.json is missing', () => {
+    assert.equal(describeArchiveProfileStatus({ chunks: [] }).line, ARCHIVE_PROFILE_MISSING);
+  });
+});
+

@@ -6,6 +6,8 @@ interface SnipListProps {
   snips: Snip[];
   playbackSnipId: number | null;
   playbackStatus: SnipPlaybackStatus;
+  floors?: Array<number | null>;
+  emptyMessage?: string;
   onPlay: (snip: Snip) => void;
   onPause: () => void;
   onStop: () => void;
@@ -15,6 +17,8 @@ const SnipList: React.FC<SnipListProps> = ({
   snips,
   playbackSnipId,
   playbackStatus,
+  floors,
+  emptyMessage = 'No speech detected (all-quiet session)',
   onPlay,
   onPause,
   onStop,
@@ -22,7 +26,7 @@ const SnipList: React.FC<SnipListProps> = ({
   if (snips.length === 0) {
     return (
       <div className="all-quiet-message">
-        No speech detected (all-quiet session)
+        {emptyMessage}
       </div>
     );
   }
@@ -74,6 +78,10 @@ const SnipList: React.FC<SnipListProps> = ({
             </div>
             <div className="snip-detail">
               Duration: {snip.duration.toFixed(1)}s
+            </div>
+            <div className="snip-detail">
+              Floor at close:{' '}
+              {floors && floors[index] != null ? `${floors[index]!.toFixed(1)} dB` : '—'}
             </div>
             <div className="snip-detail">
               Confidence: {(snip.confidence * 100).toFixed(0)}%

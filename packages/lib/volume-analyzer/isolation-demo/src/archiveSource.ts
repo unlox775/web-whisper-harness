@@ -4,7 +4,13 @@
  * Does not reimplement zip/manifest parsing.
  */
 
-import type { ChunkWithBlob } from './volumeAnalyzer';
+import {
+  profilesFromStored,
+  storedProfileHasPerChunkSamples,
+  type ChunkMetadata,
+  type ChunkVolumeProfile,
+  type ChunkWithBlob,
+} from './volumeAnalyzer';
 
 export const ARCHIVE_ERROR_CANNOT_READ = 'Cannot read archive';
 export const ARCHIVE_ERROR_UNSUPPORTED = 'Not a supported session archive';
@@ -50,8 +56,92 @@ export type ParsedSessionArchive = {
   snips?: Array<Record<string, unknown>>;
   transcripts?: Array<{ snipId?: string; text?: string }>;
   snipsWithTranscripts?: Array<Record<string, unknown>>;
-  volumeProfile?: unknown;
+  volumeProfile?: {
+    chunkVolumes?: Array<{
+      chunkId: string;
+      peakDb?: number;
+      avgDb?: number;
+      chunkIndex?: number;
+      samples?: number[];
+    }>;
+  };
 };
+
+export type ArchiveProfileMode = 'used' | 'present_no_samples' | 'missing';
+
+export type ReplayQueueItem = {
+  seq: number;
+  chunk: ChunkMetadata;
+  blob: Blob | null;
+  storedProfile: ChunkVolumeProfile | null;
+  playable: boolean;
+};
+
+export const ARCHIVE_PROFILE_NO_SAMPLES =
+  'volume-profile.json present but no per-chunk samples — decode fallback';
+export const ARCHIVE_PROFILE_MISSING = 'no volume-profile.json — decode fallback';
+
+export function archiveProfileUsedMessage(count: number): string {
+  return `volume-profile.json used (${count} chunk profiles, samples present)`;
+}
+
+export function describeArchiveProfileStatus(parsed: ParsedSessionArchive): {
+  mode: ArchiveProfileMode;
+  line: string;
+} {
+  const stored = parsed.volumeProfile;
+  if (!stored?.chunkVolumes || stored.chunkVolumes.length === 0) {
+    return { mode: 'missing', line: ARCHIVE_PROFILE_MISSING };
+  }
+  if (!storedProfileHasPerChunkSamples(stored)) {
+    return { mode: 'present_no_samples', line: ARCHIVE_PROFILE_NO_SAMPLES };
+  }
+  return {
+    mode: 'used',
+    line: archiveProfileUsedMessage(stored.chunkVolumes.length),
+  };
+}
+
+/**
+ * Prefer archived volume-profile.json samples (same mapping as session.ts).
+ * Profile-only rows (purged blob + samples) stay in the replay queue.
+ */
+export function buildArchiveReplayQueue(parsed: ParsedSessionArchive): {
+  items: ReplayQueueItem[];
+  profileMode: ArchiveProfileMode;
+  statusLine: string;
+} {
+  const { mode, line } = describeArchiveProfileStatus(parsed);
+  const rawRows = parsed.volumeProfile?.chunkVolumes ?? [];
+  const rawById = new Map(rawRows.map((row) => [String(row.chunkId), row]));
+  const storedProfiles = parsed.volumeProfile ? profilesFromStored(parsed.volumeProfile) : [];
+  const byId = new Map(storedProfiles.map((profile) => [profile.chunkId, profile]));
+  const entries = [...(parsed.chunks ?? [])].sort((a, b) => a.meta.seq - b.meta.seq);
+
+  const items: ReplayQueueItem[] = [];
+  for (const entry of entries) {
+    const raw = rawById.get(String(entry.meta.id));
+    const hasSamples = Array.isArray(raw?.samples) && raw.samples.length > 0;
+    const stored = hasSamples ? byId.get(String(entry.meta.id)) ?? null : null;
+    const blob = entry.blob;
+    if (!blob && !hasSamples) continue;
+    items.push({
+      seq: Number(entry.meta.seq),
+      chunk: {
+        id: String(entry.meta.id),
+        seq: Number(entry.meta.seq),
+        startTime: Number(entry.meta.startTime),
+        endTime: Number(entry.meta.endTime),
+        duration: Number(entry.meta.duration),
+      },
+      blob,
+      storedProfile: stored,
+      playable: blob != null,
+    });
+  }
+
+  return { items, profileMode: mode, statusLine: line };
+}
 
 const UNSUPPORTED_PARSE_ERRORS = new Set([
   'kind_mismatch',

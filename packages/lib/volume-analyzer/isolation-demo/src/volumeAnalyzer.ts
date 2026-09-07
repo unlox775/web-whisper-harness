@@ -1,12 +1,30 @@
 /**
- * Re-export core volume-analyzer functions (not session-store integration)
- * so the isolation demo exercises the same snip algorithm the PWA bundles.
+ * Re-export volume-analyzer public surfaces the Isolation Demo operates.
+ * Live path uses analyzeVolumeIncremental / proposeSnipsIncremental (same
+ * helpers analyzeVolumeForSession / proposeSnipsForSession call).
  */
 
 export { analyzeChunksVolume } from '../../src/volume.ts';
+export { analyzeVolume, proposeSnips } from '../../src/index.ts';
+export {
+  analyzeVolumeForSession,
+  proposeSnipsForSession,
+} from '../../src/session.ts';
+export {
+  SNIP_START_EPSILON,
+  analyzeVolumeIncremental,
+  chunkProfileHasSamples,
+  mergeVolumeProfiles,
+  profilesFromStored,
+  proposeSnipsIncremental,
+  storedFromProfiles,
+  storedProfileHasPerChunkSamples,
+  windowSamplesFromProfile,
+} from '../../src/incremental.ts';
 export {
   proposeSnipsFromProfile,
   computeAdaptiveQuietThresholdDb,
+  detectSilenceGaps,
   resolveSnipOptions,
 } from '../../src/snips.ts';
 export { DEFAULT_SNIP_OPTIONS, SAMPLE_WINDOW_MS } from '../../src/defaults.ts';
@@ -19,11 +37,15 @@ export {
 } from '../../src/boundaryScan.ts';
 
 export type {
+  AnalysisResult,
   ChunkMetadata,
   ChunkWithBlob,
   ChunkVolumeProfile,
+  IncrementalProposeResult,
+  IncrementalVolumeResult,
   Snip,
   SnipOptions,
+  SnipResult,
 } from '../../src/types.ts';
 export type {
   BoundaryScanResult,

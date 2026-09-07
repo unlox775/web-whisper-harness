@@ -271,10 +271,10 @@ Dave’s BLT debug zip incremental replay should match **live snip count and ran
 
 ## Implementation Notes
 
-See the feedback spec. Summary:
+Live path calls shared helpers `analyzeVolumeIncremental` + `proposeSnipsIncremental` (`src/incremental.ts`). Those are the same functions `analyzeVolumeForSession` / `proposeSnipsForSession` use (freeze + `windowStartTime = lastEnd` + per-window floor). Isolation Demo `App.tsx` does not reimplement freeze/window math.
 
 - Live tick = volume incremental + propose incremental (`includeTrailing` as above).
-- Archive: prefer stored samples; else decode.
-- Extract a sandbox adapter or a pure helper shared with `src/session.ts` if the demo cannot import session-store writes.
-- Keep doctor, live overlay, zoom/pan, snip play, Reset to app defaults (batch).
-- Old batch-first “Compute Volume then sliders” must not remain the headline.
+- Archive: prefer stored samples; else decode. Status names which.
+- Offline batch is a collapsed disclosure: `proposeSnipsFromProfile` + sliders + Reset to app defaults.
+- Keep doctor, live overlay, zoom/pan, snip play.
+- Old batch-first “Compute Volume then sliders” is not the headline.

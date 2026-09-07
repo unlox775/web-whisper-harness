@@ -9,6 +9,17 @@ export * from './volume.js';
 export * from './snips.js';
 export * from './boundaryScan.js';
 export { analyzeVolumeForSession, proposeSnipsForSession } from './session.js';
+export {
+  SNIP_START_EPSILON,
+  analyzeVolumeIncremental,
+  chunkProfileHasSamples,
+  mergeVolumeProfiles,
+  profilesFromStored,
+  proposeSnipsIncremental,
+  storedFromProfiles,
+  storedProfileHasPerChunkSamples,
+  windowSamplesFromProfile,
+} from './incremental.js';
 
 import type {
   ChunkWithBlob,
