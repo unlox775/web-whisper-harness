@@ -35,7 +35,7 @@ This isolation demo proves that transcription-client works correctly:
 1. Choose **Upload session archive** as the audio source
 2. Pick a `web-whisper-session-*.zip` exported from session-store (spec `20260904180001`)
 3. The demo calls `parseSessionArchive` and builds **step units**:
-   - **Snips** when `snips.json` is present and audio can be assembled (concat `chunkIds`, same as PWA live path; empty `chunkIds` → time overlap)
+   - **Snips** when `snips.json` is present and audio can be assembled (shared PWA time-trim to `[startTime, endTime]`; decode-fail uses exclusive-chunk MP3 so abutting snips do not both include the mid-cut ~4s chunk)
    - **Chunks** for slim zips (no snips.json, or `hasSnips` flag only)
 4. In **mock** mode, **Transcribe remaining** / **Next** refuse: `Switch to Live Groq API to transcribe this archive`. They do **not** return the fixture sentence.
 5. Toggle **Live Groq API**, paste/validate a key, then **Next snip/chunk** (one unit) or **Transcribe remaining** (sequential remaining units). Each live unit hits Groq. Transcripts stay in the panel (not written to IndexedDB)

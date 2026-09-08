@@ -22,7 +22,7 @@ Proves that transcription-client:
 
 **Audio sources:** live microphone, optional fixture blob, or **Upload session archive** (zip). Archive bytes come from session-store `parseSessionArchive`. Transcripts stay in the demo panel.
 
-**Archive step-through:** prefer **snips** when `snips.json` / `snipsWithTranscripts` has assemble-able audio (PWA live path: concatenate that snip’s `chunkIds` blobs; empty `chunkIds` uses time overlap). Slim zip (chunks only, or `hasSnips: true` without `snips.json`) steps through **chunks**. Next transcribes one unit; Transcribe remaining walks the rest sequentially.
+**Archive step-through:** prefer **snips** when `snips.json` / `snipsWithTranscripts` has assemble-able audio. Each snip is assembled with the shared PWA helper (`assembleSnipTranscriptionBlob`): decode and time-trim to `[startTime, endTime]` (WAV). If decode fails, exclusive-chunk MP3 concat so a mid-cut ~4s boundary chunk is owned by only one snip. Slim zip (chunks only, or `hasSnips: true` without `snips.json`) steps through **chunks**. Next transcribes one unit; Transcribe remaining walks the rest sequentially.
 
 **Archive + mock:** refuse with `Switch to Live Groq API to transcribe this archive`. Never show the fixture sentence as if it were an archive transcript. Live Groq sends each unit on the existing `transcribeAudio(..., { mode: 'live' })` path.
 
