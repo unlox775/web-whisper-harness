@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-08T14:40:00Z
+Resolved: 2026-09-08T15:15:00Z
 Product: apps/web-whisper-pwa
 
 # Feedback: Import / Export session zip is developer-mode only
@@ -41,8 +42,39 @@ User-facing helper text should say these are developer debugging tools (not a Li
 
 Mark this spec resolved when:
 
-- [ ] Developer mode off: Home, Settings, and Session Detail show no Import / Export session zip
-- [ ] Developer mode on: Settings shows Import session zip; Session Detail Debug shows Export session zip
-- [ ] Home LIBRARY no longer fronts import (Settings-only, or Home still gated)
-- [ ] Actions no-op / stay hidden when developer mode is off
-- [ ] iPhone DevTools screenshots + `make build` + Resolution section
+- [x] Developer mode off: Home, Settings, and Session Detail show no Import / Export session zip
+- [x] Developer mode on: Settings shows Import session zip; Session Detail Debug shows Export session zip
+- [x] Home LIBRARY no longer fronts import (Settings-only, or Home still gated)
+- [x] Actions no-op / stay hidden when developer mode is off
+- [x] iPhone DevTools screenshots + `make build` + Resolution section
+
+## Resolution
+
+**Resolved:** 2026-09-08T15:15:00Z on branch `cursor/dev-mode-session-zip-fdc7` (draft PR).
+
+### What shipped
+
+Session zip import / export stay in the PWA. They are gated on `developerModeEnabled` (`sessionArchiveToolsVisible`).
+
+- **Home:** LIBRARY import card removed. Sessions still list as before. No import control even when developer mode is on.
+- **Settings → App:** **Import session zip** lives under the developer-mode block (with Isolation Demos). Hidden when the checkbox is off. Copy: “Debugging only…” / “Developer debugging only…”
+- **Session Detail Debug:** **Export session zip** + include-debug checkbox show only when developer mode is on. `downloadSessionArchive` no-ops if the flag is off.
+- Per-snip / per-chunk ↓ downloads are unchanged (not session-zip).
+
+### Proof (iPhone 12 Pro, 390×844 CSS px)
+
+- `documentation/qa/pwa-session-zip-dev-off-home.png` — Home, no import / LIBRARY
+- `documentation/qa/pwa-session-zip-dev-off-settings.png` — Settings, developer mode off
+- `documentation/qa/pwa-session-zip-dev-off-debug.png` — Debug tab, no export zip
+- `documentation/qa/pwa-session-zip-dev-on-settings.png` — Settings import visible
+- `documentation/qa/pwa-session-zip-dev-on-debug.png` — Export session zip visible
+- `documentation/qa/pwa-session-zip-dev-on-home.png` — Home still has no import (ladybug only)
+- Notes: `documentation/qa/pwa-session-zip-developer-mode.md`
+
+### Automated proof
+
+`npm test --prefix apps/web-whisper-pwa`
+
+### Publish
+
+`make build` refreshed `docs/` PWA artifacts only.
