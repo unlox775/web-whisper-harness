@@ -10,9 +10,21 @@ const REQUEST_TIMEOUT = 30000; // 30 seconds
 const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff: 1s, 2s, 4s
 
 /**
+ * Groq infers format from the upload filename. PWA Transcribe may send a
+ * time-trimmed WAV snip (not a raw MP3 chunk).
+ */
+export function filenameForAudioBlob(audioBlob) {
+  const type = String(audioBlob?.type || '').toLowerCase();
+  if (type.includes('wav')) return 'audio.wav';
+  if (type.includes('webm')) return 'audio.webm';
+  if (type.includes('mp4') || type.includes('m4a')) return 'audio.m4a';
+  return 'audio.mp3';
+}
+
+/**
  * Transcribe audio to text using Groq Whisper API
  * 
- * @param {Blob} audioBlob - MP3 audio data to transcribe
+ * @param {Blob} audioBlob - One assembled snip (time-trimmed WAV or MP3)
  * @param {Object} options - Transcription options
  * @param {string} options.apiKey - Groq API key (required for live mode)
  * @param {'fixture' | 'live'} options.mode - Operation mode (default: 'fixture')
@@ -87,7 +99,7 @@ async function attemptTranscription(audioBlob, options) {
   try {
     // Prepare multipart/form-data request
     const formData = new FormData();
-    formData.append('file', audioBlob, 'audio.mp3');
+    formData.append('file', audioBlob, filenameForAudioBlob(audioBlob));
     formData.append('model', WHISPER_MODEL);
     formData.append('response_format', 'json');
     

@@ -18,10 +18,12 @@ Groq Whisper API client. Validates API keys, sends audio to Groq for transcripti
   - Store changed: None (validation is read-only)
 
 - `transcribeAudio(audioBlob, apiKey)` → returns transcript
-  - Input: audio blob (MP3 chunk or snip), Groq API key
+  - Input: audio blob (one assembled snip — time-trimmed WAV or MP3 — never a raw 4s chunk and never the whole session), Groq API key
   - Output: `{text: string, language?: string, error?: string}` (e.g., `{text: "Hello world", language: "en"}`)
-  - Caller: PWA transcription flow (per snip, not per chunk or entire session)
+  - Caller: PWA `transcribePendingSnips` / session-detail retry (`assembleSnipTranscriptionBlob` then one call per snip)
   - Store changed: session-store (PWA writes transcript to session-store after transcribeAudio returns)
+
+See `apps/web-whisper-pwa/docs/specs/20260908143900-feedback-phase-07-transcribe-assembled-snip-blobs.md` for the Phase 07 investigation of what blob the PWA actually sends.
 
 ## Isolation Demo
 
