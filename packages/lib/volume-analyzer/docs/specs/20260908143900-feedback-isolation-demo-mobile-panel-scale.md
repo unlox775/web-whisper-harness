@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-08T14:39:00Z
+Resolved: 2026-09-08T15:20:00Z
 Product: packages/lib/volume-analyzer
 
 # Feedback: Isolation Demo mobile factory floor — zoom panels out ~50%
@@ -78,9 +79,31 @@ Isolation Demo UX only (`packages/lib/volume-analyzer/isolation-demo/**` + this 
 
 Mark this spec resolved when:
 
-- [ ] iPhone ~390 stacked panels are ~2× more usable than the 26vh / leftover split (Inputs and Outputs each take a real share; histogram still capped)
-- [ ] Document remains viewport-locked; histogram is not mile-tall
-- [ ] Metadata checkbox default off; touch-drag pan; MATCH banner kept
-- [ ] Isolation Demo README layout notes updated
-- [ ] `make build` published `docs/isolation-demos/volume-analyzer/`
-- [ ] Spec updated with a Resolution section (iPhone ~390 before/after-style proof)
+- [x] iPhone ~390 stacked panels are ~2× more usable than the 26vh / leftover split (Inputs and Outputs each take a real share; histogram still capped)
+- [x] Document remains viewport-locked; histogram is not mile-tall
+- [x] Metadata checkbox default off; touch-drag pan; MATCH banner kept
+- [x] Isolation Demo README layout notes updated
+- [x] `make build` published `docs/isolation-demos/volume-analyzer/`
+- [x] Spec updated with a Resolution section (iPhone ~390 before/after-style proof)
+
+## Resolution
+
+**Resolved:** 2026-09-08  
+**Package:** Isolation Demo CSS / README only. `proposeSnipsFromProfile` / `src/snips.ts` / defaults unchanged.
+
+On iPhone (~390×844, `100dvh` locked, `zoom: 1` — compact-mobile `zoom: 0.5` still overridden):
+
+- Header is one nowrap row (~33px). Chrome subline is hidden. Chips ellipsis instead of wrapping after replay.
+- Main padding/gaps cut to `0.4rem`. Idle playhead + overlay legend + pan hint hide so the middle card is mostly waveform.
+- Inputs / Outputs are `1.2fr` / `1.2fr` (no 26vh cap). Idle: **226px** each. After BLT replay: **219px** each.
+- Histogram canvas **250px** narrow (desktop stays **280px**). Panel stays `auto` around that cap — never flex-grows. `document.scrollHeight === 844` (full-page screenshot is the same 390×844 box).
+- **Show archive metadata** stays unchecked after Load BLT 13-snip replay fixture.
+- Loud banner `Frozen 13 · Live archived 13 — MATCH` sits at the top of Outputs.
+
+Usable content vs the cramped before shots: Inputs shows three source radios + fixture pattern (was one radio); Outputs shows MATCH + Frozen 1 (was a sliver); histogram is modestly taller and still capped.
+
+![iPhone 390 after — idle, larger stacked panes](iphone_390_after_idle_larger_panels.png)
+
+![iPhone 390 after — BLT replay, MATCH, capped histogram](iphone_390_after_replay_capped_histogram.png)
+
+`make build` publishes `docs/isolation-demos/volume-analyzer/`.

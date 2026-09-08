@@ -952,16 +952,22 @@ button:disabled {
   }
 
   .top-chrome {
-    padding: 0.4rem 0.65rem 0.35rem;
-    gap: 0.22rem;
+    padding: 0.32rem 0.55rem;
+    gap: 0.15rem;
   }
 
   .top-chrome h1 {
-    font-size: 0.95rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1 1 7rem;
   }
 
   .chrome-row {
-    gap: 0.4rem;
+    flex-wrap: nowrap;
+    gap: 0.3rem;
   }
 
   .chrome-subline {
@@ -970,8 +976,13 @@ button:disabled {
 
   .data-mode-chip,
   .replay-state {
-    font-size: 0.62rem;
-    padding: 0.22rem 0.5rem;
+    font-size: 0.58rem;
+    padding: 0.18rem 0.4rem;
+    flex: 0 1 auto;
+    max-width: 9.2rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .main-content {
@@ -1009,13 +1020,13 @@ button:disabled {
   }
 
   .histogram-panel h2 {
-    font-size: 0.82rem;
-    margin-bottom: 0.3rem;
+    font-size: 0.78rem;
+    margin-bottom: 0.18rem;
   }
 
   .playhead-readout {
-    font-size: 0.68rem;
-    margin: 0 0 0.28rem;
+    font-size: 0.66rem;
+    margin: 0 0 0.18rem;
   }
 
   .playhead-readout.muted {
@@ -1027,9 +1038,32 @@ button:disabled {
   }
 
   .reason-strip {
-    margin-top: 0.35rem;
+    margin-top: 0.22rem;
+    font-size: 0.68rem;
+    line-height: 1.3;
+    padding: 0.28rem 0.4rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .zoom-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.45rem;
+  }
+
+  .zoom-row label {
     font-size: 0.72rem;
-    padding: 0.35rem 0.45rem;
+    margin: 0;
+  }
+
+  .zoom-row input[type='range'] {
+    flex: 1 1 7rem;
+    min-width: 0;
+    padding: 0;
   }
 
   .zoom-row .hint {
