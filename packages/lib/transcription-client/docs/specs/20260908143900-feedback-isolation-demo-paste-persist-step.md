@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-08T14:39:00Z
+Resolved: 2026-09-08T15:35:00Z
 Product: packages/lib/transcription-client
 
 # Feedback: Isolation Demo — paste API key, persist, archive mock, step-through
@@ -83,9 +84,37 @@ Mirror volume-analyzer’s **Step next** idea, for transcription units:
 
 Mark this spec resolved when:
 
-- [ ] API key field accepts paste (field never disabled; Paste fallback documented)
-- [ ] Key persists under `ww-iso-transcription-client:groqApiKey` and restores on load; optional read of `groq_api_key` does not break if missing
-- [ ] Archive + mock refuses with `Switch to Live Groq API to transcribe this archive` (no fixture sentence)
-- [ ] Live Groq sends archive-derived unit audio on the existing live path
-- [ ] Next / step transcribes one snip when snips exist, else one chunk; README documents the choice
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] API key field accepts paste (field never disabled; Paste fallback documented)
+- [x] Key persists under `ww-iso-transcription-client:groqApiKey` and restores on load; optional read of `groq_api_key` does not break if missing
+- [x] Archive + mock refuses with `Switch to Live Groq API to transcribe this archive` (no fixture sentence)
+- [x] Live Groq sends archive-derived unit audio on the existing live path
+- [x] Next / step transcribes one snip when snips exist, else one chunk; README documents the choice
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-09-08T15:35:00Z  
+**Phase:** Phase 07 — Isolation Demo paste, persist, archive mock, step-through  
+**Runner:** Cursor Cloud Agent (grok-4.6, not Codex)
+
+### What shipped
+
+Isolation Demo only (`isolation-demo/`). Groq client and PWA unchanged.
+
+**Paste.** `#apiKeyInput` is never `disabled` / `readonly` (that was blocking iOS/desktop clipboard). Native `paste` inserts clipboard text and persists. **Paste** button uses `navigator.clipboard.readText()`; if the Clipboard API is blocked, the field is focused and the operator is told to long-press → Paste.
+
+**Persist.** Type/paste writes `localStorage['ww-iso-transcription-client:groqApiKey']`. On load, restore that key first; if missing, **read** PWA `groq_api_key`. Missing is fine. Never writes `groq_api_key`. Reset does not wipe the demo key.
+
+**Archive + mock.** `ARCHIVE_MOCK_REFUSE` = `Switch to Live Groq API to transcribe this archive`. Transcribe remaining / Next in fixture mode do not call `transcribeAudio` on archive units. Chip: `SESSION ARCHIVE (mock — will not transcribe zip)`. Yellow warning after a zip is loaded.
+
+**Archive + live Groq.** Each unit is `transcribeAudio(unit.blob, { mode: 'live', apiKey })` — existing live path.
+
+**Step units.** Prefer snips when `snips.json` / `snipsWithTranscripts` has assemble-able audio (concat `chunkIds`, same as PWA; empty `chunkIds` → time overlap). Slim zip (no snips.json, or `hasSnips` flag only) steps **chunks**. Next = one unit; Transcribe remaining = sequential leftover units.
+
+### Automated proof
+
+`node --test` in `isolation-demo/` (`archiveSource.test.js`, `apiKeyStore.test.js`).
+
+### Manual proof
+
+iPhone DevTools 390×844: key field enabled + paste/Paste, key restored after reload, archive+mock refuse copy, Next snip / Next chunk visible. Native iOS long-press Paste cannot be automated in this VM; field is enabled and the paste handler is wired.

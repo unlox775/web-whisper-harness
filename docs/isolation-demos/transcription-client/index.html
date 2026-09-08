@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Transcription Client Isolation Demo</title>
-  <script type="module" crossorigin src="./assets/index-CJfkvkZb.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-BApASgOs.css">
+  <script type="module" crossorigin src="./assets/index-Cn09_5Dt.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-PL9FPnrE.css">
 </head>
 <body>
   <!-- Top Chrome Panel -->
@@ -57,15 +57,30 @@
           accept=".zip,application/zip,application/x-zip-compressed"
         >
         <p id="archiveStatus" class="audio-status">Choose a session archive zip, then Transcribe.</p>
+        <p id="archiveMockWarning" class="archive-mock-warning" hidden>
+          Mock mode will not transcribe this archive. Switch to Live Groq API.
+        </p>
+        <p id="archiveStepStatus" class="audio-status">Step next is available after a zip is loaded.</p>
       </div>
       <div class="control-section">
         <label for="apiKeyInput">Groq API Key</label>
-        <input 
-          type="text" 
-          id="apiKeyInput" 
-          placeholder="Enter Groq API key (gsk_...)" 
-          disabled
-        >
+        <p class="field-hint">Paste works here in mock and live (field is never disabled). Stored as <code>ww-iso-transcription-client:groqApiKey</code>. Also reads PWA <code>groq_api_key</code> if the demo key is missing.</p>
+        <div class="key-row">
+          <input
+            type="text"
+            id="apiKeyInput"
+            placeholder="Paste Groq API key (gsk_...)"
+            autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            inputmode="text"
+          >
+          <button id="pasteKeyBtn" class="btn btn-secondary" type="button">
+            Paste
+          </button>
+        </div>
+        <p id="keySourceStatus" class="audio-status"></p>
       </div>
 
       <div class="control-section">
@@ -77,6 +92,9 @@
       <div class="control-section">
         <button id="transcribeBtn" class="btn btn-primary">
           Transcribe Audio
+        </button>
+        <button id="stepNextBtn" class="btn btn-secondary" type="button" hidden>
+          Next snip
         </button>
       </div>
 
