@@ -3,9 +3,14 @@ import { describe, it } from 'node:test';
 import { parseSessionArchive, SESSION_ARCHIVE_KIND } from '../../../datastore/session-store/src/index.js';
 import { createZip } from '../../../datastore/session-store/src/zip.js';
 import {
+  ARCHIVE_MOCK_REFUSE,
   archiveParseErrorMessage,
+  blobsForSnip,
+  buildArchiveTranscribeUnits,
   collectArchiveAudioBlobs,
+  collectArchiveSnips,
   concatArchiveAudio,
+  describeArchiveStepUnits,
   loadSessionArchiveForTranscribe,
   NO_AUDIO_IN_ARCHIVE,
 } from './archiveSource.js';
@@ -116,6 +121,8 @@ describe('loadSessionArchiveForTranscribe', () => {
     assert.equal(result.sessionId, 'ses_demo');
     assert.equal(result.chunkCount, 2);
     assert.equal(result.blob.type, 'audio/mpeg');
+    assert.equal(result.unitKind, 'chunk');
+    assert.equal(result.units.length, 2);
     assert.deepEqual(new Uint8Array(await result.blob.arrayBuffer()), new Uint8Array([11, 22, 33, 44, 55]));
   });
 
@@ -163,5 +170,133 @@ describe('loadSessionArchiveForTranscribe', () => {
     );
     const noAudio = await loadSessionArchiveForTranscribe(purged, parseSessionArchive);
     assert.equal(noAudio.error, NO_AUDIO_IN_ARCHIVE);
+  });
+
+  it('prefers snip units when snips.json is present and assemble-able', async () => {
+    const a = new Uint8Array([11, 22]);
+    const b = new Uint8Array([33, 44, 55]);
+    const encoder = new TextEncoder();
+    const zip = zipFromManifest(
+      validManifest({
+        hasSnips: true,
+        chunks: [
+          {
+            id: 'chunk_a',
+            seq: 0,
+            startTime: 0,
+            endTime: 4,
+            duration: 4,
+            mime: 'audio/mpeg',
+            sizeBytes: 2,
+            file: 'chunks/000.mp3',
+          },
+          {
+            id: 'chunk_b',
+            seq: 1,
+            startTime: 4,
+            endTime: 8,
+            duration: 4,
+            mime: 'audio/mpeg',
+            sizeBytes: 3,
+            file: 'chunks/001.mp3',
+          },
+        ],
+      }),
+      [
+        { name: 'chunks/000.mp3', data: a },
+        { name: 'chunks/001.mp3', data: b },
+        {
+          name: 'snips.json',
+          data: encoder.encode(
+            JSON.stringify([
+              {
+                id: 'snip_first',
+                startTime: 0,
+                endTime: 4,
+                duration: 4,
+                chunkIds: ['chunk_a'],
+              },
+              {
+                id: 'snip_second',
+                startTime: 4,
+                endTime: 8,
+                duration: 4,
+                chunkIds: ['chunk_b'],
+              },
+            ])
+          ),
+        },
+      ]
+    );
+
+    const result = await loadSessionArchiveForTranscribe(zip, parseSessionArchive);
+    assert.equal(result.error, undefined);
+    assert.equal(result.unitKind, 'snip');
+    assert.equal(result.units.length, 2);
+    assert.equal(result.units[0].id, 'snip_first');
+    assert.deepEqual(new Uint8Array(await result.units[0].blob.arrayBuffer()), a);
+    assert.deepEqual(new Uint8Array(await result.units[1].blob.arrayBuffer()), b);
+    assert.match(describeArchiveStepUnits(result), /Stepping by snips/);
+  });
+});
+
+describe('buildArchiveTranscribeUnits', () => {
+  it('falls back to time overlap when snip chunkIds are empty', () => {
+    const first = new Blob([new Uint8Array([1])], { type: 'audio/mpeg' });
+    const second = new Blob([new Uint8Array([2, 3])], { type: 'audio/mpeg' });
+    const { kind, units } = buildArchiveTranscribeUnits({
+      chunks: [
+        { meta: { id: 'c0', seq: 0, startTime: 0, endTime: 4, duration: 4 }, blob: first },
+        { meta: { id: 'c1', seq: 1, startTime: 4, endTime: 8, duration: 4 }, blob: second },
+      ],
+      snips: [
+        { id: 'snip_overlap', startTime: 3, endTime: 6, duration: 3, chunkIds: [] },
+      ],
+    });
+    assert.equal(kind, 'snip');
+    assert.equal(units.length, 1);
+    assert.equal(units[0].blob.size, 3);
+  });
+
+  it('steps by chunks when hasSnips is a flag only (slim zip)', () => {
+    const blob = new Blob([new Uint8Array([9])], { type: 'audio/mpeg' });
+    const parsed = {
+      session: { hasSnips: true },
+      chunks: [{ meta: { id: 'c0', seq: 0, startTime: 0, endTime: 4 }, blob }],
+    };
+    const { kind, units } = buildArchiveTranscribeUnits(parsed);
+    assert.equal(kind, 'chunk');
+    assert.equal(units.length, 1);
+    assert.match(
+      describeArchiveStepUnits({ unitKind: kind, units, hasSnipsFlag: true }),
+      /hasSnips is a flag only/
+    );
+  });
+});
+
+describe('collectArchiveSnips + blobsForSnip', () => {
+  it('reads snipsWithTranscripts first', () => {
+    const snips = collectArchiveSnips({
+      snips: [{ id: 'ignored', startTime: 0, endTime: 1, duration: 1, chunkIds: [] }],
+      snipsWithTranscripts: [
+        { id: 'joined', startTime: 2, endTime: 5, duration: 3, chunkIds: ['c1'] },
+      ],
+    });
+    assert.equal(snips.length, 1);
+    assert.equal(snips[0].id, 'joined');
+  });
+
+  it('returns no blobs for a snip whose chunks were purged', () => {
+    const blobs = blobsForSnip(
+      { id: 's', startTime: 0, endTime: 4, chunkIds: ['gone'] },
+      [{ meta: { id: 'gone' }, blob: null }]
+    );
+    assert.deepEqual(blobs, []);
+  });
+});
+
+describe('ARCHIVE_MOCK_REFUSE', () => {
+  it('is the operator-facing copy for archive + mock', () => {
+    assert.equal(ARCHIVE_MOCK_REFUSE, 'Switch to Live Groq API to transcribe this archive');
   });
 });

@@ -46,9 +46,9 @@ const DEMOS = [
     title: 'Transcription Client',
     root: join(root, 'packages/lib/transcription-client/isolation-demo'),
     react: false,
-    storage: 'No persistence (API key stays in the input)',
+    storage: 'API key in ww-iso-transcription-client:groqApiKey (also reads groq_api_key)',
     namespace: 'ww-iso-transcription-client:',
-    blurb: 'Record live audio then transcribe (mock or real Groq). Fixture blob optional. No PWA keys.',
+    blurb: 'Paste Groq key (persists). Archive: mock refuses; live Groq steps snips or chunks.',
   },
   {
     id: 'session-store',
