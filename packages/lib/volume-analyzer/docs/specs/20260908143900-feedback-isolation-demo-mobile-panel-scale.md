@@ -106,4 +106,8 @@ Usable content vs the cramped before shots: Inputs shows three source radios + f
 
 ![iPhone 390 after — BLT replay, MATCH, capped histogram](iphone_390_after_replay_capped_histogram.png)
 
+Full-page capture is the same 390×844 box (not a mile-tall document):
+
+![iPhone 390 after — full page equals viewport](iphone_390_after_replay_not_mile_tall.png)
+
 `make build` publishes `docs/isolation-demos/volume-analyzer/`.
