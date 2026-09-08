@@ -52,7 +52,8 @@ describe('sessionArchiveExportOptions', () => {
     assert.deepEqual(sessionArchiveExportOptions(true), { includeDebugArtifacts: true });
   });
 
-  it('documents slim vs debug helper copy', () => {
+  it('documents slim vs debug helper copy as developer-only', () => {
+    assert.match(ARCHIVE_DEBUG_INCLUDE_HELP, /Developer debugging only/);
     assert.match(ARCHIVE_DEBUG_INCLUDE_HELP, /audio \+ manifest only/);
     assert.match(ARCHIVE_DEBUG_INCLUDE_HELP, /snip ranges and transcript text/);
   });

@@ -89,7 +89,8 @@ describe('importedArchiveKind / success copy', () => {
     );
   });
 
-  it('documents new-id policy and slim vs debug on the control helper', () => {
+  it('documents new-id policy, slim vs debug, and developer-only copy', () => {
+    assert.match(ARCHIVE_IMPORT_HELP, /Developer debugging only/);
     assert.match(ARCHIVE_IMPORT_HELP, /new session id/);
     assert.match(ARCHIVE_IMPORT_HELP, /never overwritten/);
     assert.match(ARCHIVE_IMPORT_HELP, /Slim zip/);

@@ -3,6 +3,7 @@ Spec Type: feedback
 Created: 2026-09-07T22:24:00Z
 Resolved: 2026-09-07T22:40:00Z
 Product: apps/web-whisper-pwa
+Superseded-in-part: 20260908144000-feedback-session-zip-developer-mode-only.md (Home LIBRARY import removed; import/export zip is developer-mode only)
 
 # Feedback: PWA import session archive zip into session-store
 
