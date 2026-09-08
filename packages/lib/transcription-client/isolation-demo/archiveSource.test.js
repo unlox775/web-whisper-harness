@@ -5,6 +5,7 @@ import { createZip } from '../../../datastore/session-store/src/zip.js';
 import {
   ARCHIVE_MOCK_REFUSE,
   archiveParseErrorMessage,
+  assembleArchiveUnitBlob,
   blobsForSnip,
   buildArchiveTranscribeUnits,
   collectArchiveAudioBlobs,
@@ -14,6 +15,11 @@ import {
   loadSessionArchiveForTranscribe,
   NO_AUDIO_IN_ARCHIVE,
 } from './archiveSource.js';
+import {
+  planSnipAudioSlices,
+  transcriptionWindowsOverlap,
+  wavDurationSeconds,
+} from '../src/assembleSnipAudio.js';
 
 function zipFromManifest(manifest, extraEntries = []) {
   const encoder = new TextEncoder();
@@ -234,14 +240,16 @@ describe('loadSessionArchiveForTranscribe', () => {
     assert.equal(result.unitKind, 'snip');
     assert.equal(result.units.length, 2);
     assert.equal(result.units[0].id, 'snip_first');
-    assert.deepEqual(new Uint8Array(await result.units[0].blob.arrayBuffer()), a);
-    assert.deepEqual(new Uint8Array(await result.units[1].blob.arrayBuffer()), b);
+    const first = await assembleArchiveUnitBlob(result.units[0]);
+    const second = await assembleArchiveUnitBlob(result.units[1]);
+    assert.deepEqual(new Uint8Array(await first.blob.arrayBuffer()), a);
+    assert.deepEqual(new Uint8Array(await second.blob.arrayBuffer()), b);
     assert.match(describeArchiveStepUnits(result), /Stepping by snips/);
   });
 });
 
 describe('buildArchiveTranscribeUnits', () => {
-  it('falls back to time overlap when snip chunkIds are empty', () => {
+  it('falls back to time overlap when snip chunkIds are empty', async () => {
     const first = new Blob([new Uint8Array([1])], { type: 'audio/mpeg' });
     const second = new Blob([new Uint8Array([2, 3])], { type: 'audio/mpeg' });
     const { kind, units } = buildArchiveTranscribeUnits({
@@ -255,7 +263,8 @@ describe('buildArchiveTranscribeUnits', () => {
     });
     assert.equal(kind, 'snip');
     assert.equal(units.length, 1);
-    assert.equal(units[0].blob.size, 3);
+    const assembled = await assembleArchiveUnitBlob(units[0]);
+    assert.equal(assembled.blob.size, 3);
   });
 
   it('steps by chunks when hasSnips is a flag only (slim zip)', () => {
@@ -295,8 +304,124 @@ describe('collectArchiveSnips + blobsForSnip', () => {
   });
 });
 
-describe('ARCHIVE_MOCK_REFUSE', () => {
-  it('is the operator-facing copy for archive + mock', () => {
-    assert.equal(ARCHIVE_MOCK_REFUSE, 'Switch to Live Groq API to transcribe this archive');
+describe('assembleArchiveUnitBlob — abutting snips do not share a boundary chunk', () => {
+  /**
+   * Same tape as the PWA #53 fixture / Dave’s Isolation Demo report:
+   * five ~4s chunks, two abutting snips that both list the mid-cut chunk.
+   * Old demo path concatenated full chunkIds → both Groq blobs contained c2.
+   */
+  const fourSecondChunks = [
+    { meta: { id: 'c0', seq: 0, startTime: 0, endTime: 4, duration: 4 }, blob: new Blob(['C0'], { type: 'audio/mpeg' }) },
+    { meta: { id: 'c1', seq: 1, startTime: 4, endTime: 8, duration: 4 }, blob: new Blob(['C1'], { type: 'audio/mpeg' }) },
+    { meta: { id: 'c2', seq: 2, startTime: 8, endTime: 12, duration: 4 }, blob: new Blob(['C2'], { type: 'audio/mpeg' }) },
+    { meta: { id: 'c3', seq: 3, startTime: 12, endTime: 16, duration: 4 }, blob: new Blob(['C3'], { type: 'audio/mpeg' }) },
+    { meta: { id: 'c4', seq: 4, startTime: 16, endTime: 20, duration: 4 }, blob: new Blob(['C4'], { type: 'audio/mpeg' }) },
+  ];
+
+  const abuttingSnips = [
+    { id: 'snip_a', startTime: 0, endTime: 10, duration: 10, chunkIds: ['c0', 'c1', 'c2'] },
+    { id: 'snip_b', startTime: 10, endTime: 20, duration: 10, chunkIds: ['c2', 'c3', 'c4'] },
+  ];
+
+  const sessionChunks = fourSecondChunks.map((entry) => ({
+    id: entry.meta.id,
+    startTime: entry.meta.startTime,
+    endTime: entry.meta.endTime,
+    duration: entry.meta.duration,
+    blob: entry.blob,
+  }));
+
+  function failDecode() {
+    return async () => {
+      throw new Error('no decoder');
+    };
+  }
+
+  it('old whole-chunk concat would put C2 (8–12s) in both snip blobs', async () => {
+    const { units } = buildArchiveTranscribeUnits({ chunks: fourSecondChunks, snips: abuttingSnips });
+    assert.equal(units.length, 2);
+    const wholeA = await concatArchiveAudio(blobsForSnip(units[0].snip, fourSecondChunks)).text();
+    const wholeB = await concatArchiveAudio(blobsForSnip(units[1].snip, fourSecondChunks)).text();
+    assert.equal(wholeA.includes('C2'), true);
+    assert.equal(wholeB.includes('C2'), true);
+  });
+
+  it('decode-fail fallback drops the shared boundary chunk from only one snip', async () => {
+    const { units } = buildArchiveTranscribeUnits({ chunks: fourSecondChunks, snips: abuttingSnips });
+    const a = await assembleArchiveUnitBlob(units[0], { decode: failDecode() });
+    const b = await assembleArchiveUnitBlob(units[1], { decode: failDecode() });
+    assert.equal(a.kind, 'concat-mp3');
+    assert.equal(b.kind, 'concat-mp3');
+    const textA = await a.blob.text();
+    const textB = await b.blob.text();
+    assert.equal(textA.includes('C0'), true);
+    assert.equal(textA.includes('C1'), true);
+    assert.equal(textA.includes('C2'), false);
+    assert.equal(textB.includes('C2'), true);
+    assert.equal(textB.includes('C3'), true);
+    assert.equal(textB.includes('C4'), true);
+    assert.equal(textA.includes('C2') && textB.includes('C2'), false);
+  });
+
+  it('trimmed slice windows abut and do not overlap (10s each, not 12s union)', () => {
+    const slicesA = planSnipAudioSlices(abuttingSnips[0], sessionChunks);
+    const slicesB = planSnipAudioSlices(abuttingSnips[1], sessionChunks);
+    assert.deepEqual(
+      slicesA.map((slice) => [slice.chunkId, slice.sliceStartTime, slice.sliceEndTime]),
+      [
+        ['c0', 0, 4],
+        ['c1', 4, 8],
+        ['c2', 8, 10],
+      ]
+    );
+    assert.deepEqual(
+      slicesB.map((slice) => [slice.chunkId, slice.sliceStartTime, slice.sliceEndTime]),
+      [
+        ['c2', 10, 12],
+        ['c3', 12, 16],
+        ['c4', 16, 20],
+      ]
+    );
+    const jobs = [
+      { snipId: 'snip_a', slices: slicesA },
+      { snipId: 'snip_b', slices: slicesB },
+    ];
+    assert.equal(transcriptionWindowsOverlap(jobs), false);
+    const durationA = slicesA.reduce((sum, slice) => sum + (slice.sliceEndTime - slice.sliceStartTime), 0);
+    const durationB = slicesB.reduce((sum, slice) => sum + (slice.sliceEndTime - slice.sliceStartTime), 0);
+    assert.equal(durationA, 10);
+    assert.equal(durationB, 10);
+  });
+
+  it('decode path writes a ~10s WAV so Groq does not hear the extra 8–12s tail', async () => {
+    const sampleRate = 1000;
+    const pcmById = new Map();
+    for (const entry of fourSecondChunks) {
+      const duration = entry.meta.endTime - entry.meta.startTime;
+      const channelData = new Float32Array(duration * sampleRate);
+      for (let i = 0; i < channelData.length; i++) {
+        channelData[i] = (entry.meta.startTime + i / sampleRate) / 100;
+      }
+      pcmById.set(entry.meta.id, { channelData, sampleRate, duration });
+    }
+    const decode = async (blob) => {
+      const text = await blob.text();
+      const id = `c${['C0', 'C1', 'C2', 'C3', 'C4'].indexOf(text)}`;
+      const pcm = pcmById.get(id);
+      if (!pcm) throw new Error(`unknown blob ${text}`);
+      return pcm;
+    };
+
+    const { units } = buildArchiveTranscribeUnits({ chunks: fourSecondChunks, snips: abuttingSnips });
+    const a = await assembleArchiveUnitBlob(units[0], { decode });
+    const b = await assembleArchiveUnitBlob(units[1], { decode });
+    assert.equal(a.kind, 'trimmed-wav');
+    assert.equal(b.kind, 'trimmed-wav');
+    const secondsA = wavDurationSeconds(await a.blob.arrayBuffer());
+    const secondsB = wavDurationSeconds(await b.blob.arrayBuffer());
+    assert.ok(Math.abs(secondsA - 10) < 0.02, `expected ~10s wav A, got ${secondsA}`);
+    assert.ok(Math.abs(secondsB - 10) < 0.02, `expected ~10s wav B, got ${secondsB}`);
+    assert.equal(a.slices.at(-1)?.sliceEndTime, 10);
+    assert.equal(b.slices[0]?.sliceStartTime, 10);
   });
 });

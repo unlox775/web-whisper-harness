@@ -5,7 +5,16 @@
  * Step unit choice: prefer snips when snips.json / snipsWithTranscripts has
  * assemble-able audio. Slim zip (chunks only, or hasSnips flag without
  * snips.json) steps through playable chunks.
+ *
+ * Snip audio is assembled with the shared PWA helper (time-trim to
+ * [startTime, endTime], exclusive-chunk MP3 fallback). Do not send
+ * concatenated overlapping ~4s chunk blobs to Groq.
  */
+
+import {
+  assembleSnipTranscriptionBlob,
+  chunksOverlappingSnip,
+} from '../src/assembleSnipAudio.js';
 
 export const NO_AUDIO_IN_ARCHIVE = 'No audio in archive to transcribe';
 export const ARCHIVE_MOCK_REFUSE =
@@ -85,28 +94,75 @@ export function collectArchiveSnips(parsed) {
 }
 
 /**
- * Chunks covering a snip: PWA live path uses chunkIds; empty chunkIds
- * fall back to time overlap (same idea as volume-analyzer assemble).
+ * Archive chunk entries → session chunk rows for assembleSnipTranscriptionBlob.
+ * @param {Array<{ meta?: { id?: string, seq?: number, startTime?: number, endTime?: number, duration?: number }, blob?: Blob | null }>} chunks
+ */
+export function archiveEntriesToSessionChunks(chunks) {
+  return (Array.isArray(chunks) ? chunks : []).map((entry, index) => {
+    const start = Number(entry.meta?.startTime ?? 0);
+    const duration = Number(entry.meta?.duration ?? 0);
+    const end = Number(
+      entry.meta?.endTime ?? (Number.isFinite(duration) ? start + duration : start)
+    );
+    return {
+      id: String(entry.meta?.id ?? `seq-${entry.meta?.seq ?? index}`),
+      startTime: start,
+      endTime: end,
+      duration: Number.isFinite(duration) && duration > 0 ? duration : Math.max(0, end - start),
+      blob: entry.blob,
+    };
+  });
+}
+
+/**
+ * Chunks covering a snip. Used only to decide whether a snip is assemble-able
+ * (skip purged / empty). Groq audio comes from assembleArchiveUnitBlob.
  * @param {{ chunkIds: string[], startTime: number, endTime: number }} snip
  * @param {Array<{ meta?: { id?: string, startTime?: number, endTime?: number, duration?: number }, blob?: Blob | null }>} chunks
  * @returns {Blob[]}
  */
 export function blobsForSnip(snip, chunks) {
-  const list = Array.isArray(chunks) ? chunks : [];
-  let entries = [];
-  if (snip.chunkIds.length > 0) {
-    const byId = new Map(list.map((entry) => [String(entry.meta?.id), entry]));
-    entries = snip.chunkIds.map((id) => byId.get(id)).filter(Boolean);
-  } else if (Number.isFinite(snip.startTime) && Number.isFinite(snip.endTime)) {
-    entries = list.filter((entry) => {
-      const start = Number(entry.meta?.startTime ?? 0);
-      const end = Number(
-        entry.meta?.endTime ?? start + (entry.meta?.duration ?? 0)
-      );
-      return start < snip.endTime && end > snip.startTime;
-    });
+  const sessionChunks = archiveEntriesToSessionChunks(chunks);
+  return chunksOverlappingSnip(snip, sessionChunks)
+    .map((chunk) => chunk.blob)
+    .filter((blob) => blob && blob.size > 0);
+}
+
+function snipHasAudio(snip, sessionChunks) {
+  return chunksOverlappingSnip(snip, sessionChunks).some(
+    (chunk) => chunk.blob && chunk.blob.size > 0
+  );
+}
+
+/**
+ * Time-trim (or exclusive-chunk fallback) the Groq blob for one archive unit.
+ * Snip units use the shared PWA assembler. Chunk units pass the raw blob.
+ * @param {{ kind: string, id?: string, startTime?: number, endTime?: number, snip?: object, archiveChunks?: object[], blob?: Blob }} unit
+ * @param {{ decode?: (blob: Blob) => Promise<object> }} [options]
+ */
+export async function assembleArchiveUnitBlob(unit, options = {}) {
+  if (!unit) {
+    return { blob: new Blob([], { type: 'audio/mpeg' }), kind: 'concat-mp3', slices: [] };
   }
-  return entries.map((entry) => entry.blob).filter((blob) => blob && blob.size > 0);
+  if (unit.kind === 'chunk') {
+    return {
+      blob: unit.blob || new Blob([], { type: 'audio/mpeg' }),
+      kind: 'chunk',
+      slices: [],
+    };
+  }
+  return assembleSnipTranscriptionBlob(
+    {
+      id: unit.snip?.id ?? unit.id,
+      startTime: unit.snip?.startTime ?? unit.startTime,
+      endTime: unit.snip?.endTime ?? unit.endTime,
+      chunkIds: unit.snip?.chunkIds ?? unit.chunkIds ?? [],
+    },
+    {
+      sessionChunks: archiveEntriesToSessionChunks(unit.archiveChunks || []),
+      decode: options.decode,
+    }
+  );
 }
 
 /**
@@ -118,17 +174,18 @@ export function buildArchiveTranscribeUnits(parsed) {
   const chunks = [...(parsed?.chunks || [])].sort(
     (a, b) => (a.meta?.seq ?? 0) - (b.meta?.seq ?? 0)
   );
+  const sessionChunks = archiveEntriesToSessionChunks(chunks);
   const snipUnits = [];
   for (const snip of collectArchiveSnips(parsed)) {
-    const blobs = blobsForSnip(snip, chunks);
-    if (blobs.length === 0) continue;
+    if (!snipHasAudio(snip, sessionChunks)) continue;
     snipUnits.push({
       kind: 'snip',
       id: snip.id,
       label: `snip ${snip.id}`,
       startTime: snip.startTime,
       endTime: snip.endTime,
-      blob: concatArchiveAudio(blobs),
+      snip,
+      archiveChunks: chunks,
     });
   }
   if (snipUnits.length > 0) {
@@ -151,7 +208,7 @@ export function buildArchiveTranscribeUnits(parsed) {
 export function describeArchiveStepUnits(result) {
   if (!result || result.error) return '';
   if (result.unitKind === 'snip') {
-    return `Stepping by snips (${result.units.length}). Prefer snips when snips.json is present.`;
+    return `Stepping by snips (${result.units.length}). Audio is time-trimmed to each snip range (same as PWA).`;
   }
   if (result.hasSnipsFlag) {
     return `Slim archive — hasSnips is a flag only; stepping by chunks (${result.units.length}).`;
@@ -183,7 +240,9 @@ export async function loadSessionArchiveForTranscribe(file, parseArchive) {
   }
 
   return {
-    blob: blobs.length ? concatArchiveAudio(blobs) : units[0].blob,
+    blob: blobs.length
+      ? concatArchiveAudio(blobs)
+      : units[0].blob || new Blob([], { type: 'audio/mpeg' }),
     sessionId: parsed.session?.id,
     chunkCount: blobs.length,
     totalChunks: parsed.chunks?.length ?? blobs.length,

@@ -48,7 +48,7 @@ const DEMOS = [
     react: false,
     storage: 'API key in ww-iso-transcription-client:groqApiKey (also reads groq_api_key)',
     namespace: 'ww-iso-transcription-client:',
-    blurb: 'Paste Groq key (persists). Archive: mock refuses; live Groq steps snips or chunks.',
+    blurb: 'Paste Groq key (persists). Archive: mock refuses; live Groq steps time-trimmed snips or chunks.',
   },
   {
     id: 'session-store',

@@ -10,7 +10,8 @@
  * groq_api_key (read-only). Does not write PWA settings.
  *
  * Archive + mock refuses. Archive + live Groq steps snips when present,
- * else chunks (slim zip).
+ * else chunks (slim zip). Snip audio is time-trimmed with the shared
+ * assembleSnipTranscriptionBlob helper (not overlapping chunk concat).
  */
 
 import { validateKey, transcribeAudio } from '../src/index.js';
@@ -19,6 +20,7 @@ import { startCapture, CaptureError } from '@web-whisper/capture-engine';
 import { parseSessionArchive } from '@web-whisper/session-store';
 import {
   ARCHIVE_MOCK_REFUSE,
+  assembleArchiveUnitBlob,
   describeArchiveStepUnits,
   loadSessionArchiveForTranscribe,
 } from './archiveSource.js';
@@ -405,12 +407,18 @@ function renderTranscript() {
   transcriptOutput.className = 'transcript-output success';
 }
 
-function formatUnitHeader(unit, index, total) {
+function formatUnitHeader(unit, index, total, assemblyKind) {
   const range =
     Number.isFinite(unit.startTime) && Number.isFinite(unit.endTime)
       ? ` ${Number(unit.startTime).toFixed(1)}–${Number(unit.endTime).toFixed(1)}s`
       : '';
-  return `[${index + 1}/${total}] ${unit.label}${range}`;
+  const kindNote =
+    assemblyKind === 'trimmed-wav'
+      ? ' · time-trimmed wav'
+      : assemblyKind === 'concat-mp3'
+        ? ' · exclusive-chunk mp3'
+        : '';
+  return `[${index + 1}/${total}] ${unit.label}${range}${kindNote}`;
 }
 
 async function handleValidateKey() {
@@ -557,9 +565,20 @@ async function transcribeArchiveUnits({ stepOnce }) {
     transcriptOutput.className = 'transcript-output loading';
 
     try {
-      const result = await transcribeOneBlob(unit.blob, null);
+      const assembled = await assembleArchiveUnitBlob(unit);
+      if (!assembled.blob || assembled.blob.size === 0) {
+        transcriptLines.push(
+          `${formatUnitHeader(unit, i, archiveUnits.length)}\nError: No audio for snip`
+        );
+        nextUnitIndex = i;
+        renderTranscript();
+        transcriptOutput.className = 'transcript-output error';
+        return;
+      }
+      const header = formatUnitHeader(unit, i, archiveUnits.length, assembled.kind);
+      const result = await transcribeOneBlob(assembled.blob, null);
       if (result.error) {
-        transcriptLines.push(`${formatUnitHeader(unit, i, archiveUnits.length)}\nError: ${result.error}`);
+        transcriptLines.push(`${header}\nError: ${result.error}`);
         nextUnitIndex = i;
         renderTranscript();
         transcriptOutput.className = 'transcript-output error';
@@ -567,7 +586,7 @@ async function transcribeArchiveUnits({ stepOnce }) {
       }
       const text = result.text || '(empty)';
       const lang = result.language ? ` · language ${result.language}` : '';
-      transcriptLines.push(`${formatUnitHeader(unit, i, archiveUnits.length)}${lang}\n${text}`);
+      transcriptLines.push(`${header}${lang}\n${text}`);
       nextUnitIndex = i + 1;
       renderTranscript();
       if (result.language) {
