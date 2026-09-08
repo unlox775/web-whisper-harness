@@ -4,6 +4,7 @@ import {
   analyzeVolumeForSession,
   proposeSnipsForSession,
 } from '@web-whisper/volume-analyzer';
+import { assembleSnipTranscriptionBlob } from './assembleSnipAudio';
 import type { SnipRecord, TranscriptRecord } from './types';
 
 export { buildTranscriptText } from './transcriptText';
@@ -39,13 +40,15 @@ function withSessionLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T>
   return next;
 }
 
-async function assembleSnipBlob(snip: SnipRecord): Promise<Blob> {
-  const blobs: Blob[] = [];
-  for (const chunkId of snip.chunkIds || []) {
-    const chunk = await sessionStore.getChunk(chunkId);
-    if (chunk?.blob && chunk.blob.size > 0) blobs.push(chunk.blob);
-  }
-  return new Blob(blobs, { type: 'audio/mpeg' });
+async function assembleSnipBlob(
+  snip: SnipRecord,
+  sessionChunks: Array<{ id: string; startTime: number; endTime: number; duration?: number }>
+): Promise<Blob> {
+  const assembled = await assembleSnipTranscriptionBlob(snip, {
+    sessionChunks,
+    getChunk: (chunkId) => sessionStore.getChunk(chunkId),
+  });
+  return assembled.blob;
 }
 
 async function loadDurableState(sessionId: string): Promise<{
@@ -112,6 +115,9 @@ async function transcribePendingSnips(
   let completed = snips.length - targets.length;
   let failed = 0;
   const failures: Array<{ snipId: string; error: string }> = [];
+  const sessionId = targets[0]?.sessionId || snips[0]?.sessionId;
+  const listed = sessionId ? await sessionStore.getChunksForSession(sessionId) : { chunks: [] };
+  const sessionChunks = listed.chunks || [];
 
   for (const snip of targets) {
     onProgress?.({
@@ -121,12 +127,14 @@ async function transcribePendingSnips(
     });
     transcribingSnips.add(snip.id);
     try {
-      const blob = await assembleSnipBlob(snip);
+      const blob = await assembleSnipBlob(snip, sessionChunks);
       if (blob.size === 0) {
         failed += 1;
         failures.push({ snipId: snip.id, error: 'No audio for snip' });
         continue;
       }
+      // One Groq call per snip. `blob` is assembleSnipTranscriptionBlob output
+      // (time-trimmed snip audio), not a raw 4s chunk and not the session tape.
       const result = await transcribeAudio(blob, { apiKey, mode: 'live' });
       if ('error' in result && result.error) {
         failed += 1;

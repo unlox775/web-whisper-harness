@@ -3,6 +3,7 @@ import * as sessionStore from '@web-whisper/session-store';
 import { playChunk, playSession, playSnip, type PlaybackHandle } from '@web-whisper/playback-engine';
 import { formatBytes, formatDuration, formatCapturedRange, formatDurationHeroStyle, jsonReplacer } from '../format';
 import { runDoctor, type DoctorReport } from '../doctor';
+import { assembleSnipTranscriptionBlob } from '../assembleSnipAudio';
 import { transcribeSession, type TranscribeProgress } from '../orchestration';
 import { useApp } from '../context';
 import type { ChunkRecord, SessionRecord, SnipRecord, TranscriptRecord } from '../types';
@@ -266,12 +267,11 @@ export function SessionDetailScreen() {
   }
 
   async function assembleSnipBlob(snip: SnipRecord): Promise<Blob> {
-    const blobs: Blob[] = [];
-    for (const chunkId of snip.chunkIds || []) {
-      const chunk = await sessionStore.getChunk(chunkId);
-      if (chunk?.blob && chunk.blob.size > 0) blobs.push(chunk.blob);
-    }
-    return new Blob(blobs, { type: 'audio/mpeg' });
+    const assembled = await assembleSnipTranscriptionBlob(snip, {
+      sessionChunks: chunks,
+      getChunk: (chunkId) => sessionStore.getChunk(chunkId),
+    });
+    return assembled.blob;
   }
 
   async function retrySnip(snipId: string) {
@@ -289,6 +289,7 @@ export function SessionDetailScreen() {
         return;
       }
       const { transcribeAudio } = await import('@web-whisper/transcription-client');
+      // Same per-snip path as transcribePendingSnips: one assembled snip blob.
       const result = await transcribeAudio(blob, { apiKey: app.settings.groqApiKey, mode: 'live' });
       if ('error' in result && result.error) {
         const existingFailure = failures.find((f) => f.snipId === snipId);
@@ -328,7 +329,7 @@ export function SessionDetailScreen() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `snip-${snipId}.mp3`;
+    link.download = blob.type.includes('wav') ? `snip-${snipId}.wav` : `snip-${snipId}.mp3`;
     link.click();
     URL.revokeObjectURL(url);
   }

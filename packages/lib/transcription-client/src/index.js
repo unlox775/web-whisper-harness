@@ -5,5 +5,5 @@
  */
 
 export { validateKey } from './validateKey.js';
-export { transcribeAudio } from './transcribeAudio.js';
+export { transcribeAudio, filenameForAudioBlob } from './transcribeAudio.js';
 export { TranscriptionError } from './errors.js';
