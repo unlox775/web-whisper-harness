@@ -9,20 +9,22 @@ import {
   importSessionZipFile,
   isArchiveImportError,
 } from '../importSession';
+import { sessionArchiveToolsVisible } from '../sessionArchiveUi';
 
-type ImportSessionZipControlProps = {
-  variant?: 'home' | 'settings';
-};
-
-export function ImportSessionZipControl({ variant = 'home' }: ImportSessionZipControlProps) {
+export function ImportSessionZipControl() {
   const app = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [tone, setTone] = useState<'idle' | 'error' | 'success'>('idle');
-  const statusId = variant === 'settings' ? 'settings-import-status' : 'home-import-status';
+  const statusId = 'settings-import-status';
+
+  if (!sessionArchiveToolsVisible(app.settings.developerModeEnabled)) {
+    return null;
+  }
 
   async function handleFile(file: File) {
+    if (!sessionArchiveToolsVisible(app.settings.developerModeEnabled)) return;
     setBusy(true);
     setTone('idle');
     setStatus(`Importing ${file.name}…`);
@@ -65,10 +67,10 @@ export function ImportSessionZipControl({ variant = 'home' }: ImportSessionZipCo
   }
 
   return (
-    <div className={`import-session ${variant === 'settings' ? 'import-session-settings' : ''}`}>
+    <div className="import-session import-session-settings">
       <input
         ref={inputRef}
-        id={`${variant}-import-session-zip`}
+        id="settings-import-session-zip"
         className="import-session-input"
         type="file"
         accept={ARCHIVE_IMPORT_ACCEPT}
@@ -81,7 +83,7 @@ export function ImportSessionZipControl({ variant = 'home' }: ImportSessionZipCo
       />
       <button
         type="button"
-        className={variant === 'settings' ? 'cta-outline' : 'cta-outline'}
+        className="cta-outline"
         disabled={busy}
         aria-controls={statusId}
         onClick={() => inputRef.current?.click()}

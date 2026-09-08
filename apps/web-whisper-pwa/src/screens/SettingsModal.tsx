@@ -112,10 +112,6 @@ export function SettingsModal() {
 
           <section className="section">
             <h3>App</h3>
-            <div className="settings-import-block">
-              <h4 className="settings-import-heading">Session archive</h4>
-              <ImportSessionZipControl variant="settings" />
-            </div>
             <label className="check-row">
               <input
                 type="checkbox"
@@ -127,20 +123,30 @@ export function SettingsModal() {
               Enable developer mode
             </label>
             {app.settings.developerModeEnabled ? (
-              <div className="iso-demos-block">
-                <a
-                  className="cta-outline isolation-demos-link"
-                  href={isolationDemosHref()}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Isolation Demos
-                </a>
-                <p className="help">
-                  Package factory-floor demos on GitHub Pages. Each demo uses its own
-                  storage namespace so it cannot corrupt PWA sessions.
-                </p>
-              </div>
+              <>
+                <div className="iso-demos-block">
+                  <a
+                    className="cta-outline isolation-demos-link"
+                    href={isolationDemosHref()}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Isolation Demos
+                  </a>
+                  <p className="help">
+                    Package factory-floor demos on GitHub Pages. Each demo uses its own
+                    storage namespace so it cannot corrupt PWA sessions.
+                  </p>
+                </div>
+                <div className="settings-import-block">
+                  <h4 className="settings-import-heading">Session archive</h4>
+                  <p className="help settings-import-lead">
+                    Debugging only. Import a session zip to recreate a take in this
+                    browser.
+                  </p>
+                  <ImportSessionZipControl />
+                </div>
+              </>
             ) : null}
             <label className="field">
               Storage cap (MB)

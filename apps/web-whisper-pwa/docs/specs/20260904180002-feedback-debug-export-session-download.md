@@ -2,6 +2,7 @@ Spec Status: resolved
 Spec Type: feedback
 Created: 2026-09-04T18:00:02Z
 Product: apps/web-whisper-pwa
+Superseded-in-part: 20260908144000-feedback-session-zip-developer-mode-only.md (Export session zip is developer-mode only)
 
 # Feedback: Debug Export Session download
 

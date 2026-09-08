@@ -40,7 +40,7 @@ export function archiveExportHelperText(
 }
 
 export const ARCHIVE_DEBUG_INCLUDE_HELP =
-  'Default export is audio + manifest only. Debug include adds live snip ranges and transcript text for Isolation Demo comparison.';
+  'Developer debugging only. Default export is audio + manifest only. Debug include adds live snip ranges and transcript text for Isolation Demo comparison.';
 
 /**
  * Checkbox off → no include flags (caller uses exportSessionArchive(sessionId)).

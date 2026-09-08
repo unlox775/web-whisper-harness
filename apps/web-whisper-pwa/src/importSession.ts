@@ -11,7 +11,7 @@ export type ImportedArchiveFlags = {
 export const ARCHIVE_IMPORT_ACCEPT = '.zip,application/zip,application/x-zip-compressed';
 
 export const ARCHIVE_IMPORT_HELP =
-  'Slim zip (chunks + manifest) imports as a playable session. Debug zip also restores snips, transcripts, and volume profile when those files are present. Import always creates a new session id so an existing recording is never overwritten.';
+  'Developer debugging only. Slim zip (chunks + manifest) imports as a playable session. Debug zip also restores snips, transcripts, and volume profile when those files are present. Import always creates a new session id so an existing recording is never overwritten.';
 
 export function isArchiveImportError(value: unknown): value is ArchiveImportError {
   return Boolean(

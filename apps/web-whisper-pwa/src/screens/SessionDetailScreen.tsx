@@ -23,6 +23,7 @@ import {
   sessionArchiveExportOptions,
   triggerBlobDownload,
 } from '../exportSession';
+import { sessionArchiveToolsVisible } from '../sessionArchiveUi';
 
 function isErrorResult(value: PlaybackHandle | { error: string }): value is { error: string } {
   return 'error' in value;
@@ -352,7 +353,7 @@ export function SessionDetailScreen() {
   }
 
   async function downloadSessionArchive() {
-    if (exporting) return;
+    if (exporting || !sessionArchiveToolsVisible(app.settings.developerModeEnabled)) return;
     setExporting(true);
     try {
       const options = sessionArchiveExportOptions(includeDebugArtifacts);
@@ -613,38 +614,40 @@ export function SessionDetailScreen() {
               <p className="kicker" style={{ marginBottom: 12 }}>
                 {snipsTab === 'chunks' ? `CHUNKS (${chunks.length})` : `SNIPS (${snips.length})`} · {format}
               </p>
-              <div className="session-detail-export">
-                <label className="session-detail-debug-include">
-                  <input
-                    type="checkbox"
-                    checked={includeDebugArtifacts}
-                    onChange={(event) => setIncludeDebugArtifacts(event.target.checked)}
-                  />
-                  <span>
-                    <span className="session-detail-debug-include-label">
-                      Include snips + transcripts (debug)
+              {sessionArchiveToolsVisible(app.settings.developerModeEnabled) ? (
+                <div className="session-detail-export">
+                  <label className="session-detail-debug-include">
+                    <input
+                      type="checkbox"
+                      checked={includeDebugArtifacts}
+                      onChange={(event) => setIncludeDebugArtifacts(event.target.checked)}
+                    />
+                    <span>
+                      <span className="session-detail-debug-include-label">
+                        Include snips + transcripts (debug)
+                      </span>
+                      <span className="tiny muted session-detail-debug-include-help">
+                        {ARCHIVE_DEBUG_INCLUDE_HELP}
+                      </span>
                     </span>
-                    <span className="tiny muted session-detail-debug-include-help">
-                      {ARCHIVE_DEBUG_INCLUDE_HELP}
-                    </span>
-                  </span>
-                </label>
-                <button
-                  type="button"
-                  className="cta-outline"
-                  disabled={exporting}
-                  aria-describedby="session-export-hint"
-                  onClick={() => void downloadSessionArchive()}
-                >
-                  {exporting ? 'Exporting…' : 'Export Session'}
-                </button>
-                <p id="session-export-hint" className="tiny muted session-detail-export-hint">
-                  {archiveHint ??
-                    (includeDebugArtifacts
-                      ? 'Debug zip includes live snip ranges, transcript text, and volume profile.'
-                      : 'Slim zip: audio chunks + manifest only.')}
-                </p>
-              </div>
+                  </label>
+                  <button
+                    type="button"
+                    className="cta-outline"
+                    disabled={exporting}
+                    aria-describedby="session-export-hint"
+                    onClick={() => void downloadSessionArchive()}
+                  >
+                    {exporting ? 'Exporting…' : 'Export session zip'}
+                  </button>
+                  <p id="session-export-hint" className="tiny muted session-detail-export-hint">
+                    {archiveHint ??
+                      (includeDebugArtifacts
+                        ? 'Debug zip includes live snip ranges, transcript text, and volume profile.'
+                        : 'Slim zip: audio chunks + manifest only.')}
+                  </p>
+                </div>
+              ) : null}
               <div className="pills" style={{ marginBottom: 16 }}>
                 <button
                   className={`pill ${snipsTab === 'chunks' ? 'active' : ''}`}
