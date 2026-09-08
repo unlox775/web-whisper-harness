@@ -21,8 +21,8 @@ This demo is **not** a one-shot “Compute Volume on the whole take.” That is 
 ## Runtime
 
 - **Platform**: Web app (local dev server, factory floor)
-- **Viewport**: Desktop browser, wide split (not phone-shaped). iPhone (~390) is supported for histogram **touch-drag pan** only — diagnosis layout is still the 3-column factory floor.
-- **Layout**: Inputs left / volume profile + reason center / outputs right. **Center is viewport-capped** (histogram fixed 280px desktop / 220px narrow; document stays `100dvh`, no `zoom: 0.5`). Left and right scroll independently when they overflow. Archive manifest/chunk/profile dumps stay behind **Show archive metadata** (default off).
+- **Viewport**: Desktop browser, wide split (not phone-shaped). iPhone (~390) stacks Inputs / Histogram / Outputs and is supported for histogram **touch-drag pan**.
+- **Layout**: Inputs left / volume profile + reason center / outputs right. **Center is viewport-capped** (histogram fixed 280px desktop / 250px narrow — was 220; document stays `100dvh`, no `zoom: 0.5`). On iPhone the stacked factory floor is zoomed out ~50% vs the old 26vh Inputs / leftover Outputs split: compact chrome, Inputs and Outputs share remaining height equally and scroll inside their panes. Archive manifest/chunk/profile dumps stay behind **Show archive metadata** (default off).
 - **Launch**: `cd packages/lib/volume-analyzer/isolation-demo && npm start`
 
 ## Data Mode
@@ -63,8 +63,9 @@ The demo does **not** open `web-whisper-db`. Chunks / profiles / frozen snips li
 │ ☐ metadata dump │ Zoom + scrollbar + touch pan │ Floor history           │
 │ ▸ Offline batch │ Reason strip                 │ Events / telemetry      │
 └─────────────────┴──────────────────────────────┴─────────────────────────┘
-Center histogram is a fixed-height box (280px / 220px). The page itself never unlocks to `height: auto` — that was the Pages mile-tall scroll.
-Left / right overflow scrolls inside the column, not the whole page.
+Center histogram is a fixed-height box (280px desktop / 250px narrow). The page itself never unlocks to `height: auto` — that was the Pages mile-tall scroll.
+Left / right (upper / lower on iPhone) overflow scrolls inside the pane, not the whole page.
+On ~390 the three stacked panes are sized to be readable — not a 26vh Inputs sliver plus a leftover Outputs strip.
 ```
 
 ### 1. Top Chrome Panel (fixed header, full width)
