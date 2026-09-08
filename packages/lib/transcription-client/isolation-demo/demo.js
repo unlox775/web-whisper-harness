@@ -3,16 +3,31 @@
  *
  * Live mic (capture-engine, in-memory) is the primary audio path.
  * Fixture blob remains optional. Session archive zip is parsed with
- * session-store parseSessionArchive and concatenated like live chunks.
- * API key stays in the input and is not written to PWA localStorage
- * (`groq_api_key`). Reserved unused prefix: `ww-iso-transcription-client:`.
+ * session-store parseSessionArchive.
+ *
+ * API key: field is never disabled (paste on mobile + desktop). Persisted
+ * under ww-iso-transcription-client:groqApiKey. On load, also tries PWA
+ * groq_api_key (read-only). Does not write PWA settings.
+ *
+ * Archive + mock refuses. Archive + live Groq steps snips when present,
+ * else chunks (slim zip).
  */
 
 import { validateKey, transcribeAudio } from '../src/index.js';
 import { createFixtureAudioBlob } from '../src/fixture.js';
 import { startCapture, CaptureError } from '@web-whisper/capture-engine';
 import { parseSessionArchive } from '@web-whisper/session-store';
-import { loadSessionArchiveForTranscribe } from './archiveSource.js';
+import {
+  ARCHIVE_MOCK_REFUSE,
+  describeArchiveStepUnits,
+  loadSessionArchiveForTranscribe,
+} from './archiveSource.js';
+import {
+  applyPastedKey,
+  describeKeySource,
+  loadStoredApiKey,
+  persistDemoApiKey,
+} from './apiKeyStore.js';
 import '../../../isolation-demo-shared/compact-mobile.css';
 
 let currentMode = 'fixture';
@@ -20,15 +35,22 @@ let audioSource = 'live';
 let fixtureAudioBlob = null;
 let liveBlobs = [];
 let archiveBlob = null;
+let archiveUnits = [];
+let archiveUnitKind = 'chunk';
+let nextUnitIndex = 0;
 let captureHandle = null;
 let meterTimer = null;
 let isValidKey = false;
+let transcriptLines = [];
 
 const liveModeToggle = document.getElementById('liveModeToggle');
 const modeChip = document.getElementById('modeChip');
 const apiKeyInput = document.getElementById('apiKeyInput');
+const pasteKeyBtn = document.getElementById('pasteKeyBtn');
+const keySourceStatus = document.getElementById('keySourceStatus');
 const validateKeyBtn = document.getElementById('validateKeyBtn');
 const transcribeBtn = document.getElementById('transcribeBtn');
+const stepNextBtn = document.getElementById('stepNextBtn');
 const resetBtn = document.getElementById('resetBtn');
 const errorSimSection = document.getElementById('errorSimSection');
 const simNetworkBtn = document.getElementById('simNetworkBtn');
@@ -46,10 +68,40 @@ const liveCaptureSection = document.getElementById('liveCaptureSection');
 const archiveSection = document.getElementById('archiveSection');
 const archiveFileInput = document.getElementById('archiveFileInput');
 const archiveStatus = document.getElementById('archiveStatus');
+const archiveMockWarning = document.getElementById('archiveMockWarning');
+const archiveStepStatus = document.getElementById('archiveStepStatus');
 const audioSourceRadios = document.querySelectorAll('input[name="audioSource"]');
+
+function storage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function restoreApiKey() {
+  const loaded = loadStoredApiKey(storage());
+  if (loaded.key) {
+    apiKeyInput.value = loaded.key;
+    keySourceStatus.textContent = describeKeySource(loaded.source);
+  } else {
+    keySourceStatus.textContent = 'No saved key. Paste or type — it will persist here.';
+  }
+  updateValidateButton();
+}
+
+function persistCurrentKey() {
+  persistDemoApiKey(apiKeyInput.value, storage());
+}
+
+function updateValidateButton() {
+  validateKeyBtn.disabled = !apiKeyInput.value.trim();
+}
 
 function init() {
   fixtureAudioBlob = createFixtureAudioBlob();
+  restoreApiKey();
   setupEventListeners();
   updateUIForMode();
   updateAudioSourceUI();
@@ -59,10 +111,11 @@ function setupEventListeners() {
   liveModeToggle.addEventListener('change', handleModeToggle);
   validateKeyBtn.addEventListener('click', handleValidateKey);
   transcribeBtn.addEventListener('click', () => handleTranscribe());
+  stepNextBtn.addEventListener('click', () => handleTranscribe({ stepOnce: true }));
   resetBtn.addEventListener('click', handleReset);
-  simNetworkBtn.addEventListener('click', () => handleTranscribe('network_failure'));
-  simRateLimitBtn.addEventListener('click', () => handleTranscribe('rate_limit'));
-  simInvalidAudioBtn.addEventListener('click', () => handleTranscribe('invalid_audio'));
+  simNetworkBtn.addEventListener('click', () => handleTranscribe({ simulateError: 'network_failure' }));
+  simRateLimitBtn.addEventListener('click', () => handleTranscribe({ simulateError: 'rate_limit' }));
+  simInvalidAudioBtn.addEventListener('click', () => handleTranscribe({ simulateError: 'invalid_audio' }));
   recordBtn.addEventListener('click', handleRecordStart);
   recordStopBtn.addEventListener('click', handleRecordStop);
   audioSourceRadios.forEach((radio) => {
@@ -73,6 +126,61 @@ function setupEventListeners() {
     });
   });
   archiveFileInput.addEventListener('change', handleArchiveUpload);
+  apiKeyInput.addEventListener('input', () => {
+    persistCurrentKey();
+    updateValidateButton();
+  });
+  apiKeyInput.addEventListener('paste', handleApiKeyPaste);
+  pasteKeyBtn.addEventListener('click', handlePasteKeyButton);
+}
+
+function handleApiKeyPaste(event) {
+  const pasted =
+    event.clipboardData?.getData('text') ||
+    event.clipboardData?.getData('text/plain') ||
+    '';
+  if (!pasted) {
+    // Let the browser apply native paste (iOS long-press).
+    queueMicrotask(() => {
+      persistCurrentKey();
+      updateValidateButton();
+    });
+    return;
+  }
+  event.preventDefault();
+  const next = applyPastedKey(
+    apiKeyInput.value,
+    apiKeyInput.selectionStart,
+    apiKeyInput.selectionEnd,
+    pasted
+  );
+  apiKeyInput.value = next;
+  persistCurrentKey();
+  updateValidateButton();
+  keySourceStatus.textContent = 'Pasted into demo key field (saved).';
+}
+
+async function handlePasteKeyButton() {
+  apiKeyInput.focus();
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      apiKeyInput.value = applyPastedKey(
+        apiKeyInput.value,
+        apiKeyInput.selectionStart,
+        apiKeyInput.selectionEnd,
+        text
+      );
+      persistCurrentKey();
+      updateValidateButton();
+      keySourceStatus.textContent = 'Pasted from clipboard (saved).';
+      return;
+    }
+  } catch {
+    // iOS Safari often blocks clipboard.readText without a prior copy.
+  }
+  keySourceStatus.textContent =
+    'Clipboard API blocked. Long-press the key field and choose Paste.';
 }
 
 function sourceChipLabel() {
@@ -92,6 +200,8 @@ function updateAudioSourceUI() {
   if (audioSource === 'live') {
     updateLiveAudioStatus();
   }
+  updateArchiveWarning();
+  updateStepControls();
 }
 
 function resetArchiveStatus(message = 'Choose a session archive zip, then Transcribe.') {
@@ -104,11 +214,46 @@ function showArchiveError(message) {
   archiveStatus.classList.add('error');
 }
 
+function updateArchiveWarning() {
+  const show = audioSource === 'archive' && currentMode !== 'live' && archiveUnits.length > 0;
+  archiveMockWarning.hidden = !show;
+}
+
+function updateStepControls() {
+  const archiveReady = audioSource === 'archive' && archiveUnits.length > 0;
+  stepNextBtn.hidden = !archiveReady;
+  if (!archiveReady) {
+    archiveStepStatus.textContent = 'Step next is available after a zip is loaded.';
+    transcribeBtn.textContent = 'Transcribe Audio';
+    return;
+  }
+  const remaining = archiveUnits.length - nextUnitIndex;
+  const unitWord = archiveUnitKind === 'snip' ? 'snip' : 'chunk';
+  stepNextBtn.textContent = remaining > 0 ? `Next ${unitWord}` : `Next ${unitWord} (done)`;
+  stepNextBtn.disabled = remaining <= 0 || (currentMode === 'live' && !isValidKey);
+  transcribeBtn.textContent = remaining > 0 ? 'Transcribe remaining' : 'Transcribe remaining (done)';
+  if (nextUnitIndex < archiveUnits.length) {
+    const unit = archiveUnits[nextUnitIndex];
+    const range =
+      Number.isFinite(unit.startTime) && Number.isFinite(unit.endTime)
+        ? ` ${Number(unit.startTime).toFixed(1)}–${Number(unit.endTime).toFixed(1)}s`
+        : '';
+    archiveStepStatus.textContent = `${nextUnitIndex + 1} / ${archiveUnits.length} · next ${unit.label}${range}`;
+  } else {
+    archiveStepStatus.textContent = `All ${archiveUnits.length} ${unitWord}(s) transcribed.`;
+  }
+}
+
 async function handleArchiveUpload(event) {
   const file = event.target.files && event.target.files[0];
   archiveBlob = null;
+  archiveUnits = [];
+  archiveUnitKind = 'chunk';
+  nextUnitIndex = 0;
   if (!file) {
     resetArchiveStatus();
+    updateArchiveWarning();
+    updateStepControls();
     return;
   }
 
@@ -118,14 +263,21 @@ async function handleArchiveUpload(event) {
   const result = await loadSessionArchiveForTranscribe(file, parseSessionArchive);
   if (result.error) {
     showArchiveError(result.error);
+    updateArchiveWarning();
+    updateStepControls();
     return;
   }
 
   archiveBlob = result.blob;
+  archiveUnits = result.units;
+  archiveUnitKind = result.unitKind;
+  nextUnitIndex = 0;
   const sessionLabel = result.sessionId ? `Session ${result.sessionId}` : 'Session archive';
   resetArchiveStatus(
-    `${sessionLabel}: ${result.chunkCount} audio chunk(s) concatenated (not persisted)`
+    `${sessionLabel}: ${result.chunkCount} audio chunk(s). ${describeArchiveStepUnits(result)}`
   );
+  updateArchiveWarning();
+  updateStepControls();
 }
 
 function updateLiveAudioStatus() {
@@ -140,24 +292,24 @@ function updateUIForMode() {
   if (currentMode === 'live') {
     modeChip.textContent = 'LIVE GROQ + ' + sourceChipLabel();
     modeChip.className = 'mode-chip mode-live';
-    apiKeyInput.disabled = false;
-    validateKeyBtn.disabled = false;
     transcribeBtn.disabled = !isValidKey;
     errorSimSection.style.display = 'none';
   } else {
     if (audioSource === 'live') {
       modeChip.textContent = 'LIVE MIC (mock transcript until Groq is on)';
     } else if (audioSource === 'archive') {
-      modeChip.textContent = 'SESSION ARCHIVE (mock transcript)';
+      modeChip.textContent = 'SESSION ARCHIVE (mock — will not transcribe zip)';
     } else {
       modeChip.textContent = 'FIXTURE MODE (mock transcript)';
     }
     modeChip.className = 'mode-chip mode-fixture';
-    apiKeyInput.disabled = true;
-    validateKeyBtn.disabled = true;
     transcribeBtn.disabled = false;
     errorSimSection.style.display = 'block';
   }
+  apiKeyInput.disabled = false;
+  updateValidateButton();
+  updateArchiveWarning();
+  updateStepControls();
 }
 
 async function handleRecordStart() {
@@ -237,6 +389,30 @@ function missingAudioMessage() {
   return 'No live audio yet. Start Capture, speak, then Stop Capture.';
 }
 
+function showArchiveMockRefuse() {
+  transcriptOutput.textContent = ARCHIVE_MOCK_REFUSE;
+  transcriptOutput.className = 'transcript-output error';
+  languageBadge.style.display = 'none';
+}
+
+function renderTranscript() {
+  if (transcriptLines.length === 0) {
+    transcriptOutput.textContent = "Click 'Transcribe Audio' to generate transcript";
+    transcriptOutput.className = 'transcript-output placeholder';
+    return;
+  }
+  transcriptOutput.textContent = transcriptLines.join('\n\n');
+  transcriptOutput.className = 'transcript-output success';
+}
+
+function formatUnitHeader(unit, index, total) {
+  const range =
+    Number.isFinite(unit.startTime) && Number.isFinite(unit.endTime)
+      ? ` ${Number(unit.startTime).toFixed(1)}–${Number(unit.endTime).toFixed(1)}s`
+      : '';
+  return `[${index + 1}/${total}] ${unit.label}${range}`;
+}
+
 async function handleValidateKey() {
   const apiKey = apiKeyInput.value.trim();
 
@@ -245,6 +421,7 @@ async function handleValidateKey() {
     return;
   }
 
+  persistCurrentKey();
   validationStatus.textContent = 'Validating...';
   validationStatus.className = 'status-badge status-neutral';
   validationReason.textContent = '';
@@ -260,14 +437,15 @@ async function handleValidateKey() {
     } else {
       updateValidationStatus(false, result.reason);
       isValidKey = false;
-      transcribeBtn.disabled = true;
+      transcribeBtn.disabled = currentMode === 'live';
     }
   } catch (error) {
     updateValidationStatus(false, 'Validation failed: ' + error.message);
     isValidKey = false;
-    transcribeBtn.disabled = true;
+    transcribeBtn.disabled = currentMode === 'live';
   } finally {
-    validateKeyBtn.disabled = false;
+    updateValidateButton();
+    updateStepControls();
   }
 }
 
@@ -283,7 +461,46 @@ function updateValidationStatus(valid, reason = '') {
   }
 }
 
-async function handleTranscribe(simulateError = null) {
+async function transcribeOneBlob(blob, simulateError) {
+  const options = {
+    mode: currentMode,
+  };
+
+  if (currentMode === 'live') {
+    options.apiKey = apiKeyInput.value.trim();
+  } else if (simulateError) {
+    options.simulateError = simulateError;
+  }
+
+  return transcribeAudio(blob, options);
+}
+
+async function handleTranscribe(arg = null) {
+  const stepOnce = Boolean(arg && typeof arg === 'object' && arg.stepOnce);
+  const simulateError =
+    typeof arg === 'string' ? arg : arg && typeof arg === 'object' ? arg.simulateError : null;
+
+  if (audioSource === 'archive') {
+    if (archiveUnits.length === 0) {
+      transcriptOutput.textContent = missingAudioMessage();
+      transcriptOutput.className = 'transcript-output error';
+      return;
+    }
+    if (currentMode !== 'live') {
+      showArchiveMockRefuse();
+      return;
+    }
+    transcribeBtn.disabled = true;
+    stepNextBtn.disabled = true;
+    try {
+      await transcribeArchiveUnits({ stepOnce });
+    } finally {
+      transcribeBtn.disabled = currentMode === 'live' && !isValidKey;
+      updateStepControls();
+    }
+    return;
+  }
+
   const blob = audioBlobForTranscribe();
   if (!blob) {
     transcriptOutput.textContent = missingAudioMessage();
@@ -297,24 +514,15 @@ async function handleTranscribe(simulateError = null) {
   transcribeBtn.disabled = true;
 
   try {
-    const options = {
-      mode: currentMode,
-    };
-
-    if (currentMode === 'live') {
-      options.apiKey = apiKeyInput.value.trim();
-    } else if (simulateError) {
-      options.simulateError = simulateError;
-    }
-
-    const result = await transcribeAudio(blob, options);
+    const result = await transcribeOneBlob(blob, simulateError);
 
     if (result.error) {
       transcriptOutput.textContent = `Error: ${result.error}`;
       transcriptOutput.className = 'transcript-output error';
       languageBadge.style.display = 'none';
     } else {
-      transcriptOutput.textContent = result.text;
+      const prefix = currentMode === 'fixture' ? 'MOCK (fixture blob)\n' : '';
+      transcriptOutput.textContent = prefix + result.text;
       transcriptOutput.className = 'transcript-output success';
 
       if (result.language) {
@@ -330,6 +538,49 @@ async function handleTranscribe(simulateError = null) {
     languageBadge.style.display = 'none';
   } finally {
     transcribeBtn.disabled = currentMode === 'live' && !isValidKey;
+    updateStepControls();
+  }
+}
+
+async function transcribeArchiveUnits({ stepOnce }) {
+  if (nextUnitIndex >= archiveUnits.length) {
+    archiveStepStatus.textContent = `All ${archiveUnits.length} ${archiveUnitKind}(s) transcribed.`;
+    return;
+  }
+
+  const end = stepOnce ? nextUnitIndex + 1 : archiveUnits.length;
+  languageBadge.style.display = 'none';
+
+  for (let i = nextUnitIndex; i < end; i++) {
+    const unit = archiveUnits[i];
+    transcriptOutput.textContent = `Transcribing ${formatUnitHeader(unit, i, archiveUnits.length)}…`;
+    transcriptOutput.className = 'transcript-output loading';
+
+    try {
+      const result = await transcribeOneBlob(unit.blob, null);
+      if (result.error) {
+        transcriptLines.push(`${formatUnitHeader(unit, i, archiveUnits.length)}\nError: ${result.error}`);
+        nextUnitIndex = i;
+        renderTranscript();
+        transcriptOutput.className = 'transcript-output error';
+        return;
+      }
+      const text = result.text || '(empty)';
+      const lang = result.language ? ` · language ${result.language}` : '';
+      transcriptLines.push(`${formatUnitHeader(unit, i, archiveUnits.length)}${lang}\n${text}`);
+      nextUnitIndex = i + 1;
+      renderTranscript();
+      if (result.language) {
+        languageCode.textContent = result.language;
+        languageBadge.style.display = 'block';
+      }
+    } catch (error) {
+      transcriptLines.push(`${formatUnitHeader(unit, i, archiveUnits.length)}\nError: ${error.message}`);
+      nextUnitIndex = i;
+      renderTranscript();
+      transcriptOutput.className = 'transcript-output error';
+      return;
+    }
   }
 }
 
@@ -340,9 +591,13 @@ function handleReset() {
   }
   liveBlobs = [];
   archiveBlob = null;
+  archiveUnits = [];
+  archiveUnitKind = 'chunk';
+  nextUnitIndex = 0;
   archiveFileInput.value = '';
   resetArchiveStatus();
   updateLiveAudioStatus();
+  transcriptLines = [];
 
   transcriptOutput.textContent = "Click 'Transcribe Audio' to generate transcript";
   transcriptOutput.className = 'transcript-output placeholder';
@@ -353,10 +608,8 @@ function handleReset() {
   validationReason.textContent = '';
   isValidKey = false;
 
-  if (currentMode === 'live') {
-    apiKeyInput.value = '';
-    transcribeBtn.disabled = true;
-  }
+  updateArchiveWarning();
+  updateUIForMode();
 }
 
 init();

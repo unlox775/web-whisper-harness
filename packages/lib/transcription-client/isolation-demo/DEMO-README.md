@@ -34,23 +34,29 @@ This isolation demo proves that transcription-client works correctly:
 
 1. Choose **Upload session archive** as the audio source
 2. Pick a `web-whisper-session-*.zip` exported from session-store (spec `20260904180001`)
-3. The demo calls `parseSessionArchive` and concatenates non-null chunk blobs (same one-shot blob as live mic)
-4. Click **Transcribe Audio** — fixture mock or live Groq, depending on the toggle. Transcripts stay in the panel (not written to IndexedDB)
-5. Bad zip → **Cannot read archive**. Wrong `formatVersion` / not a session archive → **Unsupported or invalid archive**. Purged / metadata-only → **No audio in archive to transcribe**
+3. The demo calls `parseSessionArchive` and builds **step units**:
+   - **Snips** when `snips.json` is present and audio can be assembled (concat `chunkIds`, same as PWA live path; empty `chunkIds` → time overlap)
+   - **Chunks** for slim zips (no snips.json, or `hasSnips` flag only)
+4. In **mock** mode, **Transcribe remaining** / **Next** refuse: `Switch to Live Groq API to transcribe this archive`. They do **not** return the fixture sentence.
+5. Toggle **Live Groq API**, paste/validate a key, then **Next snip/chunk** (one unit) or **Transcribe remaining** (sequential remaining units). Each live unit hits Groq. Transcripts stay in the panel (not written to IndexedDB)
+6. Bad zip → **Cannot read archive**. Wrong `formatVersion` / not a session archive → **Unsupported or invalid archive**. Purged / metadata-only → **No audio in archive to transcribe**
 
 ### Live Mode (Groq API Key Required)
 
-1. Toggle **"Enable Live Mode"** ON
-2. Enter your Groq API key (starts with `gsk_...`)
-3. Click **"Validate Key"** → see validation result (Valid ✓ or Invalid ✗)
-4. Click **"Transcribe Audio"** → see real transcript from Groq
-5. Language badge appears if Groq returns language code
+1. The key field is always enabled — **paste** (long-press on iPhone, Cmd/Ctrl-V, or **Paste** button). The field is never disabled.
+2. Key is saved as `ww-iso-transcription-client:groqApiKey` and restored on reload. If that is empty, the demo **reads** PWA `groq_api_key` (does not write it).
+3. Toggle **"Live Groq API"** ON
+4. Click **"Validate Key"** → see validation result (Valid ✓ or Invalid ✗)
+5. Click **"Transcribe Audio"** (or Next / Transcribe remaining on an archive) → see real transcript from Groq
+6. Language badge appears if Groq returns language code
 
 ## Features Demonstrated
 
 ✓ API key validation (live mode)  
 ✓ Audio transcription (fixture + live modes)  
-✓ Session archive zip as transcribe source (`parseSessionArchive`, concatenated chunks)  
+✓ Session archive zip as transcribe source (`parseSessionArchive`, snip or chunk step-through)  
+✓ Archive + mock refuse copy (never unlabeled fixture text)  
+✓ Groq key paste + persist (`ww-iso-transcription-client:groqApiKey`, optional read of `groq_api_key`)  
 ✓ Error handling (network failure, rate limit, invalid key, invalid audio)  
 ✓ Retry logic with exponential backoff  
 ✓ Structured error results (no thrown exceptions)  
@@ -78,4 +84,4 @@ This isolation demo proves that transcription-client works correctly:
 
 ⚠️ **Never commit API keys to the repository**
 
-The demo stores your API key in browser memory only. When you close the page, the key is lost. Enter it again when you return to the demo.
+The demo writes the key only to `localStorage['ww-iso-transcription-client:groqApiKey']`. It never writes PWA `groq_api_key` or IndexedDB. Reload restores the demo key, or the PWA key if the demo key is missing.

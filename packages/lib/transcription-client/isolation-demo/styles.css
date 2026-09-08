@@ -127,6 +127,50 @@ body {
   background-color: #333;
 }
 
+.field-hint {
+  font-size: 0.75rem;
+  color: #888;
+  line-height: 1.35;
+}
+
+.field-hint code {
+  font-size: 0.7rem;
+  color: #00cccc;
+  word-break: break-all;
+}
+
+.key-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.key-row input {
+  flex: 1;
+  min-width: 0;
+  -webkit-user-select: text;
+  user-select: text;
+  pointer-events: auto;
+}
+
+.key-row .btn {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0.75rem 0.85rem;
+}
+
+#apiKeyInput {
+  -webkit-user-select: text;
+  user-select: text;
+  pointer-events: auto;
+}
+
+.archive-mock-warning {
+  font-size: 0.8rem;
+  color: #e6b800;
+  line-height: 1.35;
+}
+
 .radio-row {
   display: flex;
   align-items: center;

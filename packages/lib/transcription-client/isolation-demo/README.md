@@ -20,9 +20,24 @@ Proves that transcription-client:
 
 **Fixture by default** (simulated snip with known transcription result: "This is a test transcription from fixture audio"). Optionally, **live mode with real Groq API** (user supplies API key, demo sends real HTTP request).
 
-**Audio sources:** live microphone, optional fixture blob, or **Upload session archive** (zip). Archive bytes come from session-store `parseSessionArchive` and are concatenated into one blob, matching live capture. Transcripts stay in the demo panel.
+**Audio sources:** live microphone, optional fixture blob, or **Upload session archive** (zip). Archive bytes come from session-store `parseSessionArchive`. Transcripts stay in the demo panel.
+
+**Archive step-through:** prefer **snips** when `snips.json` / `snipsWithTranscripts` has assemble-able audio (PWA live path: concatenate that snip’s `chunkIds` blobs; empty `chunkIds` uses time overlap). Slim zip (chunks only, or `hasSnips: true` without `snips.json`) steps through **chunks**. Next transcribes one unit; Transcribe remaining walks the rest sequentially.
+
+**Archive + mock:** refuse with `Switch to Live Groq API to transcribe this archive`. Never show the fixture sentence as if it were an archive transcript. Live Groq sends each unit on the existing `transcribeAudio(..., { mode: 'live' })` path.
 
 **Safe default**: Fixture mode (no Groq API key required, no network calls, instant mock transcript).
+
+### Groq API key (paste + persist)
+
+The key field is **never disabled** (disabled inputs block iOS / desktop clipboard paste). Type or paste in mock or live.
+
+| Priority | localStorage key | Role |
+| --- | --- | --- |
+| 1 | `ww-iso-transcription-client:groqApiKey` | Demo namespace. Written on type/paste. Restored first on load. |
+| 2 | `groq_api_key` | PWA Settings key. **Read only** if the demo key is missing. Missing is fine. Never written by this demo. |
+
+Reset does **not** wipe the persisted demo key. A **Paste** button tries `navigator.clipboard.readText()`; if the Clipboard API is blocked (common on iOS), long-press the field → Paste.
 
 ## Panel-Based Layout
 
@@ -38,9 +53,10 @@ Proves that transcription-client:
 
 **Components:**
 - Audio source radios: live microphone, fixture blob, **Upload session archive** (zip file input; `parseSessionArchive`)
-- API key input field (text input, placeholder "Enter Groq API key", only enabled when "Enable Live Mode" ON)
-- "Validate Key" button (cyan, full-width, only enabled when live mode ON and API key not empty)
-- "Transcribe Audio" button (cyan, full-width, enabled when: fixture mode always, OR live mode + valid key)
+- API key input field (always enabled for paste/type; placeholder "Paste Groq API key") + **Paste** button
+- "Validate Key" button (cyan, enabled when the key field is non-empty)
+- "Transcribe Audio" / **Transcribe remaining** (archive) and **Next snip** / **Next chunk**
+- "Transcribe Audio" enabled when: fixture mode always (non-archive), OR live mode + valid key. Archive + mock is clickable so the refuse copy can appear.
 - "Reset" button (gray, full-width, clears transcript + validation status; always enabled)
 - Error simulation buttons (only visible in fixture mode, for testing error handling):
   - "Simulate Network Failure" (gray, triggers mock network error)
@@ -48,12 +64,14 @@ Proves that transcription-client:
   - "Simulate Invalid Audio" (gray, triggers mock "unsupported format" error)
 
 **Behaviors:**
-- When "Enable Live Mode" toggled ON → API key input enabled, "Validate Key" button enabled, error simulation buttons hidden
-- When "Validate Key" clicked (live mode) → HTTP call to Groq test endpoint, validation result panel updates (green "Valid" or red "Invalid" with reason)
-- When "Transcribe Audio" clicked (fixture mode) → mock transcript appears immediately in transcript panel ("This is a test transcription from fixture audio")
-- When "Transcribe Audio" clicked (live mode) → HTTP call to Groq transcription endpoint, transcript panel shows "Transcribing..." spinner, then transcript text or error message
+- API key field stays enabled in mock and live so clipboard paste works. "Validate Key" is enabled when the field is non-empty. Error simulation buttons hide when Live Groq is on.
+- When "Validate Key" clicked → HTTP call to Groq test endpoint, validation result panel updates (green "Valid" or red "Invalid" with reason)
+- When "Transcribe Audio" clicked (fixture mode, fixture blob or live mic) → mock transcript appears immediately. Fixture-blob output is prefixed `MOCK (fixture blob)`.
+- When archive is selected in fixture/mock → **refuse**: `Switch to Live Groq API to transcribe this archive` (no fixture sentence).
+- When archive is selected in live Groq → **Next** transcribes one snip (or one chunk if slim); **Transcribe remaining** walks the rest. Each unit is a real Groq request.
+- When "Transcribe Audio" clicked (live mode, non-archive) → HTTP call to Groq transcription endpoint, transcript panel shows "Transcribing..." spinner, then transcript text or error message
 - When error simulation button clicked (fixture mode) → transcript panel shows simulated error (red text: "Network failure: fetch timeout" or "Rate limit: 429 Too Many Requests" or "Invalid audio format: unsupported encoding")
-- When "Reset" clicked → transcript cleared, validation status cleared, API key input cleared (if live mode)
+- When "Reset" clicked → transcript cleared, validation status cleared; persisted API key stays
 
 ### 3. Validation Result Panel (top right quarter of viewport, below chrome)
 
@@ -86,7 +104,7 @@ Proves that transcription-client:
 
 **Before state (page load, fixture mode, no transcription yet):**
 - Top chrome: "FIXTURE MODE (mock transcript)" chip, "Enable Live Mode" toggle OFF
-- Control panel: API key input disabled (gray), "Validate Key" button disabled, "Transcribe Audio" enabled (cyan), "Reset" enabled, error simulation buttons visible
+- Control panel: API key input **enabled** (paste/type), Validate enabled if a key is present, "Transcribe Audio" enabled (cyan), "Reset" enabled, error simulation buttons visible
 - Validation result panel: Status badge "Not validated" (gray), no reason text
 - Transcript panel: Empty, placeholder text "Click 'Transcribe Audio' to generate transcript"
 
@@ -226,7 +244,7 @@ When "Reset" button clicked:
 
 - Clear transcript panel (remove all text, hide language badge)
 - Clear validation result panel (reset status badge to "Not validated", hide reason text)
-- Clear API key input field (if live mode ON)
+- Do **not** clear the persisted API key (or the key field) — reload convenience is the point
 - Do NOT toggle live mode (leave "Enable Live Mode" toggle in its current state)
 - Enable "Transcribe Audio" button (if it was disabled due to invalid key, reset to enabled state based on current mode)
 
