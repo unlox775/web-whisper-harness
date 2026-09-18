@@ -66,16 +66,31 @@ export function playThreeBeepPattern(context?: AudioContext | null): boolean {
   return true;
 }
 
+export const NO_AUDIO_HEARTBEAT_GRACE_MS = 1000;
+
+export function pcmHeartbeatFromStatus(status: {
+  bufferSamples?: number;
+  currentDuration?: number;
+  stalled?: boolean;
+}): boolean {
+  if (status.stalled) return false;
+  return (status.bufferSamples ?? 0) > 0 || (status.currentDuration ?? 0) > 0;
+}
+
 export function shouldShowNoAudioAlert(input: {
   recording: boolean;
-  chunksEncoded: number;
+  pcmHeartbeat?: boolean;
+  chunksEncoded?: number;
   stalled?: boolean;
   noAudioReceived?: boolean;
+  msSinceRecordingStart?: number;
 }): boolean {
   if (!input.recording) return false;
+  if (input.pcmHeartbeat) return false;
   if (input.noAudioReceived) return true;
   if (input.stalled) return true;
-  return input.chunksEncoded === 0;
+  const elapsed = input.msSinceRecordingStart ?? 0;
+  return elapsed >= NO_AUDIO_HEARTBEAT_GRACE_MS;
 }
 
 export function firstBeepDelayMs(alertStartedAt: number, now = Date.now()): number {

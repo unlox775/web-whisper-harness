@@ -5,6 +5,7 @@ import {
   proposeSnipsForSession,
 } from '@web-whisper/volume-analyzer';
 import { assembleSnipTranscriptionBlob } from './assembleSnipAudio';
+import { emitTranscriptionEvent } from './transcriptionEvents';
 import type { SnipRecord, TranscriptRecord } from './types';
 
 export { buildTranscriptText } from './transcriptText';
@@ -151,6 +152,11 @@ async function transcribePendingSnips(
       }
       await sessionStore.writeTranscript(snip.id, result.text || '');
       completed += 1;
+      emitTranscriptionEvent({
+        type: 'snip-complete',
+        sessionId: snip.sessionId,
+        snipId: snip.id,
+      });
       if (onTranscriptWritten) {
         await onTranscriptWritten();
       }
@@ -199,6 +205,7 @@ export function ingestGrowingSession(
       );
       failures.push(...outcome.failures);
       ({ snips, transcripts } = await loadDurableState(sessionId));
+      emitTranscriptionEvent({ type: 'transcription-finished', sessionId });
     }
 
     return { snips, transcripts, failures };
@@ -230,6 +237,7 @@ export async function transcribeSession(
     onProgress,
     options?.onTranscriptWritten
   );
+  emitTranscriptionEvent({ type: 'transcription-finished', sessionId });
   return {
     total: snips.length,
     completed: outcome.completed,

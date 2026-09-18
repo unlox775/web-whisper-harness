@@ -5,7 +5,7 @@ import { SessionDetailScreen } from './screens/SessionDetailScreen';
 import { SettingsModal } from './screens/SettingsModal';
 import { DeveloperConsole } from './screens/DeveloperConsole';
 import {
-  isHomeAfterStopScreenshot,
+  isHomeTileScreenshot,
   isRecordScreenshot,
   isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
@@ -16,7 +16,7 @@ function Shell() {
   const app = useApp();
   const screenshot = readScreenshotMode();
   const recording = app.screen === 'recording' || isRecordScreenshot(screenshot);
-  const homePreview = isHomeAfterStopScreenshot(screenshot);
+  const homePreview = isHomeTileScreenshot(screenshot);
   const sessionPreview =
     isSessionTranscribedScreenshot(screenshot) || isSessionSnipsScreenshot(screenshot);
 

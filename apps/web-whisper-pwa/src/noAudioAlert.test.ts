@@ -7,17 +7,55 @@ import {
   firstBeepDelayMs,
   playThreeBeepPattern,
   scheduleNoAudioBeeps,
+  pcmHeartbeatFromStatus,
   shouldShowNoAudioAlert,
 } from './noAudioAlert.ts';
 
 describe('shouldShowNoAudioAlert', () => {
-  it('alerts when recording is up and no chunks have arrived yet', () => {
-    assert.equal(shouldShowNoAudioAlert({ recording: true, chunksEncoded: 0 }), true);
+  it('does not alert on Start while live PCM heartbeats are flowing, even before the first 4s chunk', () => {
+    assert.equal(
+      shouldShowNoAudioAlert({
+        recording: true,
+        pcmHeartbeat: true,
+        chunksEncoded: 0,
+        msSinceRecordingStart: 250,
+      }),
+      false
+    );
+  });
+
+  it('does not flash no-audio in the first second before a heartbeat is observed', () => {
+    assert.equal(
+      shouldShowNoAudioAlert({
+        recording: true,
+        pcmHeartbeat: false,
+        chunksEncoded: 0,
+        msSinceRecordingStart: 200,
+      }),
+      false
+    );
+  });
+
+  it('alerts when recording is up and no PCM heartbeats arrive after the grace window', () => {
+    assert.equal(
+      shouldShowNoAudioAlert({
+        recording: true,
+        pcmHeartbeat: false,
+        chunksEncoded: 0,
+        msSinceRecordingStart: 1200,
+      }),
+      true
+    );
   });
 
   it('alerts on mid-stream stall even after chunks exist', () => {
     assert.equal(
-      shouldShowNoAudioAlert({ recording: true, chunksEncoded: 3, stalled: true }),
+      shouldShowNoAudioAlert({
+        recording: true,
+        pcmHeartbeat: false,
+        chunksEncoded: 3,
+        stalled: true,
+      }),
       true
     );
   });
@@ -26,6 +64,7 @@ describe('shouldShowNoAudioAlert', () => {
     assert.equal(
       shouldShowNoAudioAlert({
         recording: true,
+        pcmHeartbeat: false,
         chunksEncoded: 0,
         noAudioReceived: true,
       }),
@@ -33,15 +72,43 @@ describe('shouldShowNoAudioAlert', () => {
     );
   });
 
-  it('clears once chunks are arriving and the stream is not stalled', () => {
+  it('clears once PCM heartbeats are flowing and the stream is not stalled', () => {
     assert.equal(
-      shouldShowNoAudioAlert({ recording: true, chunksEncoded: 1, stalled: false }),
+      shouldShowNoAudioAlert({
+        recording: true,
+        pcmHeartbeat: true,
+        chunksEncoded: 1,
+        stalled: false,
+      }),
       false
     );
   });
 
   it('does not alert when not recording', () => {
-    assert.equal(shouldShowNoAudioAlert({ recording: false, chunksEncoded: 0 }), false);
+    assert.equal(shouldShowNoAudioAlert({ recording: false, pcmHeartbeat: false }), false);
+  });
+});
+
+describe('pcmHeartbeatFromStatus', () => {
+  it('treats live PCM queue samples as a heartbeat before any chunk encodes', () => {
+    assert.equal(
+      pcmHeartbeatFromStatus({ bufferSamples: 2048, currentDuration: 0, stalled: false }),
+      true
+    );
+  });
+
+  it('treats growing capture duration as a heartbeat while the stream is live', () => {
+    assert.equal(
+      pcmHeartbeatFromStatus({ bufferSamples: 0, currentDuration: 0.4, stalled: false }),
+      true
+    );
+  });
+
+  it('is false when the stream is stalled even if duration is non-zero', () => {
+    assert.equal(
+      pcmHeartbeatFromStatus({ bufferSamples: 0, currentDuration: 8, stalled: true }),
+      false
+    );
   });
 });
 
