@@ -152,7 +152,7 @@ export function HomeScreen() {
     });
     const timer = window.setTimeout(() => {
       emitTranscriptionEvent({ type: 'transcription-finished', sessionId });
-    }, 900);
+    }, 2500);
     return () => {
       stop();
       window.clearTimeout(timer);
