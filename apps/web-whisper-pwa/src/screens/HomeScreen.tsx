@@ -1,29 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { useApp } from '../context';
 import { transcribeSession } from '../orchestration';
+import { computeSessionBadge, sessionTilePreview, type SessionTilePreview } from '../sessionTile';
+import { emitTranscriptionEvent, subscribeSessionTranscription } from '../transcriptionEvents';
 import type { SessionRecord, SnipRecord, TranscriptRecord } from '../types';
 import {
   homeAfterStopPreview,
+  homeAfterStopStalePreview,
   isHomeAfterStopScreenshot,
+  isHomeAfterStopStaleScreenshot,
+  isHomeTileLiveScreenshot,
   readScreenshotMode,
 } from '../screenshotMode';
 
 const GROQ_CONSOLE = 'https://console.groq.com/keys';
-
-type SessionBadge = 'ready' | 'part-tx' | null;
-
-function computeSessionBadge(
-  session: SessionRecord,
-  snipCount: number,
-  transcriptCount: number
-): SessionBadge {
-  if (!session.hasSnips || snipCount === 0) return null;
-  if (transcriptCount === 0) return null;
-  if (transcriptCount < snipCount) return 'part-tx';
-  return 'ready';
-}
 
 function SessionCard({
   session,
@@ -37,29 +29,49 @@ function SessionCard({
   previewCounts?: { snipCount: number; transcriptCount: number; snippet: string };
 }) {
   const app = useApp();
-  const [snipCount, setSnipCount] = useState(previewCounts?.snipCount ?? 0);
-  const [transcriptCount, setTranscriptCount] = useState(previewCounts?.transcriptCount ?? 0);
-  const [snippet, setSnippet] = useState(previewCounts?.snippet ?? '');
-
-  useState(() => {
-    if (previewCounts) return;
-    (async () => {
-      const snipsResult = await sessionStore.getSnipsForSession(session.id);
-      const snips = (snipsResult.snips || []) as SnipRecord[];
-      setSnipCount(snips.length);
-
-      const transcriptsResult = await sessionStore.getTranscriptsForSession(session.id);
-      const transcripts = (transcriptsResult.transcripts || []) as TranscriptRecord[];
-      setTranscriptCount(transcripts.length);
-
-      if (transcripts.length > 0) {
-        const text = transcripts.map((t) => t.text).join(' ');
-        setSnippet(text.length > 100 ? text.slice(0, 100) + '...' : text);
-      }
-    })();
+  const [tile, setTile] = useState<SessionTilePreview>({
+    snipCount: previewCounts?.snipCount ?? 0,
+    transcriptCount: previewCounts?.transcriptCount ?? 0,
+    snippet: previewCounts?.snippet ?? '',
+    badge: null,
   });
 
-  const badge = computeSessionBadge(session, snipCount, transcriptCount);
+  useEffect(() => {
+    if (previewCounts) {
+      setTile({
+        snipCount: previewCounts.snipCount,
+        transcriptCount: previewCounts.transcriptCount,
+        snippet: previewCounts.snippet,
+        badge: computeSessionBadge(
+          session,
+          previewCounts.snipCount,
+          previewCounts.transcriptCount
+        ),
+      });
+      return undefined;
+    }
+
+    let cancelled = false;
+    async function loadTile() {
+      const snipsResult = await sessionStore.getSnipsForSession(session.id);
+      const transcriptsResult = await sessionStore.getTranscriptsForSession(session.id);
+      if (cancelled) return;
+      setTile(
+        sessionTilePreview(
+          session,
+          (snipsResult.snips || []) as SnipRecord[],
+          (transcriptsResult.transcripts || []) as TranscriptRecord[]
+        )
+      );
+    }
+
+    void loadTile();
+    return subscribeSessionTranscription(session.id, () => {
+      void loadTile();
+    });
+  }, [previewCounts, session]);
+
+  const { snippet, badge } = tile;
   const showRetry = badge === 'part-tx';
 
   return (
@@ -118,10 +130,34 @@ export function HomeScreen() {
   const app = useApp();
   const capLabel = `${formatBytes(app.usedBytes)} / ${formatBytes(app.capBytes)}`;
   const [retryingSession, setRetryingSession] = useState<string | null>(null);
-  const homePreview = isHomeAfterStopScreenshot(readScreenshotMode())
-    ? homeAfterStopPreview()
-    : null;
+  const screenshot = readScreenshotMode();
+  const liveTile = isHomeTileLiveScreenshot(screenshot);
+  const [liveTileDone, setLiveTileDone] = useState(false);
+  const homePreview = isHomeAfterStopStaleScreenshot(screenshot)
+    ? homeAfterStopStalePreview()
+    : isHomeAfterStopScreenshot(screenshot) || liveTile
+      ? liveTile && !liveTileDone
+        ? homeAfterStopStalePreview()
+        : homeAfterStopPreview()
+      : null;
   const sessions = homePreview ? [homePreview.session] : app.sessions;
+
+  useEffect(() => {
+    if (!liveTile) return undefined;
+    const sessionId = homeAfterStopStalePreview().session.id;
+    const stop = subscribeSessionTranscription(sessionId, (event) => {
+      if (event.type === 'transcription-finished' || event.type === 'snip-complete') {
+        setLiveTileDone(true);
+      }
+    });
+    const timer = window.setTimeout(() => {
+      emitTranscriptionEvent({ type: 'transcription-finished', sessionId });
+    }, 2500);
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+    };
+  }, [liveTile]);
 
   async function handleRetry(sessionId: string) {
     if (!app.settings.groqApiKey || !app.settings.keyValid) return;

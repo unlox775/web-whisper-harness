@@ -5,7 +5,8 @@ export type RecordScreenshotMode =
   | 'record-hud'
   | 'record-dev'
   | 'record-durable'
-  | 'record-no-audio';
+  | 'record-no-audio'
+  | 'record-start-pcm';
 export type IsolationScreenshotMode = 'isolation-settings';
 
 const RECORD_MODES = new Set<string>([
@@ -14,6 +15,7 @@ const RECORD_MODES = new Set<string>([
   'record-dev',
   'record-durable',
   'record-no-audio',
+  'record-start-pcm',
 ]);
 
 const TALL_LIVE_TRANSCRIPT = [
@@ -43,8 +45,11 @@ const DURABLE_SNIP_TRANSCRIPT = [
 const HOME_SNIPPET =
   'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed. We need milk, eggs, sourdough...';
 
+const LONG_SNIP_TRANSCRIPT =
+  'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed. We need milk, eggs, sourdough, the good butter not the cheap one, and those frozen blueberries she actually eats. Also pick up dish soap. The lemon kind. Last time I grabbed unscented and nobody was happy about it. Then after that I have to call the dentist and move Thursday because the recital is at four and parking downtown is a mess. Remind me about the permission slip. It is in the backpack zipper pocket next to the cracked water bottle. END OF FULL SNIP TRANSCRIPT.';
+
 const SESSION_TRANSCRIPT = [
-  'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed.',
+  LONG_SNIP_TRANSCRIPT,
   'We need milk, eggs, sourdough, the good butter not the cheap one, and those frozen blueberries she actually eats.',
 ].join(' ');
 
@@ -73,6 +78,22 @@ export function isHomeAfterStopScreenshot(mode: string | null): boolean {
   return mode === 'home-after-stop';
 }
 
+export function isHomeAfterStopStaleScreenshot(mode: string | null): boolean {
+  return mode === 'home-after-stop-stale';
+}
+
+export function isHomeTileLiveScreenshot(mode: string | null): boolean {
+  return mode === 'home-tile-live';
+}
+
+export function isHomeTileScreenshot(mode: string | null): boolean {
+  return (
+    isHomeAfterStopScreenshot(mode) ||
+    isHomeAfterStopStaleScreenshot(mode) ||
+    isHomeTileLiveScreenshot(mode)
+  );
+}
+
 export function isSessionTranscribedScreenshot(mode: string | null): boolean {
   return mode === 'session-transcribed';
 }
@@ -97,6 +118,16 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       showDeveloperHud: false,
       snipsGathered: 0,
       noAudioAlert: true,
+    };
+  }
+  if (mode === 'record-start-pcm') {
+    return {
+      seconds: 1,
+      transcript: '',
+      pending: true,
+      showDeveloperHud: false,
+      snipsGathered: 0,
+      noAudioAlert: false,
     };
   }
   if (mode === 'record-hud') {
@@ -166,6 +197,36 @@ export function homeAfterStopPreview(): {
   };
 }
 
+const HOME_STALE_SNIPPET =
+  'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight...';
+
+export function homeAfterStopStalePreview(): {
+  session: SessionRecord;
+  snipCount: number;
+  transcriptCount: number;
+  snippet: string;
+} {
+  const createdAt = new Date();
+  createdAt.setMinutes(createdAt.getMinutes() - 1);
+  return {
+    session: {
+      id: 'ses-screenshot-after-stop',
+      createdAt: createdAt.toISOString(),
+      updatedAt: createdAt.toISOString(),
+      duration: 47,
+      chunkCount: 12,
+      sizeBytes: 188416,
+      hasVolumeProfile: true,
+      hasSnips: true,
+      hasTranscript: true,
+      status: 'ready',
+    },
+    snipCount: 2,
+    transcriptCount: 1,
+    snippet: HOME_STALE_SNIPPET,
+  };
+}
+
 export function sessionTranscribedPreview(): {
   session: SessionRecord;
   snips: SnipRecord[];
@@ -206,7 +267,7 @@ export function sessionTranscribedPreview(): {
     {
       snipId: 'snip-screenshot-0',
       sessionId,
-      text: 'Okay so the first thing I wanted to talk through is the grocery list because if we wait until tonight the store will be packed.',
+      text: LONG_SNIP_TRANSCRIPT,
       createdAt: iso,
       updatedAt: iso,
     },

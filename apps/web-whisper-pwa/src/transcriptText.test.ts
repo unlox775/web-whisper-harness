@@ -85,11 +85,12 @@ describe('previewSnipTranscriptText', () => {
     assert.equal(previewSnipTranscriptText('   '), '');
   });
 
-  it('truncates long text at 220 characters with an ellipsis', () => {
+  it('returns the full flattened snip text without ellipsis truncation', () => {
     const long = 'word '.repeat(80).trim();
-    const preview = previewSnipTranscriptText(long);
-    assert.equal(preview.endsWith('…'), true);
-    assert.ok(preview.length <= 221);
+    const preview = previewSnipTranscriptText(`${long}\nMore after the old 220-char cut.`);
+    assert.equal(preview.endsWith('…'), false);
+    assert.equal(preview.includes('More after the old 220-char cut.'), true);
     assert.equal(preview.includes('\n'), false);
+    assert.ok(preview.length > 221);
   });
 });

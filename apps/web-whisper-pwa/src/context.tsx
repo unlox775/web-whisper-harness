@@ -22,7 +22,9 @@ import { ensureSessionDetailScreenshotSession } from './sessionDetailScreenshot'
 import { actionForCaptureError } from './captureErrorPolicy';
 import {
   closeAlertAudio,
+  pcmHeartbeatFromStatus,
   prepareAlertAudioFromUserGesture,
+  shouldShowNoAudioAlert,
 } from './noAudioAlert';
 import {
   initializeRecordingWakeLock,
@@ -112,6 +114,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const finishingRef = useRef(false);
   const abortRecordingRef = useRef<(() => Promise<void>) | null>(null);
   const noAudioAlertRef = useRef(false);
+  const recordingStartedAtRef = useRef<number | null>(null);
 
   const capBytes = capBytesFromMb(settings.storageCapMb);
 
@@ -302,11 +305,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setRecordingSessionId(created.id);
       setChunkCount(0);
       setScreen('recording');
-      enterNoAudioAlert(Date.now());
+      recordingStartedAtRef.current = Date.now();
       void setRecordingWakeLockActive(true, 'start-recording');
       handle.on('chunkEncoded', (event: { seq?: number }) => {
         setChunkCount((event.seq ?? 0) + 1);
-        clearNoAudioAlert();
         void enforceCap();
       });
       handle.on('audioStalled', (event: { stalledFor?: number }) => {
@@ -351,6 +353,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const finishCapture = useCallback(
     async (navigate: 'session' | 'home' | 'none') => {
       void setRecordingWakeLockActive(false, navigate === 'none' ? 'unload' : 'finish-capture');
+      recordingStartedAtRef.current = null;
       clearNoAudioAlert();
       closeAlertAudio();
       if (finishingRef.current && navigate === 'none') {
@@ -427,11 +430,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const tick = () => {
       const status = captureHandle.getStatus();
       if (!status?.isActive) return;
-      if (status.stalled || status.chunksEncoded === 0) {
-        const startedAt = status.stalled
+      const startedAt = recordingStartedAtRef.current;
+      const show = shouldShowNoAudioAlert({
+        recording: true,
+        pcmHeartbeat: pcmHeartbeatFromStatus(status),
+        stalled: status.stalled,
+        msSinceRecordingStart: startedAt == null ? 0 : Date.now() - startedAt,
+      });
+      if (show) {
+        const alertStartedAt = status.stalled
           ? Date.now() - Math.max(0, (status.stalledFor || 0) * 1000)
-          : Date.now();
-        enterNoAudioAlert(startedAt);
+          : startedAt ?? Date.now();
+        enterNoAudioAlert(alertStartedAt);
         return;
       }
       clearNoAudioAlert();

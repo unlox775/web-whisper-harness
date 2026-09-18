@@ -1235,11 +1235,8 @@ a.isolation-demos-head-link {
 }
 
 .session-detail-snip-preview {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
-  line-clamp: 4;
-  overflow: hidden;
+  display: block;
+  overflow: visible;
 }
 
 .session-detail-snip-pending {
