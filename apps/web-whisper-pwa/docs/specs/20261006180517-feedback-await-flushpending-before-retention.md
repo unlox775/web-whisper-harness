@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-10-06T18:05:17Z
+Resolved: 2026-10-06T19:45:00Z
 Product: apps/web-whisper-pwa
 
 # Feedback: Await flushPending before retention
@@ -87,8 +88,37 @@ Lazy payload. Do not build details if the PWA package level gates it.
 
 Mark this spec resolved when:
 
-- [ ] Every during/after-recording `enforceRetentionPolicy` path `await`s `flushPending()` / `whenPersistIdle()` first
-- [ ] No `Promise.all` of retention + chunk persist
-- [ ] Quota-while-recording path is documented (flush-then-retain vs stop-then-retain)
-- [ ] Orchestration test covers the await order
-- [ ] Spec updated with a Resolution section (including 47-minute hypothesis notes)
+- [x] Every during/after-recording `enforceRetentionPolicy` path `await`s `flushPending()` / `whenPersistIdle()` first
+- [x] No `Promise.all` of retention + chunk persist
+- [x] Quota-while-recording path is documented (flush-then-retain vs stop-then-retain)
+- [x] Orchestration test covers the await order
+- [x] Spec updated with a Resolution section (including 47-minute hypothesis notes)
+
+## Resolution
+
+**Resolved:** 2026-10-06T19:45:00Z on branch `cursor/pwa-await-flushpending-retention-22ad` (draft PR).
+
+### What shipped
+
+1. Single orchestrator helper `enforceRetentionAfterPersistIdle` in `apps/web-whisper-pwa/src/retentionAfterIdle.ts`.
+   - Sequential `await flushPending()` then `await enforceRetentionPolicy(capBytes)`.
+   - No `Promise.all` of persist + retention.
+   - `createRetentionGate()` serializes fire-and-forget callers so two retentions cannot overlap.
+2. Every PWA `enforceRetentionPolicy` path goes through `enforceCap` in `context.tsx`, which now always awaits module-level `flushPending()` from `@web-whisper/capture-engine` first (no-op when no capture is active). Covered call sites:
+   - boot / Settings cap change (`useEffect` → `enforceCap({ force: true })`)
+   - Start Recording (before `startCapture`)
+   - live `chunkEncoded` throttle
+   - live `store_write_failed` / quota toast
+   - post-Stop `finishCapture`
+   - `onTranscriptWritten` (Home / Recording / Session Detail)
+3. **Quota-while-recording: flush-then-retain** (not stop-then-retain). Capture stays live; the toast is unchanged. The next live `writeChunk` waits until retention finishes instead of contending for a second long `readwrite`.
+4. Structured log `retention after persist idle` is emitted via `sessionStore.log` **only if that API exists** on the imported session-store (PR #60 not merged on this main). Lazy `() => ({ message, details })`. Does not block this PR.
+5. Orchestration tests in `retentionAfterIdle.test.ts`: retention is not invoked until a mocked `flushPending` resolves; no overlap; gate serializes concurrent callers.
+
+### 47-minute hypothesis
+
+Overlapping IndexedDB `readwrite` on chunks/sessions **was a real cooperating cause**, not just a guess: `chunkEncoded` and `store_write_failed` both called `enforceCap()` while capture was still persisting. That matches the incident (retention / long `readwrite` vs `writeChunk` / `appendChunk`). Capture-engine PR #59 already fixed the unhandled persist-queue rejection so later writes cannot die silently. This PR is the orchestrator half: flush, then retain, never in parallel. Both fixes are needed; either alone would still leave a race.
+
+### Untouched
+
+Capture-engine persist queue / `flushPending` implementation, session-store retention internals, Settings log-level UI, transcription coverage.

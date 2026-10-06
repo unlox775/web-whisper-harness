@@ -9,10 +9,14 @@ import {
   type ReactNode,
 } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
-import { CaptureError, startCapture, type CaptureHandle } from '@web-whisper/capture-engine';
+import { CaptureError, flushPending, startCapture, type CaptureHandle } from '@web-whisper/capture-engine';
 import { validateKey } from '@web-whisper/transcription-client';
 import { capBytesFromMb, loadSettings, saveSetting } from './settings';
 import { ingestGrowingSession, transcribeSession } from './orchestration';
+import {
+  createRetentionGate,
+  enforceRetentionAfterPersistIdle,
+} from './retentionAfterIdle';
 import {
   isIsolationSettingsScreenshot,
   isSessionDetailScreenshot,
@@ -139,17 +143,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const lastEnforceAt = useRef(0);
+  const enqueueRetention = useMemo(() => createRetentionGate(), []);
 
   const enforceCap = useCallback(async (opts?: { force?: boolean }) => {
     if (!opts?.force && Date.now() - lastEnforceAt.current < 4000) return;
     lastEnforceAt.current = Date.now();
-    const result = await sessionStore.enforceRetentionPolicy(capBytes);
+    // Always flush persist first (no-op when idle). Sequential await only —
+    // never Promise.all retention with live writeChunk.
+    const result = await enqueueRetention(() =>
+      enforceRetentionAfterPersistIdle({
+        capBytes,
+        flushPending,
+        enforceRetentionPolicy: (bytes) => sessionStore.enforceRetentionPolicy(bytes),
+        log: typeof sessionStore.log === 'function' ? sessionStore.log.bind(sessionStore) : null,
+        sessionId: recordingSessionIdRef.current,
+      })
+    );
     if (result.error) return;
     const purged = Array.isArray(result.purgedChunkIds) ? result.purgedChunkIds.length : 0;
     if (purged > 0 || result.deletedSessions > 0) {
       await refresh();
     }
-  }, [capBytes, refresh]);
+  }, [capBytes, enqueueRetention, refresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -326,6 +341,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (event.reason === 'store_write_failed') {
+          // Quota / store-full while recording: flush-then-retain, keep capture
+          // live. Next writeChunk waits until retention finishes instead of
+          // overlapping IndexedDB readwrite locks (not stop-then-retain).
           void enforceCap({ force: true });
           showToast('Storage write failed. Recording may be incomplete.', 'warning');
           return;
