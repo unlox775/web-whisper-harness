@@ -104,7 +104,11 @@
             <input type="checkbox" id="archive-include-volume">
             Include volume-profile.json
           </label>
-          <p class="hint-text">Default export is audio + manifest only. Debug include adds live snip ranges and transcript text for Isolation Demo comparison.</p>
+          <label class="checkbox-field">
+            <input type="checkbox" id="archive-include-logs">
+            Include logs.json
+          </label>
+          <p class="hint-text">Default export is audio + manifest only. Debug include adds live snip ranges, transcript text, and logs. Include logs stays off unless checked.</p>
           <button id="export-archive-btn" class="btn btn-primary">Export Selected Session</button>
           <label>
             Import archive
@@ -124,6 +128,18 @@
             <textarea id="transcript-text" class="textarea-field" rows="3" placeholder="Transcript text..."></textarea>
           </label>
           <button id="write-transcript-btn" class="btn btn-primary">Write Transcript</button>
+        </section>
+
+        <section class="write-section">
+          <h3>Logs</h3>
+          <label>
+            Session ID:
+            <input type="text" id="log-session-id" class="input-field" placeholder="Session ID">
+          </label>
+          <button id="append-log-btn" class="btn btn-primary">Append Fixture Log</button>
+          <button id="query-logs-btn" class="btn btn-secondary">Query Session Logs</button>
+          <div id="log-bytes" class="info-text">Log bytes: 0</div>
+          <div id="log-query-status" class="info-text">Sandbox DB only. Lazy log() gates apply.</div>
         </section>
       </aside>
 
@@ -166,6 +182,7 @@
             <button class="tab-btn" data-tab="volume">Volume Profile</button>
             <button class="tab-btn" data-tab="snips">Snips</button>
             <button class="tab-btn" data-tab="transcripts">Transcripts</button>
+            <button class="tab-btn" data-tab="logs">Logs</button>
           </div>
           
           <div class="details-content">
@@ -215,6 +232,20 @@
                 <tbody id="transcripts-list"></tbody>
               </table>
             </div>
+
+            <div id="logs-tab" class="tab-content">
+              <table class="details-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Package</th>
+                    <th>Level</th>
+                    <th>Message</th>
+                  </tr>
+                </thead>
+                <tbody id="logs-list"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </main>
@@ -235,6 +266,7 @@
           <div>Usage: <span id="usage-percent">0%</span></div>
           <div>Sessions: <span id="session-count">0</span></div>
           <div>Chunks: <span id="chunk-count-stat">0</span></div>
+          <div>Logs: <span id="log-count-stat">0</span> / <span id="log-bytes-stat">0 B</span></div>
         </div>
         
         <button id="enforce-retention-btn" class="btn btn-danger">Enforce Retention Policy</button>

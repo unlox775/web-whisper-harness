@@ -5,7 +5,8 @@
 let dbInstance = null;
 let dbName = 'web-whisper-db';
 
-const DB_VERSION = 1;
+/** v2 adds the `logs` object store (durable per-package logging). */
+const DB_VERSION = 2;
 
 /**
  * Close the current database connection (tests / switching DB names).
@@ -74,6 +75,15 @@ export async function initDatabase(databaseName) {
       if (!db.objectStoreNames.contains('transcripts')) {
         const transcriptsStore = db.createObjectStore('transcripts', { keyPath: 'snipId' });
         transcriptsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
+      }
+
+      // logs object store (v2)
+      if (!db.objectStoreNames.contains('logs')) {
+        const logsStore = db.createObjectStore('logs', { keyPath: 'id' });
+        logsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
+        logsStore.createIndex('by-packageId', 'packageId', { unique: false });
+        logsStore.createIndex('by-createdAt', 'createdAt', { unique: false });
+        logsStore.createIndex('by-sessionId-createdAt', ['sessionId', 'createdAt'], { unique: false });
       }
     };
   });

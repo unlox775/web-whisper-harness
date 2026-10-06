@@ -1,14 +1,14 @@
 {
   "name": "@web-whisper/session-store",
   "version": "0.1.0",
-  "description": "IndexedDB datastore authority for Web Whisper sessions, chunks, volume profiles, snips, and transcripts",
+  "description": "IndexedDB datastore authority for Web Whisper sessions, chunks, volume profiles, snips, transcripts, and durable per-package logs",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js"
   },
   "scripts": {
-    "test": "node --test src/storage.retention.test.js src/archive.test.js"
+    "test": "node --test src/storage.retention.test.js src/archive.test.js src/logs.test.js"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.0.0"

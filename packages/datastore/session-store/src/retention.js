@@ -7,6 +7,19 @@
  */
 
 import { getDatabase } from './db.js';
+import { getLogByteSizes, pruneLogsByAge, pruneOldestLogs } from './logs.js';
+
+/** Same-tab flag so writeChunk can return transaction_conflict instead of hanging. */
+let retentionWriteInFlight = false;
+
+/**
+ * True while enforceRetentionPolicy holds (or is about to hold) a long readwrite.
+ * Not a cross-package lock — callers must still await flushPending() first.
+ * @returns {boolean}
+ */
+export function isRetentionWriteInFlight() {
+  return retentionWriteInFlight;
+}
 
 /** Start purging when usage exceeds this fraction of the cap (headroom for capture). */
 export const RETENTION_APPROACH_RATIO = 0.9;
@@ -40,26 +53,44 @@ function chunkHasAudio(chunk) {
   return true;
 }
 
-function usedBytesFromChunks(chunks) {
+function usedBytesFromSizes(chunkBytes, logBytes) {
+  return Math.round((chunkBytes || 0) * 1.1) + Math.round((logBytes || 0) * 1.1);
+}
+
+function usedBytesFromChunks(chunks, logBytes = 0) {
   const totalSize = chunks.reduce((sum, chunk) => sum + (chunk.sizeBytes || 0), 0);
-  return Math.round(totalSize * 1.1);
+  return usedBytesFromSizes(totalSize, logBytes);
 }
 
 async function currentUsedBytes() {
   const db = await getDatabase();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(['chunks'], 'readonly');
-    const store = transaction.objectStore('chunks');
-    let totalSize = 0;
-    const request = store.openCursor();
-    request.onsuccess = (event) => {
+    const storeNames = ['chunks'];
+    if (db.objectStoreNames.contains('logs')) {
+      storeNames.push('logs');
+    }
+    const transaction = db.transaction(storeNames, 'readonly');
+    let chunkBytes = 0;
+    let logBytes = 0;
+    const chunksRequest = transaction.objectStore('chunks').openCursor();
+    chunksRequest.onsuccess = (event) => {
       const cursor = event.target.result;
       if (cursor) {
-        totalSize += cursor.value.sizeBytes || 0;
+        chunkBytes += cursor.value.sizeBytes || 0;
         cursor.continue();
       }
     };
-    transaction.oncomplete = () => resolve(Math.round(totalSize * 1.1));
+    if (db.objectStoreNames.contains('logs')) {
+      const logsRequest = transaction.objectStore('logs').openCursor();
+      logsRequest.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          logBytes += cursor.value.sizeBytes || 0;
+          cursor.continue();
+        }
+      };
+    }
+    transaction.oncomplete = () => resolve(usedBytesFromSizes(chunkBytes, logBytes));
     transaction.onerror = () => reject(transaction.error);
   });
 }
@@ -95,24 +126,44 @@ function snipsCoveringChunk(chunk, snips) {
  * snips that already have a successful transcript. Sessions and transcript
  * text are kept. Untranscribed audio is never deleted.
  *
+ * Also age-prunes log rows (default 14 days) and may drop oldest logs under
+ * cap pressure — logs are cheaper than playable audio.
+ *
+ * Callers must serialize with writers: await capture-engine flushPending()
+ * before this call so the long readwrite does not overlap writeChunk.
+ *
  * @param {number} capBytes
- * @param {{ now?: number, approachRatio?: number }} [options]
+ * @param {{ now?: number, approachRatio?: number, maxLogAgeMs?: number }} [options]
  * @returns {Promise<object>}
  */
 export async function enforceRetentionPolicy(capBytes, options = {}) {
+  retentionWriteInFlight = true;
   try {
     const now = typeof options.now === 'number' ? options.now : Date.now();
     const approachRatio =
       typeof options.approachRatio === 'number' ? options.approachRatio : RETENTION_APPROACH_RATIO;
+
+    const agePrune = await pruneLogsByAge({
+      now,
+      maxLogAgeMs: options.maxLogAgeMs
+    });
+    if (agePrune.error) {
+      return agePrune;
+    }
+
+    let prunedLogCount = agePrune.prunedLogCount || 0;
+    let prunedLogBytes = agePrune.prunedLogBytes || 0;
     const usedBefore = await currentUsedBytes();
 
     const empty = {
       deletedSessions: 0,
-      reclaimedBytes: 0,
+      reclaimedBytes: prunedLogBytes,
       newUsedBytes: usedBefore,
       purgedChunkIds: [],
       purgedSnipIds: [],
       droppedVolumeProfiles: 0,
+      prunedLogCount,
+      prunedLogBytes
     };
 
     const safeCap = Number.isFinite(capBytes) ? Math.max(0, capBytes) : usedBefore;
@@ -160,41 +211,38 @@ export async function enforceRetentionPolicy(capBytes, options = {}) {
       return seqA - seqB;
     });
 
-    let usedBytes = usedBytesFromChunks(chunks);
-    if (usedBytes <= targetBytes) {
-      return { ...empty, newUsedBytes: usedBytes };
-    }
+    const logSizes = await getLogByteSizes();
+    const logBytesRaw = logSizes.error ? 0 : logSizes.logBytes;
+    let usedBytes = usedBytesFromChunks(chunks, logBytesRaw);
 
     const purgedChunkIds = [];
     const purgedSnipIds = new Set();
     const sessionDelta = new Map();
     const sessionPurgedChunkIds = new Map();
-    let reclaimedBytes = 0;
+    let reclaimedBytes = prunedLogBytes;
 
-    for (const entry of eligible) {
-      if (usedBytes <= targetBytes) break;
-      const chunk = entry.chunk;
-      const removedBytes = chunk.sizeBytes || chunk.blob?.size || 0;
-      if (removedBytes <= 0) continue;
+    if (usedBytes > targetBytes) {
+      for (const entry of eligible) {
+        if (usedBytes <= targetBytes) break;
+        const chunk = entry.chunk;
+        const removedBytes = chunk.sizeBytes || chunk.blob?.size || 0;
+        if (removedBytes <= 0) continue;
 
-      chunk.blob = new Blob([], { type: chunk.blob?.type || 'audio/mpeg' });
-      chunk.sizeBytes = 0;
-      chunk.audioPurgedAt = now;
-      purgedChunkIds.push(chunk.id);
-      reclaimedBytes += removedBytes;
-      usedBytes = Math.max(0, usedBytes - Math.round(removedBytes * 1.1));
-      sessionDelta.set(
-        chunk.sessionId,
-        (sessionDelta.get(chunk.sessionId) || 0) + removedBytes
-      );
-      const sessionChunks = sessionPurgedChunkIds.get(chunk.sessionId) || new Set();
-      sessionChunks.add(chunk.id);
-      sessionPurgedChunkIds.set(chunk.sessionId, sessionChunks);
-      entry.snipIds.forEach((id) => purgedSnipIds.add(id));
-    }
-
-    if (purgedChunkIds.length === 0) {
-      return { ...empty, newUsedBytes: usedBytes };
+        chunk.blob = new Blob([], { type: chunk.blob?.type || 'audio/mpeg' });
+        chunk.sizeBytes = 0;
+        chunk.audioPurgedAt = now;
+        purgedChunkIds.push(chunk.id);
+        reclaimedBytes += removedBytes;
+        usedBytes = Math.max(0, usedBytes - Math.round(removedBytes * 1.1));
+        sessionDelta.set(
+          chunk.sessionId,
+          (sessionDelta.get(chunk.sessionId) || 0) + removedBytes
+        );
+        const sessionChunks = sessionPurgedChunkIds.get(chunk.sessionId) || new Set();
+        sessionChunks.add(chunk.id);
+        sessionPurgedChunkIds.set(chunk.sessionId, sessionChunks);
+        entry.snipIds.forEach((id) => purgedSnipIds.add(id));
+      }
     }
 
     const remainingAudioBySession = new Map();
@@ -251,45 +299,63 @@ export async function enforceRetentionPolicy(capBytes, options = {}) {
       profilesToPut.push(profile);
     }
 
-    await new Promise((resolve, reject) => {
-      const transaction = db.transaction(
-        ['chunks', 'snips', 'volume-profiles', 'sessions'],
-        'readwrite'
-      );
-      const chunkStore = transaction.objectStore('chunks');
-      for (const chunk of chunks) {
-        if (purgedChunkIds.includes(chunk.id)) {
-          chunkStore.put(chunk);
+    if (purgedChunkIds.length > 0 || snipsToMark.length > 0 || sessionsToPut.length > 0) {
+      await new Promise((resolve, reject) => {
+        const transaction = db.transaction(
+          ['chunks', 'snips', 'volume-profiles', 'sessions'],
+          'readwrite'
+        );
+        const chunkStore = transaction.objectStore('chunks');
+        for (const chunk of chunks) {
+          if (purgedChunkIds.includes(chunk.id)) {
+            chunkStore.put(chunk);
+          }
         }
+        const snipStore = transaction.objectStore('snips');
+        for (const snip of snipsToMark) {
+          snipStore.put(snip);
+        }
+        const profileStore = transaction.objectStore('volume-profiles');
+        for (const profile of profilesToPut) {
+          profileStore.put(profile);
+        }
+        for (const sessionId of profilesToDelete) {
+          profileStore.delete(sessionId);
+        }
+        const sessionStore = transaction.objectStore('sessions');
+        for (const session of sessionsToPut) {
+          sessionStore.put(session);
+        }
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
+    }
+
+    // Logs are cheaper than playable audio: if still over target, drop oldest logs.
+    usedBytes = await currentUsedBytes();
+    if (usedBytes > targetBytes) {
+      const rawNeed = Math.ceil((usedBytes - targetBytes) / 1.1);
+      const capPrune = await pruneOldestLogs(rawNeed);
+      if (!capPrune.error) {
+        prunedLogCount += capPrune.prunedLogCount || 0;
+        prunedLogBytes += capPrune.prunedLogBytes || 0;
+        reclaimedBytes += capPrune.prunedLogBytes || 0;
       }
-      const snipStore = transaction.objectStore('snips');
-      for (const snip of snipsToMark) {
-        snipStore.put(snip);
-      }
-      const profileStore = transaction.objectStore('volume-profiles');
-      for (const profile of profilesToPut) {
-        profileStore.put(profile);
-      }
-      for (const sessionId of profilesToDelete) {
-        profileStore.delete(sessionId);
-      }
-      const sessionStore = transaction.objectStore('sessions');
-      for (const session of sessionsToPut) {
-        sessionStore.put(session);
-      }
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-    });
+    }
 
     return {
       deletedSessions: 0,
       reclaimedBytes,
-      newUsedBytes: usedBytesFromChunks(chunks),
+      newUsedBytes: await currentUsedBytes(),
       purgedChunkIds,
       purgedSnipIds: Array.from(purgedSnipIds),
       droppedVolumeProfiles: profilesToDelete.length,
+      prunedLogCount,
+      prunedLogBytes
     };
   } catch (err) {
     return { error: 'database_unavailable' };
+  } finally {
+    retentionWriteInFlight = false;
   }
 }

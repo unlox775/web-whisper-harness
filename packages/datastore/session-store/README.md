@@ -43,7 +43,7 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 
 ### Storage Management
 
-- `getStorageStats()` → returns `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount}` (`usedBytes` includes log bytes)
+- `getStorageStats()` → returns `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount}` (`usedBytes` includes log bytes; the existing **1.1 IndexedDB overhead** applies to logs the same way as chunks)
 - `enforceRetentionPolicy(capBytes)` → purges audio (and volume/waveform data) for snips that already have a successful transcript when over/approaching the cap; keeps sessions and transcript text. Oldest fully-transcribed audio first. Untranscribed audio is never deleted. Also **age-prunes log rows** (default 14 days) and may drop oldest logs under cap pressure. **Callers must serialize with writers:** PWA awaits capture-engine `flushPending()` before this call so retention does not overlap `writeChunk` `readwrite` transactions.
 - `writeChunk` may return `{ error: 'transaction_conflict' }` if a long retention `readwrite` aborted the write (structured object, not a throw).
 
@@ -97,7 +97,7 @@ APIs (errors are `{ error }` objects, same as the rest of this package):
 
 ## Isolation Demo
 
-See `isolation-demo/README.md` for the package-local runnable demo. The demo operates on a sandbox IndexedDB instance (not production data). It allows operator to: create sessions, write chunks (optionally via capture-engine in-memory → flush to store), write volume profiles + snips, write transcripts, read sessions, list sessions, delete sessions, enforce retention policy. It proves: schema works, writes work, reads work, retention policy works, storage cap is enforced.
+See `isolation-demo/README.md` for the package-local runnable demo. The demo operates on a sandbox IndexedDB instance (not production data). It allows operator to: create sessions, write chunks (optionally via capture-engine in-memory → flush to store), write volume profiles + snips, write transcripts, **append/query fixture logs**, read sessions, list sessions, delete sessions, enforce retention policy, export/import archives with optional **Include logs**. It proves: schema works (including the `logs` store), writes work, reads work, retention policy works, storage cap is enforced, lazy `log()` gates work.
 
 ## Product Specs
 
