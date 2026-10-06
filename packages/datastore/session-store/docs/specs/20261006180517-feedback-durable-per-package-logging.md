@@ -239,9 +239,12 @@ Mark this spec resolved when:
 
 ### How to repro
 
-1. Isolation Demo → Create Session → Append Fixture Log → Query Session Logs → Details **Logs** tab shows the row; storage panel shows log bytes.
-2. Export with **Include logs.json** off → zip has no `logs.json`. Check it on → `logs.json` is present. `formatVersion` remains 1.
-3. `npm test` in `packages/datastore/session-store`: lazy payload not invoked when gated; cascade delete; age prune; `transaction_conflict`; archive includeLogs remaps `sessionId`.
+1. Isolation Demo → Create Session → Append Fixture Log → Query Session Logs → Details **Logs** tab shows the row (`session-store` / `info` / `isolation-demo fixture log`); storage panel shows log bytes (~286 B for one fixture).
+2. Reload the demo: the session and log row persist (sandbox IndexedDB).
+3. Export with **Include logs.json** off → zip has no `logs.json`. Check it on → `logs.json` is present. `formatVersion` remains 1.
+4. `npm test` in `packages/datastore/session-store`: lazy payload not invoked when gated; cascade delete; age prune; `transaction_conflict`; archive includeLogs remaps `sessionId`.
+
+Browser proof (Isolation Demo, sandbox DB): fixture log row + **Include logs.json** + storage `Logs: 1 / 286 B` after append/query.
 
 ### Tests / publish
 
