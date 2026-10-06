@@ -40,11 +40,12 @@ export function archiveExportHelperText(
 }
 
 export const ARCHIVE_DEBUG_INCLUDE_HELP =
-  'Developer debugging only. Default export is audio + manifest only. Debug include adds live snip ranges and transcript text for Isolation Demo comparison.';
+  'Developer debugging only. Default export is audio + manifest only. Debug include adds live snip ranges, transcript text, volume profile, and logs.json.';
 
 /**
- * Checkbox off → no include flags (caller uses exportSessionArchive(sessionId)).
- * Checkbox on → includeDebugArtifacts (snips + transcripts + volume profile).
+ * Slim (checkbox off) → no include flags; caller uses exportSessionArchive(sessionId)
+ * so logs stay out. Debug include → includeDebugArtifacts, which session-store
+ * also turns into includeLogs (logs.json). No second zip format.
  */
 export function sessionArchiveExportOptions(includeDebugArtifacts: boolean):
   | { includeDebugArtifacts: true }

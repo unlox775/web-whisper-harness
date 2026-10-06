@@ -7,6 +7,7 @@ import { DeveloperConsole } from './screens/DeveloperConsole';
 import {
   isHomeTileScreenshot,
   isRecordScreenshot,
+  isSessionDebugExportScreenshot,
   isSessionPartialCoverageScreenshot,
   isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
@@ -21,7 +22,8 @@ function Shell() {
   const sessionPreview =
     isSessionTranscribedScreenshot(screenshot) ||
     isSessionSnipsScreenshot(screenshot) ||
-    isSessionPartialCoverageScreenshot(screenshot);
+    isSessionPartialCoverageScreenshot(screenshot) ||
+    isSessionDebugExportScreenshot(screenshot);
 
   if (!app.ready) {
     return (

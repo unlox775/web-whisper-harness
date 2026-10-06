@@ -1,3 +1,7 @@
+import type { PackageLogLevels } from './logSettings';
+
+export type { LogLevel, LogPackageId, PackageLogLevels } from './logSettings';
+
 export type SessionRecord = {
   id: string;
   createdAt: string;
@@ -60,6 +64,7 @@ export type AppSettings = {
   storageCapMb: number;
   developerModeEnabled: boolean;
   onboardingDismissed: boolean;
+  logLevels: PackageLogLevels;
   keyValid: boolean | null;
   keyStatus: string;
 };

@@ -32,9 +32,9 @@ The PWA does not implement capture, volume analysis, transcription, or playback 
 - `packages/lib/playback-engine` for playback
 - `packages/datastore/session-store` for durable data (including session archive zip export / import, **per-package logs**, and storage stats that include log bytes)
 
-Orchestration contracts (planning names; see Phase 07 feedback specs):
+Orchestration contracts:
 
 - Advanced Settings: per-package log levels (`debug` / `info` / `warn` / `error` / `off`) and approximate log byte sizes; `configureLogger` + `activeSessionId` for the active take
-- Debug **Export Session** (debug-include path): `exportSessionArchive` with `includeLogs` / `includeDebugArtifacts` — do not invent a second zip
+- Debug **Export Session** (debug-include path): `exportSessionArchive` with `includeDebugArtifacts` (session-store also turns on `includeLogs` → `logs.json`) — do not invent a second zip
 - Transcription coverage: last snip end vs session/recorder duration; **PART TX / `partial`** when uncovered audio remains (do not claim READY / “all snips transcribed”)
 - Before `enforceRetentionPolicy` during or after recording: `await` capture-engine `flushPending()` / `whenPersistIdle()`

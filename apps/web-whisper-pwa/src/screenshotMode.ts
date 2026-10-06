@@ -70,6 +70,14 @@ export function isIsolationSettingsScreenshot(mode: string | null): boolean {
   return mode === 'isolation-settings';
 }
 
+export function isSettingsLogLevelsScreenshot(mode: string | null): boolean {
+  return mode === 'settings-log-levels';
+}
+
+export function isSessionDebugExportScreenshot(mode: string | null): boolean {
+  return mode === 'session-debug-export';
+}
+
 export function isSessionDetailScreenshot(mode: string | null): boolean {
   return mode === 'session-detail';
 }

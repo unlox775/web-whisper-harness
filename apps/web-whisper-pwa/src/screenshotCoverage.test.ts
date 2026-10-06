@@ -4,12 +4,20 @@ import { sessionTilePreview } from './sessionTile.ts';
 import {
   homeAfterStopPreview,
   homePartialCoveragePreview,
+  isSessionDebugExportScreenshot,
+  isSettingsLogLevelsScreenshot,
   sessionPartialCoveragePreview,
   sessionTranscribedPreview,
 } from './screenshotMode.ts';
 import { sessionTranscriptionCoverage, uncoveredTailCopy } from './transcriptionCoverage.ts';
 
 describe('screenshot coverage fixtures', () => {
+  it('recognizes Settings log-level and Debug export screenshot helpers', () => {
+    assert.equal(isSettingsLogLevelsScreenshot('settings-log-levels'), true);
+    assert.equal(isSessionDebugExportScreenshot('session-debug-export'), true);
+    assert.equal(isSettingsLogLevelsScreenshot('isolation-settings'), false);
+  });
+
   it('keeps the after-stop READY fixture covered through the last snip', () => {
     const preview = homeAfterStopPreview();
     const tile = sessionTilePreview(preview.session, preview.snips, preview.transcripts);
