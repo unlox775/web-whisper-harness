@@ -73,12 +73,28 @@ export function SessionDetailScreen() {
   const screenshotPreview =
     isSessionPartialCoverageScreenshot(screenshotMode)
       ? sessionPartialCoveragePreview()
-      : isSessionTranscribedScreenshot(screenshotMode) || isSessionSnipsScreenshot(screenshotMode)
+      : isSessionTranscribedScreenshot(screenshotMode) ||
+          isSessionSnipsScreenshot(screenshotMode) ||
+          isSessionDebugExportScreenshot(screenshotMode)
         ? sessionTranscribedPreview()
         : null;
   const sessionId = screenshotPreview?.session.id ?? app.sessionId!;
   const [session, setSession] = useState<SessionRecord | null>(screenshotPreview?.session ?? null);
-  const [chunks, setChunks] = useState<ChunkRecord[]>([]);
+  const [chunks, setChunks] = useState<ChunkRecord[]>(
+    isSessionDebugExportScreenshot(screenshotMode) && screenshotPreview
+      ? [
+          {
+            id: 'chk-0',
+            sessionId,
+            seq: 0,
+            startTime: 0,
+            endTime: screenshotPreview.session.duration,
+            duration: screenshotPreview.session.duration,
+            sizeBytes: screenshotPreview.session.sizeBytes,
+          },
+        ]
+      : []
+  );
   const [snips, setSnips] = useState<SnipRecord[]>(screenshotPreview?.snips ?? []);
   const [transcripts, setTranscripts] = useState<TranscriptRecord[]>(
     screenshotPreview?.transcripts ?? []

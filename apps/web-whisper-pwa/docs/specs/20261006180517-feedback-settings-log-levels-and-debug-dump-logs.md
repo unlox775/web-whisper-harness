@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-10-06T18:05:17Z
 Product: apps/web-whisper-pwa
@@ -113,10 +113,39 @@ Out of scope for this PWA spec. Session-store Isolation Demo (other spec) is whe
 
 Mark this spec resolved when:
 
-- [ ] Advanced Settings has per-package `debug`/`info`/`warn`/`error`/`off` and persists them
-- [ ] Settings shows approximate log byte sizes from session-store
-- [ ] Active recording / ingest session id is configured on the logger; idle clears it
-- [ ] Debug **Export Session** (debug-include path) includes `logs.json` via session-store flags; slim export does not
-- [ ] iPhone DevTools screenshot of Settings levels + sizes, and Debug export helper
-- [ ] `make build` published `docs/` PWA artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Advanced Settings has per-package `debug`/`info`/`warn`/`error`/`off` and persists them
+- [x] Settings shows approximate log byte sizes from session-store
+- [x] Active recording / ingest session id is configured on the logger; idle clears it
+- [x] Debug **Export Session** (debug-include path) includes `logs.json` via session-store flags; slim export does not
+- [x] iPhone DevTools screenshot of Settings levels + sizes, and Debug export helper
+- [x] `make build` published `docs/` PWA artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-10-06T20:50:00Z on branch `cursor/pwa-settings-log-levels-debug-dump-8614` (draft PR #62).
+
+### What shipped
+
+1. **Advanced Settings** (`SettingsModal` disclosure under App) — per-package `debug` / `info` / `warn` / `error` / `off` for the frozen ids: `session-store`, `capture-engine`, `volume-analyzer`, `transcription-client`, `playback-engine`, `web-whisper-pwa`. Default **`info`**.
+2. Persist in localStorage key `package_log_levels` (same family as storage cap / developer mode). `loadSettings` / `saveLogLevels` in `settings.ts`.
+3. `sessionStore.configureLogger({ levels, activeSessionId })` on boot and on level change (`applyLoggerConfig` in `logSettings.ts`).
+4. **Active take id:** set on `createSession` → `startCapture`; kept through post-stop ingest and leftover `transcribeSession`; cleared when that take is idle. Opening an old session for playback does not set it. Capture start failure clears the id.
+5. **Approximate sizes** from `getLogByteSizes()` — total (`1.2 MB logs` family via `formatBytes`) plus per-package rows when bytes > 0. Refresh on Settings open and when `usedBytes` changes after retention.
+6. **Debug Export Session** still uses `exportSessionArchive`. Slim (checkbox off) sends no include flags — **no logs**. Existing “Include snips + transcripts (debug)” sends `{ includeDebugArtifacts: true }`, which session-store already ORs into `includeLogs` → `logs.json`. No extra checkbox; no second zip.
+7. Soft log hook: `enforceRetentionAfterPersistIdle` now receives `sessionStore.log`.
+8. Screenshot helpers: `?screenshot=settings-log-levels`, `?screenshot=session-debug-export`.
+
+### Untouched
+
+session-store schema / `log()` implementation, capture persist queue, slim-export default, archive `formatVersion`, Developer Console table dump.
+
+### Proof shots
+
+- `documentation/qa/settings-log-levels-iphone.png` — Advanced levels + size line
+- `documentation/qa/session-debug-export-iphone.png` — Debug export helper mentioning `logs.json`
+- Notes: `documentation/qa/settings-log-levels-and-debug-dump.md`
+
+### Published bundle
+
+`make build` refreshed `docs/` PWA artifacts only (`index.html`, `pwa-assets/`). New hashed bundle: `docs/pwa-assets/index-DAA_59Wi.js`.
