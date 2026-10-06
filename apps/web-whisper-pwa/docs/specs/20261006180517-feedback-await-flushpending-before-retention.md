@@ -112,7 +112,7 @@ Mark this spec resolved when:
    - post-Stop `finishCapture`
    - `onTranscriptWritten` (Home / Recording / Session Detail)
 3. **Quota-while-recording: flush-then-retain** (not stop-then-retain). Capture stays live; the toast is unchanged. The next live `writeChunk` waits until retention finishes instead of contending for a second long `readwrite`.
-4. Structured log `retention after persist idle` is emitted via `sessionStore.log` **only if that API exists** on the imported session-store (PR #60 not merged on this main). Lazy `() => ({ message, details })`. Does not block this PR.
+4. Structured logs: helper accepts an optional lazy `sessionStore.log` callback, but this main does not export `log` yet (PR #60 not merged). No call site wires it, so Vite does not import a missing export. Does not block this PR.
 5. Orchestration tests in `retentionAfterIdle.test.ts`: retention is not invoked until a mocked `flushPending` resolves; no overlap; gate serializes concurrent callers.
 
 ### 47-minute hypothesis

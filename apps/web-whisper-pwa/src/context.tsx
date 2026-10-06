@@ -155,7 +155,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         capBytes,
         flushPending,
         enforceRetentionPolicy: (bytes) => sessionStore.enforceRetentionPolicy(bytes),
-        log: typeof sessionStore.log === 'function' ? sessionStore.log.bind(sessionStore) : null,
         sessionId: recordingSessionIdRef.current,
       })
     );
