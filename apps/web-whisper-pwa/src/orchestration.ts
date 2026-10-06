@@ -32,13 +32,37 @@ export type LiveIngestResult = {
 };
 
 const ingestChains = new Map<string, Promise<unknown>>();
+const ingestInFlight = new Set<string>();
 const transcribingSnips = new Set<string>();
+const transcribeInFlight = new Map<string, number>();
+
+function beginCountedWork(bag: Map<string, number>, sessionId: string) {
+  bag.set(sessionId, (bag.get(sessionId) ?? 0) + 1);
+}
+
+function endCountedWork(bag: Map<string, number>, sessionId: string) {
+  const next = (bag.get(sessionId) ?? 1) - 1;
+  if (next <= 0) bag.delete(sessionId);
+  else bag.set(sessionId, next);
+}
 
 function withSessionLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
   const previous = ingestChains.get(sessionId) ?? Promise.resolve();
+  ingestInFlight.add(sessionId);
   const next = previous.catch(() => undefined).then(fn);
   ingestChains.set(sessionId, next);
+  void next.finally(() => {
+    if (ingestChains.get(sessionId) === next) {
+      ingestInFlight.delete(sessionId);
+    }
+  });
   return next;
+}
+
+/** True while live ingest or leftover transcription is in flight for this take. */
+export function isSessionWorkPending(sessionId: string): boolean {
+  if (ingestInFlight.has(sessionId)) return true;
+  return (transcribeInFlight.get(sessionId) ?? 0) > 0;
 }
 
 async function assembleSnipBlob(
@@ -215,6 +239,20 @@ export function ingestGrowingSession(
 }
 
 export async function transcribeSession(
+  sessionId: string,
+  apiKey: string,
+  onProgress: (progress: TranscribeProgress) => void,
+  options?: { retryFailedOnly?: boolean; onTranscriptWritten?: () => Promise<void> | void }
+): Promise<TranscribeOutcome> {
+  beginCountedWork(transcribeInFlight, sessionId);
+  try {
+    return await transcribeSessionInner(sessionId, apiKey, onProgress, options);
+  } finally {
+    endCountedWork(transcribeInFlight, sessionId);
+  }
+}
+
+async function transcribeSessionInner(
   sessionId: string,
   apiKey: string,
   onProgress: (progress: TranscribeProgress) => void,

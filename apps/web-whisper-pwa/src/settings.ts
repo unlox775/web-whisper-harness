@@ -1,3 +1,9 @@
+import {
+  LOG_LEVELS_STORAGE_KEY,
+  parsePackageLogLevels,
+  serializePackageLogLevels,
+  type PackageLogLevels,
+} from './logSettings';
 import type { AppSettings } from './types';
 
 const KEYS = {
@@ -5,6 +11,7 @@ const KEYS = {
   storageCapMb: 'storage_cap_mb',
   developerModeEnabled: 'developer_mode_enabled',
   onboardingDismissed: 'onboarding_dismissed',
+  logLevels: LOG_LEVELS_STORAGE_KEY,
 } as const;
 
 function readRaw(key: string): string | null {
@@ -30,6 +37,7 @@ export function loadSettings(): AppSettings {
     storageCapMb,
     developerModeEnabled,
     onboardingDismissed,
+    logLevels: parsePackageLogLevels(readRaw(KEYS.logLevels)),
     keyValid: groqApiKey ? null : false,
     keyStatus: groqApiKey ? 'Checking' : 'Missing',
   };
@@ -37,6 +45,10 @@ export function loadSettings(): AppSettings {
 
 export function saveSetting(key: keyof typeof KEYS, value: string | number | boolean) {
   writeRaw(KEYS[key], String(value));
+}
+
+export function saveLogLevels(levels: PackageLogLevels) {
+  writeRaw(KEYS.logLevels, serializePackageLogLevels(levels));
 }
 
 export function capBytesFromMb(mb: number): number {

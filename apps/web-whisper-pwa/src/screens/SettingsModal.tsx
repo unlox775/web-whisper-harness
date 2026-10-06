@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
+import * as sessionStore from '@web-whisper/session-store';
 import { validateKey } from '@web-whisper/transcription-client';
 import { buildIdentityLines, readBuildIdentity } from '../buildIdentity';
 import { ImportSessionZipControl } from '../components/ImportSessionZipControl';
 import { useApp } from '../context';
 import { isolationDemosHref } from '../isolationDemos';
+import {
+  LOG_LEVELS,
+  LOG_PACKAGE_IDS,
+  formatLogBytesLine,
+  formatLogPackageSize,
+  withPackageLogLevel,
+  type LogLevel,
+} from '../logSettings';
+import { isSettingsLogLevelsScreenshot, readScreenshotMode } from '../screenshotMode';
 
 const GROQ_CONSOLE = 'https://console.groq.com/keys';
 const GROQ_PRICING = 'https://groq.com/pricing';
@@ -14,11 +24,32 @@ export function SettingsModal() {
   const [apiKey, setApiKey] = useState(app.settings.groqApiKey);
   const [cap, setCap] = useState(String(app.settings.storageCapMb));
   const [busy, setBusy] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(() =>
+    isSettingsLogLevelsScreenshot(readScreenshotMode())
+  );
+  const [logSizes, setLogSizes] = useState<{
+    logBytes: number;
+    byPackage: Record<string, { bytes: number; count: number }>;
+  } | null>(null);
 
   useEffect(() => {
     setApiKey(app.settings.groqApiKey);
     setCap(String(app.settings.storageCapMb));
   }, [app.settings.groqApiKey, app.settings.storageCapMb]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void sessionStore.getLogByteSizes().then((sizes) => {
+      if (cancelled || !sizes || sizes.error) return;
+      setLogSizes({
+        logBytes: sizes.logBytes || 0,
+        byPackage: sizes.byPackage || {},
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [app.usedBytes]);
 
   async function checkKey(value: string) {
     const trimmed = value.trim();
@@ -168,6 +199,55 @@ export function SettingsModal() {
               (and waveforms) for already-transcribed snips is removed so recording
               can continue. Transcripts are kept.
             </p>
+            <details
+              className="advanced-details"
+              open={advancedOpen}
+              onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+            >
+              <summary>Advanced</summary>
+              <p className="help">
+                Per-package log levels. Default is info — debug stays off unless you
+                turn it on. Sizes are approximate and refresh when you open Settings.
+              </p>
+              <p className="tiny log-sizes-total" data-testid="log-bytes-total">
+                {logSizes ? formatLogBytesLine(logSizes.logBytes) : 'Measuring logs…'}
+              </p>
+              {logSizes
+                ? LOG_PACKAGE_IDS.filter((packageId) => (logSizes.byPackage[packageId]?.bytes ?? 0) > 0).map(
+                    (packageId) => (
+                      <p key={packageId} className="tiny muted log-size-row">
+                        {formatLogPackageSize(packageId, logSizes.byPackage[packageId])}
+                      </p>
+                    )
+                  )
+                : null}
+              {LOG_PACKAGE_IDS.map((packageId) => (
+                <label key={packageId} className="field log-level-field">
+                  {packageId}
+                  <select
+                    className="log-level-select"
+                    aria-label={`${packageId} log level`}
+                    value={app.settings.logLevels[packageId]}
+                    onChange={(event) =>
+                      app.updateSetting(
+                        'logLevels',
+                        withPackageLogLevel(
+                          app.settings.logLevels,
+                          packageId,
+                          event.target.value as LogLevel
+                        )
+                      )
+                    }
+                  >
+                    {LOG_LEVELS.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </details>
             <p className="build-identity" aria-label="App build identity">
               {buildIdentityLines(readBuildIdentity()).map((line) => (
                 <span key={line}>{line}</span>

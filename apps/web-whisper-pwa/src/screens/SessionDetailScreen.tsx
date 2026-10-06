@@ -10,6 +10,7 @@ import type { ChunkRecord, SessionRecord, SnipRecord, TranscriptRecord } from '.
 import { VolumeHistogram } from '../components/VolumeHistogram';
 import { buildTranscriptText, previewSnipTranscriptText } from '../transcriptText';
 import {
+  isSessionDebugExportScreenshot,
   isSessionPartialCoverageScreenshot,
   isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
@@ -93,7 +94,11 @@ export function SessionDetailScreen() {
   const [failures, setFailures] = useState<Array<{ snipId: string; error: string }>>([]);
   const openHistogram = readHistogramQuery();
   const [detailTab, setDetailTab] = useState<DetailTab>(
-    openHistogram || isSessionSnipsScreenshot(screenshotMode) ? 'debug' : 'transcript'
+    openHistogram ||
+      isSessionSnipsScreenshot(screenshotMode) ||
+      isSessionDebugExportScreenshot(screenshotMode)
+      ? 'debug'
+      : 'transcript'
   );
   const [snipsTab, setSnipsTab] = useState<'chunks' | 'snips'>('snips');
   const [showHistogram, setShowHistogram] = useState(openHistogram);
@@ -102,7 +107,9 @@ export function SessionDetailScreen() {
   const [doctorJson, setDoctorJson] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [exporting, setExporting] = useState(false);
-  const [includeDebugArtifacts, setIncludeDebugArtifacts] = useState(false);
+  const [includeDebugArtifacts, setIncludeDebugArtifacts] = useState(
+    isSessionDebugExportScreenshot(screenshotMode)
+  );
   const handleRef = useRef<PlaybackHandle | null>(null);
   const [hasPlayback, setHasPlayback] = useState(demoPlayhead != null);
   const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -695,8 +702,8 @@ export function SessionDetailScreen() {
                   <p id="session-export-hint" className="tiny muted session-detail-export-hint">
                     {archiveHint ??
                       (includeDebugArtifacts
-                        ? 'Debug zip includes live snip ranges, transcript text, and volume profile.'
-                        : 'Slim zip: audio chunks + manifest only.')}
+                        ? 'Debug zip includes live snip ranges, transcript text, volume profile, and logs.json.'
+                        : 'Slim zip: audio chunks + manifest only. No logs.')}
                   </p>
                 </div>
               ) : null}

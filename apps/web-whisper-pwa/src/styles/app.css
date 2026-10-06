@@ -1029,6 +1029,41 @@ a.isolation-demos-head-link {
   margin: 0 0 10px;
 }
 
+.advanced-details {
+  margin-top: 16px;
+}
+
+.advanced-details summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+
+.advanced-details .help {
+  margin-top: 8px;
+}
+
+.log-sizes-total {
+  margin: 8px 0 4px;
+  color: #fff;
+}
+
+.log-size-row {
+  margin: 0 0 2px;
+}
+
+.log-level-field {
+  margin-top: 10px;
+}
+
+.log-level-select {
+  width: 100%;
+}
+
 .build-identity {
   display: flex;
   flex-direction: column;

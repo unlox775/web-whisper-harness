@@ -11,7 +11,8 @@ import {
 import * as sessionStore from '@web-whisper/session-store';
 import { CaptureError, flushPending, startCapture, type CaptureHandle } from '@web-whisper/capture-engine';
 import { validateKey } from '@web-whisper/transcription-client';
-import { capBytesFromMb, loadSettings, saveSetting } from './settings';
+import { applyLoggerConfig, type PackageLogLevels } from './logSettings';
+import { capBytesFromMb, loadSettings, saveLogLevels, saveSetting } from './settings';
 import { ingestGrowingSession, transcribeSession } from './orchestration';
 import {
   createRetentionGate,
@@ -19,7 +20,9 @@ import {
 } from './retentionAfterIdle';
 import {
   isIsolationSettingsScreenshot,
+  isSessionDebugExportScreenshot,
   isSessionDetailScreenshot,
+  isSettingsLogLevelsScreenshot,
   readScreenshotMode,
 } from './screenshotMode';
 import { ensureSessionDetailScreenshotSession } from './sessionDetailScreenshot';
@@ -120,8 +123,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const abortRecordingRef = useRef<(() => Promise<void>) | null>(null);
   const noAudioAlertRef = useRef(false);
   const recordingStartedAtRef = useRef<number | null>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const logSessionRef = useRef<string | null>(null);
 
   const capBytes = capBytesFromMb(settings.storageCapMb);
+
+  const syncLogger = useCallback((overrides?: {
+    levels?: PackageLogLevels;
+    activeSessionId?: string | null;
+  }) => {
+    if (overrides && Object.prototype.hasOwnProperty.call(overrides, 'activeSessionId')) {
+      logSessionRef.current = overrides.activeSessionId ?? null;
+    }
+    applyLoggerConfig(sessionStore.configureLogger, {
+      levels: overrides?.levels ?? settingsRef.current.logLevels,
+      activeSessionId: logSessionRef.current,
+    });
+  }, []);
+
+  const settleLoggerIfIdle = useCallback((sessionId: string) => {
+    if (recordingSessionIdRef.current === sessionId) return;
+    if (logSessionRef.current !== sessionId) return;
+    syncLogger({ activeSessionId: null });
+  }, [syncLogger]);
 
   const showToast = useCallback((text: string, tone: ToastTone = 'warning') => {
     const id = ++toastId.current;
@@ -155,7 +180,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         capBytes,
         flushPending,
         enforceRetentionPolicy: (bytes) => sessionStore.enforceRetentionPolicy(bytes),
-        sessionId: recordingSessionIdRef.current,
+        sessionId: recordingSessionIdRef.current ?? logSessionRef.current,
+        log: sessionStore.log,
       })
     );
     if (result.error) return;
@@ -174,6 +200,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       const loaded = loadSettings();
       setSettings(loaded);
+      syncLogger({ levels: loaded.logLevels, activeSessionId: null });
+      if (isSettingsLogLevelsScreenshot(readScreenshotMode())) {
+        sessionStore.configureLogger({ activeSessionId: 'ses-settings-log-levels' });
+        await sessionStore.log('web-whisper-pwa', 'info', () => ({
+          message: 'Advanced Settings screenshot seed',
+          details: { source: 'screenshot' },
+        }));
+        await sessionStore.log('capture-engine', 'warn', () => ({
+          message: 'capture screenshot seed',
+        }));
+        sessionStore.configureLogger({ activeSessionId: null });
+      }
       await refresh();
       if (loaded.groqApiKey) {
         const result = await validateKey(loaded.groqApiKey);
@@ -194,7 +232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [refresh, showToast]);
+  }, [refresh, showToast, syncLogger]);
 
   useEffect(() => {
     if (!ready) return;
@@ -230,19 +268,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (key === 'storageCapMb') saveSetting('storageCapMb', Number(value));
       if (key === 'developerModeEnabled') saveSetting('developerModeEnabled', Boolean(value));
       if (key === 'onboardingDismissed') saveSetting('onboardingDismissed', Boolean(value));
+      if (key === 'logLevels') {
+        saveLogLevels(value as PackageLogLevels);
+        syncLogger({ levels: value as PackageLogLevels });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'storage quota exceeded';
       showToast(`Failed to save settings: ${message}`, 'error');
     }
-  }, [showToast]);
+  }, [showToast, syncLogger]);
 
   useEffect(() => {
     if (!ready) return;
-    if (!isIsolationSettingsScreenshot(readScreenshotMode())) return;
-    if (!settings.developerModeEnabled) {
+    const mode = readScreenshotMode();
+    if (isIsolationSettingsScreenshot(mode) || isSettingsLogLevelsScreenshot(mode)) {
+      if (!settings.developerModeEnabled) {
+        updateSetting('developerModeEnabled', true);
+      }
+      setSettingsOpen(true);
+    }
+    if (isSessionDebugExportScreenshot(mode) && !settings.developerModeEnabled) {
       updateSetting('developerModeEnabled', true);
     }
-    setSettingsOpen(true);
   }, [ready, settings.developerModeEnabled, updateSetting]);
 
   const persistKey = useCallback((apiKey: string, valid: boolean, status: string) => {
@@ -279,7 +326,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!ready) return;
-    if (!isSessionDetailScreenshot(readScreenshotMode())) return;
+    const mode = readScreenshotMode();
+    if (!isSessionDetailScreenshot(mode) && !isSessionDebugExportScreenshot(mode)) return;
     let cancelled = false;
     void ensureSessionDetailScreenshotSession().then((id) => {
       if (!cancelled && id) openSession(id);
@@ -312,6 +360,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showToast('Storage unavailable. Check browser storage permissions.', 'error');
       return;
     }
+    syncLogger({ activeSessionId: created.id });
     try {
       const handle = await startCapture(created.id, captureStartOptions());
       handleRef.current = handle;
@@ -356,6 +405,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     } catch (error) {
       // Capture never started — no encoded audio to keep.
+      syncLogger({ activeSessionId: null });
       await sessionStore.deleteSession(created.id);
       if (error instanceof CaptureError && error.code === 'permission_denied') {
         setPermissionError(
@@ -366,7 +416,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const message = error instanceof Error ? error.message : 'Could not start recording';
       showToast(message, 'error');
     }
-  }, [clearNoAudioAlert, enforceCap, enterNoAudioAlert, showToast]);
+  }, [clearNoAudioAlert, enforceCap, enterNoAudioAlert, showToast, syncLogger]);
 
   const finishCapture = useCallback(
     async (navigate: 'session' | 'home' | 'none') => {
@@ -430,9 +480,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
               .then(() => refresh())
               .catch((error) => {
                 console.warn('Post-recording transcription failed', error);
-              });
+              })
+              .finally(() => settleLoggerIfIdle(id));
+          } else {
+            settleLoggerIfIdle(id);
           }
           await enforceCap({ force: true });
+        } else {
+          settleLoggerIfIdle(id);
         }
       }
       finishingRef.current = false;
@@ -448,7 +503,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await refresh();
       }
     },
-    [clearNoAudioAlert, enforceCap, openSession, refresh, settings.groqApiKey, settings.keyValid, showToast]
+    [
+      clearNoAudioAlert,
+      enforceCap,
+      openSession,
+      refresh,
+      settleLoggerIfIdle,
+      settings.groqApiKey,
+      settings.keyValid,
+      showToast,
+    ]
   );
 
   useEffect(() => {
