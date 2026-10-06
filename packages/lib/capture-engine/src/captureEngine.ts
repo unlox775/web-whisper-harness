@@ -12,6 +12,7 @@ import type {
   AudioResumedEvent,
   EventCallback,
   ChunkMetadata,
+  StoreWriteFailedDetails,
 } from './types';
 
 type EncoderLike = {
@@ -28,6 +29,34 @@ export function setEncoderFactoryForTests(
   factory: ((sampleRate: number) => EncoderLike) | null
 ): void {
   createEncoder = factory ?? ((sampleRate) => new MP3Encoder(sampleRate, 128));
+}
+
+type SessionStoreLike = {
+  writeChunk: (
+    sessionId: string,
+    chunkData: {
+      seq: number;
+      startTime: number;
+      endTime: number;
+      duration: number;
+      blob: Blob;
+      sizeBytes: number;
+    }
+  ) => Promise<{ chunkId?: string; error?: string; [key: string]: unknown }>;
+  log?: (
+    packageId: string,
+    level: string,
+    payload: string | (() => string | { message: string; details?: unknown }),
+    options?: { sessionId?: string }
+  ) => unknown;
+};
+
+let sessionStoreForTests: SessionStoreLike | null = null;
+
+/** Test-only: inject writeChunk / log without opening IndexedDB. */
+export function setSessionStoreForTests(store: SessionStoreLike | null): void {
+  sessionStoreForTests = store;
+  sessionStoreModule = null;
 }
 
 interface InternalChunk {
@@ -51,6 +80,7 @@ class CaptureSession {
   private chunkCount: number = 0;
   private sampleRate: number = 44100;
   private persistQueue: Promise<void> = Promise.resolve();
+  private persistAbandoned = false;
   private stopPromise: Promise<CaptureSummary> | null = null;
   private lastSummary: CaptureSummary | null = null;
   
@@ -243,52 +273,144 @@ class CaptureSession {
   }
 
   private enqueuePersist(blob: Blob, metadata: ChunkMetadata, duration: number): void {
+    if (this.persistAbandoned) return;
+
     this.persistQueue = this.persistQueue
       .catch(() => undefined)
       .then(async () => {
-        const written = await this.writeChunkToStore(blob, metadata);
-        if (!written) return;
-        this.emit('chunkEncoded', {
-          sessionId: this.sessionId,
-          seq: metadata.seq,
-          startTime: metadata.startTime,
-          endTime: metadata.endTime,
-          duration,
-          byteLength: blob.size,
-          blob,
-        } as ChunkEncodedEvent);
+        if (this.persistAbandoned) return;
+        try {
+          const written = await this.writeChunkToStore(blob, metadata);
+          if (!written) return;
+          this.emit('chunkEncoded', {
+            sessionId: this.sessionId,
+            seq: metadata.seq,
+            startTime: metadata.startTime,
+            endTime: metadata.endTime,
+            duration,
+            byteLength: blob.size,
+            blob,
+          } as ChunkEncodedEvent);
+        } catch (error: any) {
+          // Never reject the shared persist tail — one job failure must not
+          // skip later writeChunk jobs.
+          this.emitStoreWriteFailed({
+            error: error?.message || String(error),
+          });
+        }
       });
   }
 
   private async writeChunkToStore(blob: Blob, metadata: ChunkMetadata): Promise<boolean> {
-    try {
-      const sessionStore = await loadSessionStore();
-      const result = await sessionStore.writeChunk(this.sessionId, {
-        seq: metadata.seq,
-        startTime: metadata.startTime,
-        endTime: metadata.endTime,
-        duration: metadata.endTime - metadata.startTime,
-        blob,
-        sizeBytes: blob.size || metadata.byteLength,
-      });
-      if (result && result.error) {
-        this.emit('captureError', {
-          sessionId: this.sessionId,
-          reason: 'store_write_failed',
-          details: result.error,
-        } as CaptureErrorEvent);
+    let retried = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const sessionStore = await loadSessionStore();
+        const result = await sessionStore.writeChunk(this.sessionId, {
+          seq: metadata.seq,
+          startTime: metadata.startTime,
+          endTime: metadata.endTime,
+          duration: metadata.endTime - metadata.startTime,
+          blob,
+          sizeBytes: blob.size || metadata.byteLength,
+        });
+        if (result && result.error) {
+          if (isTransientConflict(result) && attempt === 0) {
+            retried = true;
+            this.logCapture('warn', () => ({
+              message: 'chunk persist retry',
+              details: {
+                sessionId: this.sessionId,
+                seq: metadata.seq,
+                error: result.error,
+              },
+            }));
+            continue;
+          }
+          this.emitStoreWriteFailed(
+            { ...result, retried: retried || undefined },
+            result.error === 'session_not_found'
+          );
+          return false;
+        }
+        this.logCapture('debug', () => ({
+          message: 'chunk persist ok',
+          details: {
+            sessionId: this.sessionId,
+            seq: metadata.seq,
+            sizeBytes: blob.size || metadata.byteLength,
+          },
+        }));
+        return true;
+      } catch (error: any) {
+        if (isTransientConflict(error) && attempt === 0) {
+          retried = true;
+          this.logCapture('warn', () => ({
+            message: 'chunk persist retry',
+            details: {
+              sessionId: this.sessionId,
+              seq: metadata.seq,
+              error: error?.name || error?.message || String(error),
+            },
+          }));
+          continue;
+        }
+        console.error('Failed to write chunk to session-store:', error);
+        this.emitStoreWriteFailed({
+          error: error?.message || String(error),
+          retried: retried || undefined,
+        });
         return false;
       }
-      return true;
-    } catch (error: any) {
-      console.error('Failed to write chunk to session-store:', error);
-      this.emit('captureError', {
-        sessionId: this.sessionId,
-        reason: 'store_write_failed',
-        details: error.message,
-      } as CaptureErrorEvent);
-      return false;
     }
+    return false;
+  }
+
+  private emitStoreWriteFailed(
+    details: StoreWriteFailedDetails,
+    abandonSession = false
+  ): void {
+    this.logCapture('error', () => ({
+      message: 'chunk persist failed',
+      details: {
+        sessionId: this.sessionId,
+        error: details.error,
+        retried: details.retried === true,
+      },
+    }));
+    this.emit('captureError', {
+      sessionId: this.sessionId,
+      reason: 'store_write_failed',
+      details,
+    } as CaptureErrorEvent);
+    if (abandonSession) {
+      this.persistAbandoned = true;
+      void this.stop();
+    }
+  }
+
+  async flushPending(): Promise<void> {
+    try {
+      await this.persistQueue;
+    } catch {
+      // Queue jobs isolate their own failures; idle even if a stray rejection exists.
+    }
+    this.logCapture('debug', () => ({
+      message: 'flushPending waited',
+      details: { sessionId: this.sessionId },
+    }));
+  }
+
+  private logCapture(
+    level: 'debug' | 'warn' | 'error',
+    payload: () => { message: string; details?: unknown }
+  ): void {
+    void loadSessionStoreIfAvailable()
+      .then((store) => {
+        if (!store || typeof store.log !== 'function') return;
+        store.log('capture-engine', level, payload, { sessionId: this.sessionId });
+      })
+      .catch(() => undefined);
   }
 
   private getRemainingBufferSamples(): number {
@@ -462,11 +584,7 @@ class CaptureSession {
       }
     }
 
-    try {
-      await this.persistQueue;
-    } catch (error) {
-      console.error('Failed to drain persist queue:', error);
-    }
+    await this.flushPending();
 
     activeSessions.delete(this.sessionId);
 
@@ -575,6 +693,8 @@ class CaptureSession {
       off: (eventName, callback) => this.off(eventName, callback),
       getStatus: () => this.getStatus(),
       setPcmPaused: (paused) => this.setPcmPaused(paused),
+      flushPending: () => this.flushPending(),
+      whenPersistIdle: () => this.flushPending(),
     };
   }
 
@@ -592,13 +712,57 @@ class CaptureSession {
 
 const activeSessions = new Map<string, CaptureSession>();
 
-let sessionStoreModule: Promise<typeof import('../../../datastore/session-store/src/index.js')> | null = null;
+let sessionStoreModule: Promise<SessionStoreLike> | null = null;
 
-function loadSessionStore() {
+function isTransientConflict(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as { error?: unknown; name?: unknown; message?: unknown };
+  if (record.error === 'transaction_conflict') {
+    return true;
+  }
+  const name = typeof record.name === 'string' ? record.name : '';
+  const message = typeof record.message === 'string' ? record.message : '';
+  if (name === 'AbortError' || name === 'ConstraintError') {
+    return true;
+  }
+  return /transaction.+(abort|conflict)|abort.+transaction/i.test(message);
+}
+
+function loadSessionStore(): Promise<SessionStoreLike> {
+  if (sessionStoreForTests) {
+    return Promise.resolve(sessionStoreForTests);
+  }
   if (!sessionStoreModule) {
     sessionStoreModule = import('../../../datastore/session-store/src/index.js');
   }
   return sessionStoreModule;
+}
+
+function loadSessionStoreIfAvailable(): Promise<SessionStoreLike | null> {
+  if (sessionStoreForTests) {
+    return Promise.resolve(sessionStoreForTests);
+  }
+  if (sessionStoreModule) {
+    return sessionStoreModule;
+  }
+  return Promise.resolve(null);
+}
+
+/** Resolves when the persist queue is idle. No-op when no active capture. */
+export async function flushPending(): Promise<void> {
+  if (activeSessions.size === 0) {
+    return;
+  }
+  await Promise.all(
+    [...activeSessions.values()].map((session) => session.flushPending())
+  );
+}
+
+/** Alias of flushPending. */
+export function whenPersistIdle(): Promise<void> {
+  return flushPending();
 }
 
 export async function startCapture(

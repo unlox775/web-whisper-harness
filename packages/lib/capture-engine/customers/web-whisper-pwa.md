@@ -482,7 +482,7 @@ Phase 06 will implement `startCapture`, session-store integration, event system,
 
 ## Phase 07 addendum — persist queue, flushPending, structured logs
 
-Planning only (feedback specs unresolved).
+Shipped. Persist queue + `flushPending()` / `whenPersistIdle()` are live on this package.
 
 ### Persist queue must not die silently
 

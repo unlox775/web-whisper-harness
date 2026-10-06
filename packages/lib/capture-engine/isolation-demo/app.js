@@ -1,7 +1,7 @@
 // Real capture-engine, in-memory only. Must never open IndexedDB `web-whisper-db`
 // or write PWA localStorage keys. Reserved unused namespace:
 // `web-whisper-isolation-demo-capture-engine`.
-import { startCapture, CaptureError } from '@web-whisper/capture-engine';
+import { startCapture, flushPending, CaptureError } from '@web-whisper/capture-engine';
 import '../../../isolation-demo-shared/compact-mobile.css';
 
 let captureHandle = null;
@@ -118,6 +118,8 @@ simulateStallBtn.addEventListener('click', () => {
 stopBtn.addEventListener('click', async () => {
   if (captureHandle) {
     try {
+      await flushPending();
+      addEvent('info', 'flushPending resolved (in-memory no-op)');
       const summary = await captureHandle.stop();
       addEvent(
         'info',
@@ -356,4 +358,4 @@ function updateMicStatus(status) {
 
 updateMicStatus('not-requested');
 updateDataModeChip();
-addEvent('info', 'Demo initialized. Live microphone is the primary source (in-memory, not persisted).');
+addEvent('info', 'Demo initialized. Live microphone is the primary source (in-memory, not persisted). flushPending() resolves immediately.');

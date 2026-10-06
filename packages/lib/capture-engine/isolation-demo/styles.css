@@ -180,6 +180,20 @@ body {
   color: #000;
 }
 
+.factory-note {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 6px;
+  background: #222;
+  color: #9aa0a6;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.factory-note code {
+  color: #c8d0d8;
+}
+
 .stream-banner {
   padding: 0.65rem 0.8rem;
   border-radius: 6px;

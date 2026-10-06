@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-10-06T18:05:17Z
 Product: packages/lib/capture-engine
@@ -107,10 +107,44 @@ This planning PR does not change demo code. The Phase 07 implementer may add a f
 
 Mark this spec resolved when:
 
-- [ ] Persist queue catches per-job failures and continues; one failure cannot silently kill later writes
-- [ ] Single retry for transient `transaction_conflict` (or equivalent); no retry loop
-- [ ] `flushPending()` / `whenPersistIdle()` exist and resolve when the queue is idle
-- [ ] `stop()` waits for persist idle before returning `chunksWritten`
-- [ ] Structured `log()` calls use lazy payloads and package id `capture-engine`
-- [ ] Customer docs + package README name the new APIs
-- [ ] Spec updated with a Resolution section documenting what shipped (including whether the 47-minute hypothesis was confirmed)
+- [x] Persist queue catches per-job failures and continues; one failure cannot silently kill later writes
+- [x] Single retry for transient `transaction_conflict` (or equivalent); no retry loop
+- [x] `flushPending()` / `whenPersistIdle()` exist and resolve when the queue is idle
+- [x] `stop()` waits for persist idle before returning `chunksWritten`
+- [x] Structured `log()` calls use lazy payloads and package id `capture-engine`
+- [x] Customer docs + package README name the new APIs
+- [x] Spec updated with a Resolution section documenting what shipped (including whether the 47-minute hypothesis was confirmed)
+
+## Resolution
+
+Shipped in capture-engine only (`packages/lib/capture-engine`). Phase 07 Cursor Cloud Agent. No Codex. No PWA retention orchestration. No session-store `log()` storage implementation — this package emits lazy `session-store.log('capture-engine', …)` when that API exists.
+
+### Persist queue
+
+- Every `writeChunk` job is isolated with `try/catch` plus a `.catch` on the shared tail. A thrown write or `{ error }` return emits `captureError` `{ reason: 'store_write_failed', details: storeError }` and **continues**. One failure cannot skip later jobs.
+- Single retry for `transaction_conflict` (or `AbortError` / `ConstraintError` / aborted-transaction message). Retry success is silent. Retry failure emits `store_write_failed` with `retried: true`.
+- `quota_exceeded` / `database_unavailable`: emit and continue. `session_not_found`: emit, stop enqueueing, auto-stop. This package does **not** call `enforceRetentionPolicy`.
+
+### flushPending / whenPersistIdle
+
+- Same function under two names, on the capture handle **and** as module-level exports.
+- Resolves when every started `writeChunk` has settled. Resolves immediately when no active capture or in in-memory mode. Does not throw.
+- `handle.stop()` awaits persist idle before returning `chunksWritten`.
+
+### Structured logs
+
+- Lazy payloads only: `log('capture-engine', level, () => ({ message, details }), { sessionId })`.
+- Events: persist ok (debug), persist retry (warn), persist failed (error), flushPending waited (debug). PCM buffers are never logged.
+- If session-store has not shipped `log()` yet, calls are skipped.
+
+### Isolation Demo
+
+Factory-floor note: flushPending resolves immediately in in-memory mode. Stop logs `flushPending resolved (in-memory no-op)`.
+
+### 47-minute hypothesis
+
+Current `main` already attached `.catch(() => undefined)` before the next persist `.then`, so an already-rejected tail would recover. The more plausible silent-stop path is **retention contention**: `writeChunk` aborting as `transaction_conflict` (or a thrown IndexedDB abort) with **no retry** and **no `flushPending`** for the PWA to wait on. We could not reproduce a dead chain on today's main, but the required rejected-then-success unit test now locks the contract: inject one failed `writeChunk`, then a success — the success still persists.
+
+### Tests
+
+`npm test` in this package: previous stall/watchdog cases plus persist-queue fail-then-success, thrown writeChunk, conflict retry, retried conflict then continue, idle `flushPending`, and `stop()` waits for persist.
