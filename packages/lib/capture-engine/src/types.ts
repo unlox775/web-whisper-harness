@@ -24,6 +24,10 @@ export interface CaptureHandle {
    * stall monitor can fire without a real mic ghost. Does not call stop().
    */
   setPcmPaused: (paused: boolean) => void;
+  /** Resolves when every started writeChunk has settled. Safe when idle. */
+  flushPending: () => Promise<void>;
+  /** Alias of flushPending. */
+  whenPersistIdle: () => Promise<void>;
 }
 
 export interface CaptureStatus {
@@ -56,10 +60,16 @@ export interface ChunkEncodedEvent {
   blob?: Blob;
 }
 
+export interface StoreWriteFailedDetails {
+  error?: string;
+  retried?: boolean;
+  [key: string]: unknown;
+}
+
 export interface CaptureErrorEvent {
   sessionId: string;
   reason: string;
-  details?: string;
+  details?: string | StoreWriteFailedDetails;
 }
 
 export interface CaptureStoppedEvent {

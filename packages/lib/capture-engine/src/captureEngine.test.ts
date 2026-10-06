@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, before, describe, it } from 'node:test';
 import type { CaptureHandle, CaptureErrorEvent, AudioStalledEvent, AudioResumedEvent } from './types.js';
+import type { StoreWriteFailedDetails } from './types.js';
 
 class FakeAudioNode {
   connect(): void {}
@@ -26,6 +27,9 @@ class FakeScriptProcessor extends FakeAudioNode {
 let lastProcessor: FakeScriptProcessor | null = null;
 let startCapture: typeof import('./captureEngine.js').startCapture;
 let setEncoderFactoryForTests: typeof import('./captureEngine.js').setEncoderFactoryForTests;
+let setSessionStoreForTests: typeof import('./captureEngine.js').setSessionStoreForTests;
+let flushPending: typeof import('./captureEngine.js').flushPending;
+let whenPersistIdle: typeof import('./captureEngine.js').whenPersistIdle;
 
 function installAudioMocks(): void {
   class FakeAudioContext {
@@ -98,7 +102,13 @@ async function startTestCapture(options: {
 
 before(async () => {
   installAudioMocks();
-  ({ startCapture, setEncoderFactoryForTests } = await import('./captureEngine.js'));
+  ({
+    startCapture,
+    setEncoderFactoryForTests,
+    setSessionStoreForTests,
+    flushPending,
+    whenPersistIdle,
+  } = await import('./captureEngine.js'));
   setEncoderFactoryForTests(() => ({
     encode(): Uint8Array {
       return new Uint8Array([1, 2, 3]);
@@ -115,6 +125,7 @@ before(async () => {
 afterEach(async () => {
   const handles = activeHandles.splice(0);
   await Promise.all(handles.map((handle) => handle.stop().catch(() => undefined)));
+  setSessionStoreForTests(null);
 });
 
 describe('mid-stream stall detection', () => {
@@ -231,5 +242,166 @@ describe('start watchdog isolation', () => {
     assert.equal(stalled.length, 0, 'start ghost must not emit audioStalled');
     assert.equal(stopped.length, 1);
     assert.equal(handle.getStatus().isActive, false);
+  });
+});
+
+async function startPersistCapture(): Promise<CaptureHandle> {
+  const handle = await startCapture(sessionId('persist'), {
+    audioSource: 'simulated',
+    inMemory: false,
+    chunkTargetDuration: 0.02,
+    stallTimeout: 5.0,
+    watchdogTimeout: 5.0,
+  });
+  activeHandles.push(handle);
+  return handle;
+}
+
+function storeError(event: CaptureErrorEvent): string | undefined {
+  if (typeof event.details === 'string') return event.details;
+  return event.details?.error;
+}
+
+describe('resilient persist queue', () => {
+  it('keeps persisting after one failed writeChunk', async () => {
+    const persisted: number[] = [];
+    let writeCalls = 0;
+    setSessionStoreForTests({
+      writeChunk: async (_sessionId, chunk) => {
+        writeCalls += 1;
+        if (writeCalls === 1) {
+          return { error: 'quota_exceeded' };
+        }
+        persisted.push(chunk.seq);
+        return { chunkId: `chunk-${chunk.seq}` };
+      },
+    });
+
+    const handle = await startPersistCapture();
+    const errors: CaptureErrorEvent[] = [];
+    handle.on('captureError', (event) => errors.push(event));
+
+    pushPcm(1024);
+    pushPcm(1024);
+    await handle.flushPending();
+
+    assert.equal(writeCalls >= 2, true, 'second writeChunk must still run');
+    assert.deepEqual(persisted, [1]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].reason, 'store_write_failed');
+    assert.equal(storeError(errors[0]), 'quota_exceeded');
+  });
+
+  it('continues the queue when writeChunk throws (rejected-chain hypothesis)', async () => {
+    const persisted: number[] = [];
+    let writeCalls = 0;
+    setSessionStoreForTests({
+      writeChunk: async (_sessionId, chunk) => {
+        writeCalls += 1;
+        if (writeCalls === 1) {
+          throw new Error('indexeddb died');
+        }
+        persisted.push(chunk.seq);
+        return { chunkId: `chunk-${chunk.seq}` };
+      },
+    });
+
+    const handle = await startPersistCapture();
+    const errors: CaptureErrorEvent[] = [];
+    handle.on('captureError', (event) => errors.push(event));
+
+    pushPcm(1024);
+    pushPcm(1024);
+    await flushPending();
+
+    assert.equal(writeCalls >= 2, true);
+    assert.deepEqual(persisted, [1]);
+    assert.equal(errors[0]?.reason, 'store_write_failed');
+    assert.equal(storeError(errors[0]), 'indexeddb died');
+  });
+
+  it('retries transaction_conflict once then persists', async () => {
+    let writeCalls = 0;
+    const persisted: number[] = [];
+    setSessionStoreForTests({
+      writeChunk: async (_sessionId, chunk) => {
+        writeCalls += 1;
+        if (writeCalls === 1) {
+          return { error: 'transaction_conflict', sessionId: 'x' };
+        }
+        persisted.push(chunk.seq);
+        return { chunkId: `chunk-${chunk.seq}` };
+      },
+    });
+
+    const handle = await startPersistCapture();
+    const errors: CaptureErrorEvent[] = [];
+    handle.on('captureError', (event) => errors.push(event));
+
+    pushPcm(1024);
+    await handle.whenPersistIdle();
+
+    assert.equal(persisted[0], 0);
+    assert.equal(writeCalls, 2, 'conflict must retry once');
+    assert.equal(errors.length, 0, 'successful retry must not emit store_write_failed');
+  });
+
+  it('emits retried store_write_failed after a second conflict and continues', async () => {
+    let writeCalls = 0;
+    const persisted: number[] = [];
+    setSessionStoreForTests({
+      writeChunk: async (_sessionId, chunk) => {
+        writeCalls += 1;
+        if (chunk.seq === 0) {
+          return { error: 'transaction_conflict' };
+        }
+        persisted.push(chunk.seq);
+        return { chunkId: `chunk-${chunk.seq}` };
+      },
+    });
+
+    const handle = await startPersistCapture();
+    const errors: CaptureErrorEvent[] = [];
+    handle.on('captureError', (event) => errors.push(event));
+
+    pushPcm(1024);
+    pushPcm(1024);
+    await handle.flushPending();
+
+    assert.equal(writeCalls >= 3, true, 'seq 0 retries once (2 calls) then seq 1 writes');
+    assert.deepEqual(persisted, [1]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].reason, 'store_write_failed');
+    assert.equal(storeError(errors[0]), 'transaction_conflict');
+    assert.equal((errors[0].details as StoreWriteFailedDetails).retried, true);
+  });
+
+  it('flushPending / whenPersistIdle resolve immediately when not capturing', async () => {
+    await flushPending();
+    await whenPersistIdle();
+  });
+
+  it('stop waits for persist idle before returning', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let writesFinished = 0;
+    setSessionStoreForTests({
+      writeChunk: async () => {
+        await gate;
+        writesFinished += 1;
+        return { chunkId: 'late' };
+      },
+    });
+
+    const handle = await startPersistCapture();
+    pushPcm(1024);
+    const stopping = handle.stop();
+    await wait(20);
+    assert.equal(writesFinished, 0, 'stop must not resolve before writeChunk settles');
+    release();
+    await stopping;
+    assert.equal(writesFinished >= 1, true);
   });
 });

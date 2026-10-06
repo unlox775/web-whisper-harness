@@ -1,4 +1,9 @@
-export { startCapture, CaptureError } from './captureEngine';
+export {
+  startCapture,
+  flushPending,
+  whenPersistIdle,
+  CaptureError,
+} from './captureEngine';
 export type {
   CaptureOptions,
   CaptureHandle,
@@ -9,4 +14,5 @@ export type {
   CaptureStoppedEvent,
   AudioStalledEvent,
   AudioResumedEvent,
+  StoreWriteFailedDetails,
 } from './types';

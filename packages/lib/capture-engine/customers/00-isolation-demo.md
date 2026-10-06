@@ -464,4 +464,4 @@ Phase 06 will implement in-memory mode, simulated/live audio sources, watchdog t
 
 Planning only. Capture-engine now contracts `flushPending()` / `whenPersistIdle()` and a persist queue that cannot die on one `writeChunk` failure.
 
-This Isolation Demo stays **in-memory** (no session-store writes). `flushPending()` should still exist and resolve immediately in in-memory mode so callers can `await` it unconditionally. The Phase 07 **implementer** may add a factory-floor line or control showing flushPending resolved / one injected persist failure not killing the queue. Durable writes stay in session-store’s Isolation Demo. This roster PR does not change demo code.
+This Isolation Demo stays **in-memory** (no session-store writes). `flushPending()` exists and resolves immediately so callers can `await` it unconditionally. The factory floor notes that and logs `flushPending resolved (in-memory no-op)` on Stop. Durable writes stay in session-store’s Isolation Demo.

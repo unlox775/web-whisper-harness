@@ -13,6 +13,7 @@ Proves that capture-engine:
 - Detects mic ghost (watchdog timeout if no audio received)
 - Flushes final chunk < 4s on stop
 - Allows playing each chunk from RAM immediately to verify encoding
+- `flushPending()` / `whenPersistIdle()` resolve immediately (in-memory; no store writes)
 
 ## Runtime
 

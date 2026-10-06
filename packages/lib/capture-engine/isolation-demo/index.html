@@ -41,6 +41,11 @@
       <button id="simulateStallBtn" class="btn btn-stall" disabled>Simulate stall</button>
       <button id="resetBtn" class="btn btn-reset">Reset</button>
 
+      <p class="factory-note">
+        <code>flushPending()</code> / <code>whenPersistIdle()</code> resolve immediately
+        here (in-memory; no session-store writes).
+      </p>
+
       <div id="streamBanner" class="stream-banner idle" role="status">
         Stream: idle
       </div>
