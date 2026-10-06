@@ -376,3 +376,38 @@ Why: You encode chunks in Web Worker and call `writeChunk` after encoding. If `w
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement `writeChunk`, validate with capture-engine integration tests, measure performance (< 100ms target), and mark spec resolved.
+
+## Phase 07 addendum — writeChunk vs retention, plus structured logs
+
+Planning only (feedback specs unresolved).
+
+### `writeChunk` must stay a short transaction
+
+`writeChunk` remains: validate session → quota check → one IndexedDB transaction (chunk row + session metadata). It does **not** call `enforceRetentionPolicy`.
+
+Retention opens a long `readwrite` on chunks/sessions. **Callers serialize:** the PWA awaits capture-engine `flushPending()` before `enforceRetentionPolicy`. You (capture-engine) serialize your own `writeChunk` calls. You do not overlap a write with PWA retention.
+
+If a write is aborted because another long `readwrite` is in flight, `writeChunk` returns `{ error: 'transaction_conflict', sessionId }` (structured object, not a throw). You may retry **once**. After that, emit `store_write_failed` and continue the persist queue (see capture-engine spec). Do not let an unhandled rejection kill the chain.
+
+New failure row:
+
+| Function | Additional failure |
+|----------|-------------------|
+| `writeChunk` | `{ error: 'transaction_conflict', sessionId }` |
+
+### Structured logs (you emit; we store)
+
+You may call:
+
+```javascript
+sessionStore.log('capture-engine', 'debug', () => ({
+  message: 'chunk persist ok',
+  details: { sessionId, seq, sizeBytes }
+}), { sessionId })
+```
+
+Same lazy gates as the PWA customer: no payload work if `capture-engine` is gated off or there is no session id (active or explicit). Failed `log()` returns `{ error }` and must not throw into your persist queue.
+
+You do **not** need `queryLogs`, `getLogByteSizes`, or `enforceRetentionPolicy`.
+
+Specs: `packages/datastore/session-store/docs/specs/20261006180517-feedback-durable-per-package-logging.md`, `packages/lib/capture-engine/docs/specs/20261006180517-feedback-resilient-persist-queue-and-flushpending.md`.

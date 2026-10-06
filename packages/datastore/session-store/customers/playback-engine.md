@@ -429,3 +429,18 @@ You call: `getSession`, `getChunksForSession`, `getChunk`, `getSnip`. Read-only 
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement these read interfaces, validate with playback-engine integration tests, confirm blob concatenation produces seamless playback, and mark spec resolved.
+
+## Phase 07 addendum — structured logs only
+
+Planning only. Playback-engine stays a read-only customer of session/chunk/snip audio. It **emits** structured logs through this package:
+
+```javascript
+sessionStore.log('playback-engine', 'debug', () => ({
+  message: 'playSession started',
+  details: { sessionId, chunkCount }
+}), { sessionId })
+```
+
+Lazy payload. Session-store checks `playback-engine` level and active/explicit session id **before** invoking the function. You still do not write chunks/snips/transcripts. You do not call retention.
+
+Spec: `packages/datastore/session-store/docs/specs/20261006180517-feedback-durable-per-package-logging.md`.

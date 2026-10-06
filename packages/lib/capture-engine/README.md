@@ -25,6 +25,16 @@ Microphone-to-durable-chunk pipeline. Acquires mic, captures PCM, encodes MP3 ch
 
 - Events emitted: `chunkEncoded(sessionId, chunkId, duration)`, `captureError(sessionId, reason)`
 
+- `flushPending()` / `whenPersistIdle()` → `Promise<void>`
+  - Resolves when the persist queue is empty (every started `writeChunk` settled)
+  - Caller: PWA **must** await this before `session-store.enforceRetentionPolicy` during or after recording
+  - Safe when not capturing (resolves immediately). `stop()` waits for persist idle before returning `chunksWritten`
+  - Persist queue: catch per-job failures, one retry on `transaction_conflict`, **continue** — one failure must not kill later writes
+
+- Structured logs: emit via `session-store.log('capture-engine', level, () => payload)` (lazy; session-store owns storage)
+
+See `docs/specs/20261006180517-feedback-resilient-persist-queue-and-flushpending.md`.
+
 ## Isolation Demo
 
 See `isolation-demo/README.md` for the package-local runnable demo. The demo is IN-MEMORY ONLY (no session-store writes). It exercises the core logic (acquire mic, capture PCM, encode chunks, detect failures) without storage integration. Storage integration is proven in session-store's Isolation Demo (which includes capture-engine as a demo dependency) or the final PWA.

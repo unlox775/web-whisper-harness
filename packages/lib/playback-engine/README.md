@@ -5,7 +5,7 @@ Audio playback for sessions, chunks, and snips. Reads MP3 audio from session-sto
 ## Boundary
 
 - **Owns**: Audio playback (HTML5 `<audio>` element management), playback state (playing, paused, stopped, current time, duration), seek operations, audible volume (`setVolume` via Web Audio GainNode), audio concatenation (for multi-chunk sessions or snips), playback events (play, pause, ended, timeupdate, error)
-- **Does NOT own**: Audio capture (capture-engine), volume analysis (volume-analyzer), transcription (transcription-client), storage authority (session-store owns all audio), playback UI (PWA owns playback controls)
+- **Does NOT own**: Audio capture (capture-engine), volume analysis (volume-analyzer), transcription (transcription-client), storage authority (session-store owns all audio), playback UI (PWA owns playback controls), log storage (emits via `session-store.log('playback-engine', …)` only)
 
 ## Main Callable Interfaces
 

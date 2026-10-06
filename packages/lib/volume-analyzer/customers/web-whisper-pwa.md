@@ -338,3 +338,7 @@ if (!result.success) {
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement `analyzeVolume` and `proposeSnips`, integrate with session-store, validate with PWA workflows (record → analyze → transcribe).
+
+## Phase 07 addendum — structured logs only
+
+Planning only. No deep behavior change. Volume-analyzer **emits structured logs via session-store** (`sessionStore.log('volume-analyzer', level, () => ({ message, details }), { sessionId })`). The PWA configures per-package levels and the active take id; session-store gates the lazy payload. We do not own a logger product or a new store.

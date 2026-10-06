@@ -446,3 +446,7 @@ Phase 06 will implement `playSession`, `playChunk`, `playSnip` with session-stor
 (To be filled by Phase 05 producer-response agent for playback-engine)
 
 Playback-engine will respond here: how it will meet the PWA's request, what interfaces it will provide, what event formats it will emit, how it will implement audio concatenation (blob concatenation vs sequential playback), how it will handle errors, and what playback handle lifecycle management it expects from caller (does caller need to call `stop()` before releasing handle, or is handle auto-released when playback ends).
+
+## Phase 07 addendum — structured logs only
+
+Planning only. No deep behavior change. Playback-engine **emits structured logs via session-store** (`sessionStore.log('playback-engine', level, () => ({ message, details }), { sessionId })`). The PWA configures per-package levels and the active take id; session-store gates the lazy payload. We do not own a logger product or write durable audio.

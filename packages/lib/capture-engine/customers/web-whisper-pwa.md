@@ -479,3 +479,28 @@ These are NOT shown in default mode. Default Recording screen shows only duratio
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement `startCapture`, session-store integration, event system, watchdog timer, and validate with PWA integration tests (record audio, stop, verify chunks in session-store, play recording).
+
+## Phase 07 addendum — persist queue, flushPending, structured logs
+
+Planning only (feedback specs unresolved).
+
+### Persist queue must not die silently
+
+If `session-store.writeChunk` fails (including `{ error: 'transaction_conflict' }`), I catch it, emit `captureError('store_write_failed', …)`, retry **once** on transient conflict, then **continue** the persist queue. One failure must not reject the shared promise tail so later chunks never write. I still do not call `enforceRetentionPolicy` (you orchestrate that).
+
+### `flushPending()` / `whenPersistIdle()`
+
+You must `await` this before `session-store.enforceRetentionPolicy` during or after recording so chunk writes and retention do not hold overlapping IndexedDB `readwrite` locks.
+
+| Interface | Input | Output | Failure |
+|-----------|--------|--------|---------|
+| `flushPending()` | none (handle or module, active capture) | `Promise<void>` when the persist queue is empty | Resolves even if some jobs failed; does not throw |
+| `whenPersistIdle()` | none | Same promise as `flushPending` (alias) | Same |
+
+Safe when not capturing: resolves immediately. `handle.stop()` waits for persist idle before returning `chunksWritten`.
+
+See `apps/web-whisper-pwa/docs/specs/20261006180517-feedback-await-flushpending-before-retention.md` and `packages/lib/capture-engine/docs/specs/20261006180517-feedback-resilient-persist-queue-and-flushpending.md`.
+
+### Structured logs
+
+I emit structured logs via session-store (`packageId: 'capture-engine'`, lazy `() => ({ message, details })`). You call `configureLogger` with levels + `activeSessionId` for the take. I may pass `{ sessionId }` on `log()`. I do not own log storage.
