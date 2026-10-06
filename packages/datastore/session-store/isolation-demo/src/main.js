@@ -66,6 +66,7 @@ function setupEventListeners() {
       document.getElementById('chunk-session-id').value = result.id;
       document.getElementById('volume-session-id').value = result.id;
       document.getElementById('snip-session-id').value = result.id;
+      document.getElementById('log-session-id').value = result.id;
       document.getElementById('archive-session-id').value = result.id;
       showToast(`Session created: ${result.id}`, 'success');
       await refreshUI();
@@ -98,6 +99,7 @@ function setupEventListeners() {
     document.getElementById('chunk-session-id').value = result.id;
     document.getElementById('volume-session-id').value = result.id;
     document.getElementById('snip-session-id').value = result.id;
+    document.getElementById('log-session-id').value = result.id;
     document.getElementById('archive-session-id').value = result.id;
     showToast(`Session created: ${result.id}`, 'success');
     await refreshUI();
@@ -335,6 +337,57 @@ function setupEventListeners() {
     }
   });
 
+  document.getElementById('append-log-btn').addEventListener('click', async () => {
+    const sessionId = document.getElementById('log-session-id').value.trim()
+      || currentDetailsSessionId
+      || lastCreatedSessionId;
+    if (!sessionId) {
+      showToast('Please enter a session ID', 'error');
+      return;
+    }
+    sessionStore.configureLogger({
+      levels: { 'session-store': 'debug' },
+      activeSessionId: sessionId
+    });
+    const result = await sessionStore.log('session-store', 'info', () => ({
+      message: 'isolation-demo fixture log',
+      details: { source: 'fixture', at: new Date().toISOString() }
+    }), { sessionId });
+    if (result.error) {
+      showToast(`Error: ${result.error}`, 'error');
+    } else if (result.skipped) {
+      showToast(`Log skipped: ${result.reason}`, 'error');
+    } else {
+      showToast(`Log written: ${result.id}`, 'success');
+      await refreshUI();
+    }
+  });
+
+  document.getElementById('query-logs-btn').addEventListener('click', async () => {
+    const sessionId = document.getElementById('log-session-id').value.trim()
+      || currentDetailsSessionId
+      || lastCreatedSessionId;
+    if (!sessionId) {
+      showToast('Please enter a session ID', 'error');
+      return;
+    }
+    const queried = await sessionStore.queryLogs({ sessionId, limit: 50 });
+    if (queried.error) {
+      showToast(`Error: ${queried.error}`, 'error');
+      return;
+    }
+    const sizes = await sessionStore.getLogByteSizes();
+    document.getElementById('log-query-status').textContent =
+      `${queried.total} log(s) for session; approx ${formatBytes(sizes.logBytes || 0)} across all packages.`;
+    document.getElementById('log-bytes').textContent = `Log bytes: ${formatBytes(sizes.logBytes || 0)}`;
+    showToast(`Queried ${queried.total} log(s)`, 'success');
+    if (currentDetailsSessionId !== sessionId) {
+      await window.showDetails(sessionId);
+    } else {
+      await loadSessionDetails(sessionId);
+    }
+  });
+
   // Update Storage Cap
   document.getElementById('update-cap-btn').addEventListener('click', () => {
     const capMB = parseFloat(document.getElementById('storage-cap-input').value);
@@ -383,6 +436,7 @@ function setupEventListeners() {
   const includeSnips = document.getElementById('archive-include-snips');
   const includeTranscripts = document.getElementById('archive-include-transcripts');
   const includeVolume = document.getElementById('archive-include-volume');
+  const includeLogs = document.getElementById('archive-include-logs');
 
   function syncDebugIncludeCheckboxes(fromDebug) {
     if (fromDebug) {
@@ -390,16 +444,18 @@ function setupEventListeners() {
       includeSnips.checked = on;
       includeTranscripts.checked = on;
       includeVolume.checked = on;
+      includeLogs.checked = on;
       return;
     }
     debugInclude.checked =
-      includeSnips.checked && includeTranscripts.checked && includeVolume.checked;
+      includeSnips.checked && includeTranscripts.checked && includeVolume.checked && includeLogs.checked;
   }
 
   debugInclude.addEventListener('change', () => syncDebugIncludeCheckboxes(true));
   includeSnips.addEventListener('change', () => syncDebugIncludeCheckboxes(false));
   includeTranscripts.addEventListener('change', () => syncDebugIncludeCheckboxes(false));
   includeVolume.addEventListener('change', () => syncDebugIncludeCheckboxes(false));
+  includeLogs.addEventListener('change', () => syncDebugIncludeCheckboxes(false));
 
   document.getElementById('export-archive-btn').addEventListener('click', async () => {
     const sessionId = document.getElementById('archive-session-id').value.trim()
@@ -430,6 +486,7 @@ function setupEventListeners() {
     document.getElementById('chunk-session-id').value = result.sessionId;
     document.getElementById('volume-session-id').value = result.sessionId;
     document.getElementById('snip-session-id').value = result.sessionId;
+    document.getElementById('log-session-id').value = result.sessionId;
     document.getElementById('archive-session-id').value = result.sessionId;
     statusEl.textContent = `Imported ${result.sessionId} (${result.chunkIds.length} chunk(s)) into sandbox DB (not web-whisper-db).`;
     showToast(`Imported session ${result.sessionId}`, 'success');
@@ -538,6 +595,9 @@ async function refreshStorageStats() {
   document.getElementById('usage-percent').textContent = `${usagePercent}%`;
   document.getElementById('session-count').textContent = stats.sessionCount;
   document.getElementById('chunk-count-stat').textContent = stats.chunkCount;
+  document.getElementById('log-count-stat').textContent = stats.logEntryCount || 0;
+  document.getElementById('log-bytes-stat').textContent = formatBytes(stats.logBytes || 0);
+  document.getElementById('log-bytes').textContent = `Log bytes: ${formatBytes(stats.logBytes || 0)}`;
 }
 
 // Show session details
@@ -545,6 +605,7 @@ window.showDetails = async function(sessionId) {
   currentDetailsSessionId = sessionId;
   document.getElementById('details-session-id').textContent = sessionId;
   document.getElementById('archive-session-id').value = sessionId;
+  document.getElementById('log-session-id').value = sessionId;
   document.getElementById('session-details').style.display = 'block';
   await loadSessionDetails(sessionId);
 };
@@ -617,6 +678,23 @@ async function loadSessionDetails(sessionId) {
     }
   }
 
+  const logsResult = await sessionStore.queryLogs({ sessionId, limit: 100 });
+  if (!logsResult.error) {
+    const logsList = document.getElementById('logs-list');
+    if (logsResult.logs.length === 0) {
+      logsList.innerHTML = '<tr><td colspan="4" style="color: #999;">No logs</td></tr>';
+    } else {
+      logsList.innerHTML = logsResult.logs.map((row) => `
+        <tr>
+          <td>${formatDateTime(row.createdAt)}</td>
+          <td>${row.packageId}</td>
+          <td>${row.level}</td>
+          <td>${truncateText(row.message || '', 80)}</td>
+        </tr>
+      `).join('');
+    }
+  }
+
   // Load transcripts
   const transcriptsResult = await sessionStore.getTranscriptsForSession(sessionId);
   if (!transcriptsResult.error) {
@@ -681,6 +759,7 @@ async function exportSelectedSession(sessionId) {
         includeSnips: document.getElementById('archive-include-snips')?.checked === true,
         includeTranscripts: document.getElementById('archive-include-transcripts')?.checked === true,
         includeVolumeProfile: document.getElementById('archive-include-volume')?.checked === true,
+        includeLogs: document.getElementById('archive-include-logs')?.checked === true,
       };
   const blob = await sessionStore.exportSessionArchive(sessionId, options);
   if (blob.error) {

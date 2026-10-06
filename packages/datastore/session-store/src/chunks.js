@@ -4,6 +4,7 @@
 
 import { getDatabase, generateId } from './db.js';
 import { getSession } from './sessions.js';
+import { isRetentionWriteInFlight } from './retention.js';
 
 /**
  * Write chunk to session
@@ -19,12 +20,21 @@ import { getSession } from './sessions.js';
  */
 export async function writeChunk(sessionId, chunkData) {
   try {
+    if (isRetentionWriteInFlight()) {
+      return { error: 'transaction_conflict', sessionId };
+    }
+
     const db = await getDatabase();
     
     // Validate session exists
     const session = await getSession(sessionId);
     if (!session) {
       return { error: 'session_not_found' };
+    }
+
+    // Re-check after awaits: a long retention readwrite may have started.
+    if (isRetentionWriteInFlight()) {
+      return { error: 'transaction_conflict', sessionId };
     }
     
     // Generate chunk ID
@@ -65,13 +75,33 @@ export async function writeChunk(sessionId, chunkData) {
         };
       };
       
+      let settled = false;
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+
       transaction.oncomplete = () => {
-        resolve({ chunkId });
+        finish({ chunkId });
+      };
+
+      const conflictOrUnavailable = () => {
+        const name = transaction.error?.name || '';
+        const message = String(transaction.error?.message || '');
+        if (name === 'AbortError' || name === 'InvalidStateError' || /abort/i.test(message)) {
+          finish({ error: 'transaction_conflict', sessionId });
+          return;
+        }
+        if (name === 'QuotaExceededError' || /quota/i.test(message)) {
+          finish({ error: 'quota_exceeded' });
+          return;
+        }
+        finish({ error: 'database_unavailable' });
       };
       
-      transaction.onerror = () => {
-        resolve({ error: 'database_unavailable' });
-      };
+      transaction.onerror = conflictOrUnavailable;
+      transaction.onabort = conflictOrUnavailable;
     });
   } catch (err) {
     return { error: 'database_unavailable' };

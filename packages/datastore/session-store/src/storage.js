@@ -6,21 +6,33 @@ import { getDatabase } from './db.js';
 import { enforceRetentionPolicy } from './retention.js';
 
 /**
- * Get storage statistics
- * @returns {Promise<{usedBytes: number, capBytes: number, sessionCount: number, chunkCount: number} | {error: string}>}
+ * Get storage statistics.
+ *
+ * `usedBytes` includes chunk bytes **and** log bytes, each with the same 1.1
+ * IndexedDB overhead factor already used for chunks. `logBytes` is the
+ * overhead-adjusted log total so Settings size lines stay honest.
+ *
+ * @returns {Promise<{usedBytes: number, capBytes: number, sessionCount: number, chunkCount: number, logBytes: number, logEntryCount: number, logBytesByPackage?: object} | {error: string}>}
  */
 export async function getStorageStats() {
   try {
     const db = await getDatabase();
+    const storeNames = ['sessions', 'chunks'];
+    if (db.objectStoreNames.contains('logs')) {
+      storeNames.push('logs');
+    }
     
     return new Promise((resolve) => {
-      const transaction = db.transaction(['sessions', 'chunks'], 'readonly');
+      const transaction = db.transaction(storeNames, 'readonly');
       const sessionsStore = transaction.objectStore('sessions');
       const chunksStore = transaction.objectStore('chunks');
       
       let sessionCount = 0;
       let chunkCount = 0;
-      let totalSize = 0;
+      let chunkSize = 0;
+      let logRawBytes = 0;
+      let logEntryCount = 0;
+      const logBytesByPackage = {};
       
       // Count sessions
       const sessionsRequest = sessionsStore.count();
@@ -34,14 +46,35 @@ export async function getStorageStats() {
         const cursor = event.target.result;
         if (cursor) {
           chunkCount++;
-          totalSize += cursor.value.sizeBytes || 0;
+          chunkSize += cursor.value.sizeBytes || 0;
           cursor.continue();
         }
       };
+
+      if (db.objectStoreNames.contains('logs')) {
+        const logsRequest = transaction.objectStore('logs').openCursor();
+        logsRequest.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor) {
+            const row = cursor.value;
+            const bytes = row.sizeBytes || 0;
+            logRawBytes += bytes;
+            logEntryCount += 1;
+            const key = row.packageId || 'unknown';
+            if (!logBytesByPackage[key]) {
+              logBytesByPackage[key] = { bytes: 0, count: 0 };
+            }
+            logBytesByPackage[key].bytes += bytes;
+            logBytesByPackage[key].count += 1;
+            cursor.continue();
+          }
+        };
+      }
       
       transaction.oncomplete = () => {
-        // Add 10% overhead for IndexedDB structures
-        const usedBytes = Math.round(totalSize * 1.1);
+        // Same 1.1 overhead for chunks and logs (IndexedDB metadata estimate)
+        const logBytes = Math.round(logRawBytes * 1.1);
+        const usedBytes = Math.round(chunkSize * 1.1) + logBytes;
         
         // Default cap: 200 MB (can be overridden by caller in enforceRetentionPolicy)
         const capBytes = 200 * 1024 * 1024;
@@ -50,7 +83,10 @@ export async function getStorageStats() {
           usedBytes,
           capBytes,
           sessionCount,
-          chunkCount
+          chunkCount,
+          logBytes,
+          logEntryCount,
+          logBytesByPackage
         });
       };
       
@@ -65,7 +101,7 @@ export async function getStorageStats() {
 
 export { enforceRetentionPolicy };
 
-const ALL_STORES = ['transcripts', 'snips', 'volume-profiles', 'chunks', 'sessions'];
+const ALL_STORES = ['logs', 'transcripts', 'snips', 'volume-profiles', 'chunks', 'sessions'];
 
 /**
  * Dump every record from an object store (developer console).
@@ -162,6 +198,7 @@ export async function cleanupOrphans() {
     await deleteOrphans('snips', (record) => record.sessionId);
     await deleteOrphans('transcripts', (record) => record.sessionId);
     await deleteOrphans('volume-profiles', (record) => record.sessionId);
+    await deleteOrphans('logs', (record) => record.sessionId);
 
     return { removed };
   } catch (err) {

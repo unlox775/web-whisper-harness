@@ -5,13 +5,13 @@ Package-local runnable demo for operating session-store independently without th
 ## Purpose
 
 Proves that session-store:
-- Creates IndexedDB schema (all object stores: sessions, chunks, volume-profiles, snips, transcripts)
-- Writes sessions, chunks, volume profiles, snips, transcripts
-- Reads sessions, chunks, volume profiles, snips, transcripts (proves data persists after page reload)
-- Deletes sessions with cascade (session + all chunks + volume profile + snips + transcripts)
-- Enforces retention policy (deletes oldest sessions when storage quota exceeded)
-- Calculates storage stats accurately (used bytes, cap bytes, session count, chunk count)
-- Exports / imports a versioned session zip (`exportSessionArchive` / `importSessionArchive`) on the sandbox DB only (`web-whisper-isolation-demo-session-store`, never `web-whisper-db`)
+- Creates IndexedDB schema (all object stores: sessions, chunks, volume-profiles, snips, transcripts, **logs**)
+- Writes sessions, chunks, volume profiles, snips, transcripts, **fixture logs**
+- Reads sessions, chunks, volume profiles, snips, transcripts, **logs** (proves data persists after page reload)
+- Deletes sessions with cascade (session + all chunks + volume profile + snips + transcripts + **logs**)
+- Enforces retention policy (purges transcribed audio; age-prunes logs; may drop oldest logs under cap)
+- Calculates storage stats accurately (used bytes including log bytes, cap bytes, session count, chunk count, log bytes)
+- Exports / imports a versioned session zip (`exportSessionArchive` / `importSessionArchive`) on the sandbox DB only (`web-whisper-isolation-demo-session-store`, never `web-whisper-db`), with optional **Include logs.json**
 
 ## Runtime
 
@@ -62,7 +62,11 @@ Proves that session-store:
   - "Write Transcript" button (cyan)
 - **Session archive:**
   - Session ID input (pre-filled from last created / Details)
-  - "Export Selected Session" downloads `web-whisper-session-<id>-<timestamp>.zip` (`formatVersion` 1). Optional include checkboxes default **off** (slim zip). **Include snips + transcripts (debug)** turns on `includeDebugArtifacts` (snips + transcripts + volume profile).
+  - "Export Selected Session" downloads `web-whisper-session-<id>-<timestamp>.zip` (`formatVersion` 1). Optional include checkboxes default **off** (slim zip). **Include snips + transcripts (debug)** turns on `includeDebugArtifacts` (snips + transcripts + volume profile + logs). **Include logs.json** is a separate opt-in.
+- **Logs:**
+  - Session ID input (pre-filled from last created / Details)
+  - "Append Fixture Log" writes one `session-store` info row via `log()` (lazy payload)
+  - "Query Session Logs" lists rows for that session and shows approximate log bytes
   - "Import archive" file input writes a **new-id** session into the sandbox DB and refreshes the list. Bad zip / wrong `formatVersion` shows a named error.
 
 **Behaviors:**
@@ -184,7 +188,7 @@ Proves that session-store:
 (To be filled by Phase 06 implementation agent)
 
 - Sandbox database name: "web-whisper-isolation-demo-session-store" (not "web-whisper-db")
-- IndexedDB schema: Same as production schema (object stores: sessions, chunks, volume-profiles, snips, transcripts)
+- IndexedDB schema: Same as production schema (object stores: sessions, chunks, volume-profiles, snips, transcripts, logs)
 - Fixture chunk generation: Generate small MP3 blobs (1–4s each) using Web Audio API or pre-encoded fixture files
 - Fixture volume profile: Mock peakDb values (e.g., [-50, -20, -45, -15, -55] for 5 chunks)
 - Fixture snips: Mock snip boundaries (e.g., snip 0 = chunks 0–2, snip 1 = chunks 3–4)

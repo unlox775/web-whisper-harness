@@ -155,4 +155,89 @@ describe('enforceRetentionPolicy — purge transcribed audio', () => {
     assert.equal(result.purgedChunkIds.length, 0);
     assert.equal((await sessionStore.getChunk(chunkId)).sizeBytes, 1000);
   });
+
+  it('age-prunes log rows older than maxLogAgeMs even when under the cap', async () => {
+    const session = await sessionStore.createSession();
+    await sessionStore.putLogRecord({
+      id: 'log_old',
+      sessionId: session.id,
+      packageId: 'session-store',
+      level: 'info',
+      message: 'stale',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      sizeBytes: 40
+    });
+    await sessionStore.putLogRecord({
+      id: 'log_new',
+      sessionId: session.id,
+      packageId: 'session-store',
+      level: 'info',
+      message: 'fresh',
+      createdAt: '2026-10-06T00:00:00.000Z',
+      sizeBytes: 40
+    });
+
+    const result = await sessionStore.enforceRetentionPolicy(200 * 1024 * 1024, {
+      now: Date.parse('2026-10-06T12:00:00.000Z')
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.prunedLogCount, 1);
+    assert.ok(result.prunedLogBytes >= 40);
+
+    const leftover = await sessionStore.queryLogs({ sessionId: session.id });
+    assert.equal(leftover.total, 1);
+    assert.equal(leftover.logs[0].id, 'log_new');
+  });
+
+  it('drops oldest logs under cap pressure before leaving usedBytes over target', async () => {
+    const session = await sessionStore.createSession();
+    await sessionStore.putLogRecord({
+      id: 'log_first',
+      sessionId: session.id,
+      packageId: 'capture-engine',
+      level: 'info',
+      message: 'older',
+      createdAt: '2026-10-05T00:00:00.000Z',
+      sizeBytes: 20_000
+    });
+    await sessionStore.putLogRecord({
+      id: 'log_second',
+      sessionId: session.id,
+      packageId: 'capture-engine',
+      level: 'info',
+      message: 'newer',
+      createdAt: '2026-10-06T00:00:00.000Z',
+      sizeBytes: 20_000
+    });
+
+    const result = await sessionStore.enforceRetentionPolicy(5_000, {
+      now: Date.parse('2026-10-06T12:00:00.000Z')
+    });
+    assert.equal(result.error, undefined);
+    assert.ok(result.prunedLogCount >= 1);
+    const leftover = await sessionStore.queryLogs({ sessionId: session.id });
+    assert.ok(leftover.total < 2);
+    if (leftover.total === 1) {
+      assert.equal(leftover.logs[0].id, 'log_second');
+    }
+  });
+
+  it('writeChunk returns transaction_conflict while retention is in flight', async () => {
+    const session = await sessionStore.createSession();
+    const blob = new Blob([new Uint8Array(64)], { type: 'audio/mpeg' });
+    const retentionP = sessionStore.enforceRetentionPolicy(1000);
+    assert.equal(sessionStore.isRetentionWriteInFlight(), true);
+    const write = await sessionStore.writeChunk(session.id, {
+      seq: 0,
+      startTime: 0,
+      endTime: 4,
+      duration: 4,
+      blob,
+      sizeBytes: 64
+    });
+    assert.equal(write.error, 'transaction_conflict');
+    assert.equal(write.sessionId, session.id);
+    await retentionP;
+    assert.equal(sessionStore.isRetentionWriteInFlight(), false);
+  });
 });

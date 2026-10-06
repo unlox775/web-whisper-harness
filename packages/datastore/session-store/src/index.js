@@ -2,8 +2,9 @@
  * @web-whisper/session-store
  * 
  * IndexedDB datastore authority for Web Whisper data.
- * Owns sessions, chunks, volume profiles, snips, transcripts.
- * Enforces retention policy (storage cap: purge transcribed audio, keep text).
+ * Owns sessions, chunks, volume profiles, snips, transcripts, and durable logs.
+ * Enforces retention policy (storage cap: purge transcribed audio, keep text;
+ * age-prune logs).
  */
 
 import { initDatabase, closeDatabase } from './db.js';
@@ -44,7 +45,8 @@ import {
 import {
   isChunkAudioPurged,
   hasValidTranscriptText,
-  RETENTION_APPROACH_RATIO
+  RETENTION_APPROACH_RATIO,
+  isRetentionWriteInFlight
 } from './retention.js';
 import {
   exportSessionArchive,
@@ -59,6 +61,19 @@ import {
   SESSION_ARCHIVE_MIME,
   SESSION_ARCHIVE_MIME_ALIASES
 } from './archive.js';
+import {
+  configureLogger,
+  getLoggerConfig,
+  log,
+  queryLogs,
+  getLogByteSizes,
+  putLogRecord,
+  PACKAGE_IDS,
+  LOG_LEVELS,
+  LEVEL_RANK,
+  MAX_LOG_AGE_MS,
+  resetLoggerConfig
+} from './logs.js';
 
 /**
  * Initialize session-store with database name
@@ -119,7 +134,23 @@ export {
   closeDatabase,
   isChunkAudioPurged,
   hasValidTranscriptText,
-  RETENTION_APPROACH_RATIO
+  RETENTION_APPROACH_RATIO,
+  isRetentionWriteInFlight
+};
+
+// Durable per-package logs
+export {
+  configureLogger,
+  getLoggerConfig,
+  log,
+  queryLogs,
+  getLogByteSizes,
+  putLogRecord,
+  PACKAGE_IDS,
+  LOG_LEVELS,
+  LEVEL_RANK,
+  MAX_LOG_AGE_MS,
+  resetLoggerConfig
 };
 
 // Session audio archive (zip export / parse / import)

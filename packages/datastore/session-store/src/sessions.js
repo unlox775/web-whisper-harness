@@ -144,11 +144,26 @@ export async function deleteSession(sessionId) {
     }
     
     return new Promise((resolve) => {
-      const transaction = db.transaction(
-        ['transcripts', 'snips', 'volume-profiles', 'chunks', 'sessions'],
-        'readwrite'
-      );
+      const storeNames = ['transcripts', 'snips', 'volume-profiles', 'chunks', 'sessions'];
+      if (db.objectStoreNames.contains('logs')) {
+        storeNames.unshift('logs');
+      }
+      const transaction = db.transaction(storeNames, 'readwrite');
       
+      // Delete logs for this session (cascade; after transcripts/snips/volume/chunks or same tx)
+      if (db.objectStoreNames.contains('logs')) {
+        const logsStore = transaction.objectStore('logs');
+        const logsIndex = logsStore.index('by-sessionId');
+        const logsRequest = logsIndex.openCursor(IDBKeyRange.only(sessionId));
+        logsRequest.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor) {
+            cursor.delete();
+            cursor.continue();
+          }
+        };
+      }
+
       // Delete transcripts for this session
       const transcriptsStore = transaction.objectStore('transcripts');
       const transcriptsIndex = transcriptsStore.index('by-sessionId');

@@ -650,10 +650,10 @@ Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement these interfaces, build Isolation Demo, validate with walkthrough, and mark spec resolved.
 
-## Phase 07 addendum — log dump (implementer, not this roster)
+## Phase 07 addendum — log dump (shipped)
 
-Planning only. Durable per-package logs live in this store (`log`, `queryLogs`, `getLogByteSizes`, optional archive `includeLogs` → `logs.json`).
+Durable per-package logs live in this store (`log`, `queryLogs`, `getLogByteSizes`, optional archive `includeLogs` → `logs.json`).
 
-The Phase 07 **implementer** of `docs/specs/20261006180517-feedback-durable-per-package-logging.md` should add a small sandbox-only control: append a fixture log, query logs for the selected session, show approximate log bytes, and an optional Export **Include logs** checkbox. This roster PR does not change demo code.
+The Isolation Demo (sandbox DB only) now has: **Append Fixture Log**, **Query Session Logs**, approximate log-byte display, a Details **Logs** tab, and an Export **Include logs.json** checkbox (off by default; **Include snips + transcripts (debug)** also turns it on).
 
-Schema note: a sixth object store (`logs` / `package-logs`) is expected; IndexedDB DevTools walkthrough should list it once implemented. `deleteSession` cascades logs. Retention age-prunes logs (default 14 days) under the existing cap story.
+Schema: sixth object store `logs` with indexes `by-sessionId`, `by-packageId`, `by-createdAt`, `by-sessionId-createdAt`. `deleteSession` cascades logs. Retention age-prunes logs (default 14 days) under the existing cap story.

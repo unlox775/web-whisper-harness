@@ -46,6 +46,7 @@ describe('session audio archive export / parse / import', () => {
   });
 
   afterEach(() => {
+    sessionStore.resetLoggerConfig();
     sessionStore.closeDatabase();
   });
 
@@ -302,11 +303,13 @@ describe('session audio archive export / parse / import', () => {
       includeSnips: false,
       includeTranscripts: false,
       includeVolumeProfile: false,
+      includeLogs: false,
     });
     assert.deepEqual(sessionStore.resolveArchiveIncludeFlags({ includeDebugArtifacts: true }), {
       includeSnips: true,
       includeTranscripts: true,
       includeVolumeProfile: true,
+      includeLogs: true,
     });
 
     const slim = await sessionStore.exportSessionArchive(created.id);
@@ -315,6 +318,7 @@ describe('session audio archive export / parse / import', () => {
     assert.equal(parsedSlim.transcripts, undefined);
     assert.equal(parsedSlim.volumeProfile, undefined);
     assert.equal(parsedSlim.snipsWithTranscripts, undefined);
+    assert.equal(parsedSlim.logs, undefined);
 
     const debugZip = await sessionStore.exportSessionArchive(created.id, {
       includeDebugArtifacts: true,
@@ -338,5 +342,50 @@ describe('session audio archive export / parse / import', () => {
     assert.equal(parsed.snipsWithTranscripts[0].duration, 16);
     assert.deepEqual(parsed.snipsWithTranscripts[0].chunkIds, [first.chunkId]);
     assert.equal(parsed.snipsWithTranscripts[0].text, "BLT's.");
+  });
+
+  it('includeLogs writes logs.json; default export stays slim; import remaps sessionId', async () => {
+    assert.equal(sessionStore.SESSION_ARCHIVE_FORMAT_VERSION, 1);
+    const created = await sessionStore.createSession();
+    await writeAudioChunk(created.id, 0, 71, 32);
+    sessionStore.configureLogger({
+      levels: { 'capture-engine': 'debug' },
+      activeSessionId: created.id,
+    });
+    const logged = await sessionStore.log('capture-engine', 'info', () => ({
+      message: 'chunk persist ok',
+      details: { seq: 0 },
+    }));
+    assert.equal(logged.written, true);
+
+    const slim = await sessionStore.exportSessionArchive(created.id);
+    const parsedSlim = await sessionStore.parseSessionArchive(slim);
+    assert.equal(parsedSlim.logs, undefined);
+    assert.equal(parsedSlim.formatVersion, 1);
+
+    const withLogs = await sessionStore.exportSessionArchive(created.id, { includeLogs: true });
+    const parsed = await sessionStore.parseSessionArchive(withLogs);
+    assert.equal(parsed.error, undefined);
+    assert.equal(parsed.formatVersion, 1);
+    assert.equal(parsed.logs.length, 1);
+    assert.equal(parsed.logs[0].packageId, 'capture-engine');
+    assert.equal(parsed.logs[0].message, 'chunk persist ok');
+    assert.equal(parsed.logs[0].sessionId, created.id);
+
+    const imported = await sessionStore.importSessionArchive(withLogs);
+    assert.equal(imported.error, undefined);
+    assert.notEqual(imported.sessionId, created.id);
+    const importedLogs = await sessionStore.queryLogs({ sessionId: imported.sessionId });
+    assert.equal(importedLogs.total, 1);
+    assert.equal(importedLogs.logs[0].sessionId, imported.sessionId);
+    assert.equal(importedLogs.logs[0].message, 'chunk persist ok');
+    assert.notEqual(importedLogs.logs[0].id, parsed.logs[0].id);
+
+    const debugZip = await sessionStore.exportSessionArchive(created.id, {
+      includeDebugArtifacts: true,
+    });
+    const parsedDebug = await sessionStore.parseSessionArchive(debugZip);
+    assert.ok(Array.isArray(parsedDebug.logs));
+    assert.equal(parsedDebug.logs.length, 1);
   });
 });

@@ -13,6 +13,7 @@ import { getSnipsForSession, writeSnip } from './snips.js';
 import { getTranscriptsForSession, writeTranscript } from './transcripts.js';
 import { getVolumeProfile, writeVolumeProfile } from './volume-profiles.js';
 import { isChunkAudioPurged } from './retention.js';
+import { putLogRecord, queryLogs } from './logs.js';
 import { createZip, readZip } from './zip.js';
 
 export const SESSION_ARCHIVE_KIND = 'web-whisper-session-archive';
@@ -23,6 +24,7 @@ export const SESSION_ARCHIVE_MIME_ALIASES = ['application/zip', 'application/x-z
 const OPTIONAL_SNIPS = 'snips.json';
 const OPTIONAL_TRANSCRIPTS = 'transcripts.json';
 const OPTIONAL_VOLUME = 'volume-profile.json';
+const OPTIONAL_LOGS = 'logs.json';
 
 /**
  * Download filename: web-whisper-session-&lt;id&gt;-&lt;timestamp&gt;.zip
@@ -100,18 +102,19 @@ function asBlobInput(input) {
 
 /**
  * Resolve optional export includes. `includeDebugArtifacts: true` is
- * equivalent to includeSnips + includeTranscripts + includeVolumeProfile.
- * Individual flags still work; debug ORs them on. Defaults stay off.
+ * equivalent to includeSnips + includeTranscripts + includeVolumeProfile
+ * + includeLogs. Individual flags still work; debug ORs them on. Defaults stay off.
  *
- * @param {{ includeSnips?: boolean, includeTranscripts?: boolean, includeVolumeProfile?: boolean, includeDebugArtifacts?: boolean }} [options]
- * @returns {{ includeSnips: boolean, includeTranscripts: boolean, includeVolumeProfile: boolean }}
+ * @param {{ includeSnips?: boolean, includeTranscripts?: boolean, includeVolumeProfile?: boolean, includeLogs?: boolean, includeDebugArtifacts?: boolean }} [options]
+ * @returns {{ includeSnips: boolean, includeTranscripts: boolean, includeVolumeProfile: boolean, includeLogs: boolean }}
  */
 export function resolveArchiveIncludeFlags(options = {}) {
   const debug = options.includeDebugArtifacts === true;
   return {
     includeSnips: options.includeSnips === true || debug,
     includeTranscripts: options.includeTranscripts === true || debug,
-    includeVolumeProfile: options.includeVolumeProfile === true || debug
+    includeVolumeProfile: options.includeVolumeProfile === true || debug,
+    includeLogs: options.includeLogs === true || debug
   };
 }
 
@@ -154,11 +157,11 @@ export function joinSnipsWithTranscripts(snips, transcripts) {
  * Optional includes default false. Errors: { error: 'session_not_found' | 'database_unavailable' }.
  *
  * @param {string} sessionId
- * @param {{ includeSnips?: boolean, includeTranscripts?: boolean, includeVolumeProfile?: boolean, includeDebugArtifacts?: boolean, notes?: string }} [options]
+ * @param {{ includeSnips?: boolean, includeTranscripts?: boolean, includeVolumeProfile?: boolean, includeLogs?: boolean, includeDebugArtifacts?: boolean, notes?: string }} [options]
  * @returns {Promise<Blob | { error: string }>}
  */
 export async function exportSessionArchive(sessionId, options = {}) {
-  const { includeSnips, includeTranscripts, includeVolumeProfile } = resolveArchiveIncludeFlags(options);
+  const { includeSnips, includeTranscripts, includeVolumeProfile, includeLogs } = resolveArchiveIncludeFlags(options);
   const notes = typeof options.notes === 'string' ? options.notes : undefined;
 
   let session;
@@ -244,6 +247,14 @@ export async function exportSessionArchive(sessionId, options = {}) {
     zipEntries.push({
       name: OPTIONAL_VOLUME,
       data: encoder.encode(`${JSON.stringify(profile, null, 2)}\n`)
+    });
+  }
+  if (includeLogs) {
+    const queried = await queryLogs({ sessionId, limit: 100000, offset: 0 });
+    if (queried.error) return { error: queried.error };
+    zipEntries.push({
+      name: OPTIONAL_LOGS,
+      data: encoder.encode(`${JSON.stringify(queried.logs || [], null, 2)}\n`)
     });
   }
 
@@ -355,6 +366,13 @@ export async function parseSessionArchive(blob) {
     if (parsed.error) return parsed;
     if (parsed.value && typeof parsed.value === 'object') {
       result.volumeProfile = parsed.value;
+    }
+  }
+  if (zip.files.has(OPTIONAL_LOGS)) {
+    const parsed = decodeJsonBytes(zip.files.get(OPTIONAL_LOGS));
+    if (parsed.error) return parsed;
+    if (Array.isArray(parsed.value)) {
+      result.logs = parsed.value;
     }
   }
 
@@ -532,6 +550,18 @@ export async function importSessionArchive(blob, options = {}) {
       if (putError) return putError;
     } else {
       const written = await writeVolumeProfile(sessionId, remapped);
+      if (written.error) return written;
+    }
+  }
+
+  if (Array.isArray(parsed.logs)) {
+    for (const row of parsed.logs) {
+      if (!row || typeof row !== 'object') continue;
+      const written = await putLogRecord({
+        ...row,
+        id: preserveIds && row.id ? row.id : generateId('log'),
+        sessionId
+      });
       if (written.error) return written;
     }
   }
