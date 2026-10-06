@@ -5,7 +5,7 @@ Groq Whisper API client. Validates API keys, sends audio to Groq for transcripti
 ## Boundary
 
 - **Owns**: Groq API key validation (HTTP call to test endpoint), audio transcription (sends MP3 audio to Groq Whisper endpoint), retry logic (network failures, rate limits), transcript formatting (plaintext output from Groq response)
-- **Does NOT own**: Audio capture (capture-engine), volume analysis (volume-analyzer), audio playback (playback-engine), snip selection (PWA decides which snips to transcribe), storage authority (session-store owns all transcripts)
+- **Does NOT own**: Audio capture (capture-engine), volume analysis (volume-analyzer), audio playback (playback-engine), snip selection (PWA decides which snips to transcribe), storage authority (session-store owns all transcripts), log storage (emits via `session-store.log('transcription-client', …)` only)
 
 ## Main Callable Interfaces
 

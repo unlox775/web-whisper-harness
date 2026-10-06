@@ -398,3 +398,7 @@ This gives you control over retry UX (show retry count, cancel button, etc.).
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement `transcribeAudio` with Groq API integration, `validateKey` with format check, validate with PWA integration tests (Settings key validation, post-recording transcription flow).
+
+## Phase 07 addendum — structured logs only
+
+Planning only. No deep behavior change. Transcription-client **emits structured logs via session-store** (`sessionStore.log('transcription-client', level, () => ({ message, details }), { sessionId })`). The PWA configures per-package levels and the active take id; session-store gates the lazy payload. We still do not write transcripts (you call `writeTranscript`). We do not own a logger product.

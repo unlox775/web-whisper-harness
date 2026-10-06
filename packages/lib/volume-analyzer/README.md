@@ -24,8 +24,9 @@ This product lives under `packages/lib/`. Lib packages own behavior.
 - **Audio capture**: Capture-engine owns microphone acquisition, PCM recording, MP3 encoding, chunk creation
 - **Audio playback**: Playback-engine owns playing sessions, chunks, or snips
 - **Transcription**: Transcription-client owns sending audio to Groq Whisper and receiving text
-- **Storage authority**: Session-store owns all persistent data (sessions, chunks, volume profiles, snips, transcripts)
+- **Storage authority**: Session-store owns all persistent data (sessions, chunks, volume profiles, snips, transcripts, **logs**)
 - **UI orchestration**: PWA owns the recording flow, session detail screens, developer mode controls
+- **Logging**: Emits structured logs via `session-store.log('volume-analyzer', …)` only — does not own a logger product
 
 ## Main Callable Interfaces
 

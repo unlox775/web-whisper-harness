@@ -413,3 +413,18 @@ All write errors returned as structured objects (NOT thrown exceptions).
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement these interfaces, validate with volume-analyzer integration tests, confirm volume profile overwrites work correctly, and mark spec resolved.
+
+## Phase 07 addendum — structured logs only
+
+Planning only. Volume-analyzer does **not** gain new durable stores. It **emits** structured logs through this package:
+
+```javascript
+sessionStore.log('volume-analyzer', 'info', () => ({
+  message: 'proposed snips',
+  details: { sessionId, snipCount, windowStartTime }
+}), { sessionId })
+```
+
+Lazy payload. Session-store checks `volume-analyzer` level and active/explicit session id **before** invoking the function. You do not call `queryLogs`, retention, or archive APIs. No deep behavior change beyond emitting logs.
+
+Spec: `packages/datastore/session-store/docs/specs/20261006180517-feedback-durable-per-package-logging.md`.

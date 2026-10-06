@@ -459,3 +459,9 @@ If encoding fails:
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement in-memory mode, simulated/live audio sources, watchdog timer, event system, and build Isolation Demo. Demo walkthrough will validate mic ghost detection, final chunk flush, and in-memory behavior (Reset clears all chunks, reload shows empty state).
+
+## Phase 07 addendum — flushPending (implementer, not this roster)
+
+Planning only. Capture-engine now contracts `flushPending()` / `whenPersistIdle()` and a persist queue that cannot die on one `writeChunk` failure.
+
+This Isolation Demo stays **in-memory** (no session-store writes). `flushPending()` should still exist and resolve immediately in in-memory mode so callers can `await` it unconditionally. The Phase 07 **implementer** may add a factory-floor line or control showing flushPending resolved / one injected persist failure not killing the queue. Durable writes stay in session-store’s Isolation Demo. This roster PR does not change demo code.

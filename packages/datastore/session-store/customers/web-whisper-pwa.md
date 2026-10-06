@@ -656,3 +656,42 @@ You are the orchestrator. You create sessions, list sessions, read session detai
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement these interfaces, build PWA integration, validate session management workflows, and mark spec resolved.
+
+## Phase 07 addendum — durable logs, archive logs, retention serialization
+
+Planning only (feedback specs unresolved). Session-store extends this customer contract; the PWA implementation lives in the PWA specs.
+
+### Logger (PWA configures; all packages emit)
+
+You call:
+
+- `configureLogger({ levels?, activeSessionId? })` on boot, Settings change, Start Recording, and when ingest/tx for a take goes idle (`activeSessionId: null`)
+- `getLoggerConfig()` if you need to read back
+- `log('web-whisper-pwa', level, payload, options?)` for PWA-owned events (lazy `() => ({ message, details })` or string)
+- `queryLogs({ sessionId, … })` when Debug needs a log list without a full zip
+- `getLogByteSizes()` (or extended `getStorageStats().logBytes` / `logEntryCount` / `logBytesByPackage`) for Advanced Settings size lines
+
+`log()` **must not** invoke a function payload unless (1) the package level allows the entry and (2) there is an active log session id or `options.sessionId`. Gated calls return `{ skipped: true, reason }` and do zero payload work.
+
+Default per-package level is `info`. Levels you persist in Settings localStorage: `debug` | `info` | `warn` | `error` | `off` for `session-store`, `capture-engine`, `volume-analyzer`, `transcription-client`, `playback-engine`, `web-whisper-pwa`.
+
+### Storage stats + retention
+
+`getStorageStats()` includes log bytes in the cap story (`logBytes`, `logEntryCount`). `usedBytes` counts logs.
+
+`enforceRetentionPolicy(capBytes)` also **age-prunes** log rows (default 14 days) and may drop oldest logs under cap pressure. `deleteSession` cascades that session’s logs.
+
+**You must not overlap retention with live chunk writers.** Before `enforceRetentionPolicy` during or after recording:
+
+1. `await` capture-engine `flushPending()` / `whenPersistIdle()`
+2. Then call `enforceRetentionPolicy`
+
+See `apps/web-whisper-pwa/docs/specs/20261006180517-feedback-await-flushpending-before-retention.md`. This package documents the rule; it does not take a cross-package lock.
+
+### Session archive
+
+`exportSessionArchive(sessionId, options?)` gains `includeLogs` (default `false` → optional `logs.json`). `includeDebugArtifacts: true` turns on logs plus the existing debug JSON files. Slim export stays `manifest.json` + `chunks/`. `formatVersion` stays 1.
+
+`parseSessionArchive` / `importSessionArchive` attach/import `logs?` when present.
+
+Specs: `packages/datastore/session-store/docs/specs/20261006180517-feedback-durable-per-package-logging.md`, `apps/web-whisper-pwa/docs/specs/20261006180517-feedback-settings-log-levels-and-debug-dump-logs.md`.
