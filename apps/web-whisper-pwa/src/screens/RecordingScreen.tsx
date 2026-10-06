@@ -160,6 +160,7 @@ export function RecordingScreen() {
                 {hasTranscript ? liveTranscript : ''}
               </div>
             )}
+            {/* Live take is never READY / complete: trailing audio is still being recorded. */}
             {failedSnips.length > 0 ? (
               <button
                 className="retry-tx-btn"

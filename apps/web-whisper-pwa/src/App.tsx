@@ -7,6 +7,7 @@ import { DeveloperConsole } from './screens/DeveloperConsole';
 import {
   isHomeTileScreenshot,
   isRecordScreenshot,
+  isSessionPartialCoverageScreenshot,
   isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
   readScreenshotMode,
@@ -18,7 +19,9 @@ function Shell() {
   const recording = app.screen === 'recording' || isRecordScreenshot(screenshot);
   const homePreview = isHomeTileScreenshot(screenshot);
   const sessionPreview =
-    isSessionTranscribedScreenshot(screenshot) || isSessionSnipsScreenshot(screenshot);
+    isSessionTranscribedScreenshot(screenshot) ||
+    isSessionSnipsScreenshot(screenshot) ||
+    isSessionPartialCoverageScreenshot(screenshot);
 
   if (!app.ready) {
     return (

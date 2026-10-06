@@ -10,11 +10,19 @@ import type { ChunkRecord, SessionRecord, SnipRecord, TranscriptRecord } from '.
 import { VolumeHistogram } from '../components/VolumeHistogram';
 import { buildTranscriptText, previewSnipTranscriptText } from '../transcriptText';
 import {
+  isSessionPartialCoverageScreenshot,
   isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
   readScreenshotMode,
+  sessionPartialCoveragePreview,
   sessionTranscribedPreview,
 } from '../screenshotMode';
+import { coverageExtrasForSession } from '../recorderDuration';
+import {
+  coverageBadge,
+  sessionTranscriptionCoverage,
+  uncoveredTailCopy,
+} from '../transcriptionCoverage';
 import {
   ARCHIVE_DEBUG_INCLUDE_HELP,
   archiveExportErrorMessage,
@@ -62,9 +70,11 @@ export function SessionDetailScreen() {
   const app = useApp();
   const screenshotMode = readScreenshotMode();
   const screenshotPreview =
-    isSessionTranscribedScreenshot(screenshotMode) || isSessionSnipsScreenshot(screenshotMode)
-      ? sessionTranscribedPreview()
-      : null;
+    isSessionPartialCoverageScreenshot(screenshotMode)
+      ? sessionPartialCoveragePreview()
+      : isSessionTranscribedScreenshot(screenshotMode) || isSessionSnipsScreenshot(screenshotMode)
+        ? sessionTranscribedPreview()
+        : null;
   const sessionId = screenshotPreview?.session.id ?? app.sessionId!;
   const [session, setSession] = useState<SessionRecord | null>(screenshotPreview?.session ?? null);
   const [chunks, setChunks] = useState<ChunkRecord[]>([]);
@@ -245,7 +255,18 @@ export function SessionDetailScreen() {
         { retryFailedOnly, onTranscriptWritten: () => app.enforceCap({ force: true }) }
       );
       setFailures(outcome.failures);
-      if (outcome.empty) {
+      await load();
+      const nextSession = (await sessionStore.getSession(sessionId)) as SessionRecord | null;
+      const snipList = await sessionStore.getSnipsForSession(sessionId);
+      const transcriptList = await sessionStore.getTranscriptsForSession(sessionId);
+      const coverage = sessionTranscriptionCoverage(
+        nextSession || session || ({ duration: 0 } as SessionRecord),
+        (snipList.snips || []) as SnipRecord[],
+        (transcriptList.transcripts || []) as TranscriptRecord[],
+        coverageExtrasForSession(sessionId)
+      );
+      const tailNote = uncoveredTailCopy(coverage);
+      if (outcome.empty && !coverage.hasUncoveredTail) {
         app.showToast('No speech detected. Transcription skipped.', 'warning');
       } else if (outcome.stopReason) {
         app.showToast(`Transcription failed: ${outcome.stopReason}`, 'error');
@@ -254,8 +275,12 @@ export function SessionDetailScreen() {
           `Transcription failed: ${outcome.failed} snip${outcome.failed === 1 ? '' : 's'} failed`,
           'warning'
         );
+        if (tailNote) app.showToast(tailNote, 'warning');
+      } else if (tailNote) {
+        app.showToast(tailNote, 'warning');
+      } else if (coverage.status === 'ready') {
+        app.showToast('Transcription complete', 'success');
       }
-      await load();
       await app.refresh();
     } catch (error) {
       app.showToast(
@@ -405,6 +430,16 @@ export function SessionDetailScreen() {
   const totalSize = session.sizeBytes || chunks.reduce((sum, c) => sum + c.sizeBytes, 0);
   const format = 'audio/mpeg';
   const playbackDuration = duration || session.duration || 0;
+  const coverage = sessionTranscriptionCoverage(
+    session,
+    snips,
+    transcripts,
+    coverageExtrasForSession(session.id)
+  );
+  const coverageNote = uncoveredTailCopy(coverage);
+  const txBadge = coverageBadge(coverage.status);
+  const showRetryTx =
+    keyReady && !transcribing && (snips.length > 0 || coverage.hasUncoveredTail);
 
   return (
     <>
@@ -520,7 +555,14 @@ export function SessionDetailScreen() {
           {detailTab === 'transcript' ? (
             <div className="session-detail-transcript-panel" role="tabpanel">
               <div className="session-detail-tx-head">
-                <p className="kicker" style={{ margin: 0 }}>TRANSCRIPTION</p>
+                <div className="session-detail-tx-title">
+                  <p className="kicker" style={{ margin: 0 }}>TRANSCRIPTION</p>
+                  {txBadge ? (
+                    <span className={`session-badge ${txBadge}`}>
+                      {txBadge === 'ready' ? 'READY' : 'PART TX'}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="session-detail-tx-actions">
                   {transcriptText ? (
                     <button
@@ -530,7 +572,7 @@ export function SessionDetailScreen() {
                       {copyStatus === 'copied' ? 'Copied' : 'Copy'}
                     </button>
                   ) : null}
-                  {keyReady && snips.length > 0 && !transcribing ? (
+                  {showRetryTx ? (
                     <button
                       className="linkish"
                       style={{ fontSize: 13, padding: 4 }}
@@ -598,11 +640,21 @@ export function SessionDetailScreen() {
                       See Debug for details.
                     </p>
                   ) : null}
+                  {coverageNote ? (
+                    <p className="session-coverage-note session-detail-coverage-note">{coverageNote}</p>
+                  ) : null}
                 </>
               ) : keyReady && snips.length > 0 ? (
-                <button className="cta" onClick={() => void runTranscription()}>
-                  Transcribe Session
-                </button>
+                <>
+                  {coverageNote ? (
+                    <p className="session-coverage-note session-detail-coverage-note">{coverageNote}</p>
+                  ) : null}
+                  <button className="cta" onClick={() => void runTranscription()}>
+                    Transcribe Session
+                  </button>
+                </>
+              ) : snips.length === 0 && keyReady && coverage.hasUncoveredTail ? (
+                <p className="session-coverage-note session-detail-coverage-note">{coverageNote}</p>
               ) : snips.length === 0 && keyReady ? (
                 <p className="muted">No snips available for transcription.</p>
               ) : (

@@ -1,3 +1,11 @@
+import { coverageExtrasForSession } from './recorderDuration';
+import {
+  coverageBadge,
+  sessionTranscriptionCoverage,
+  uncoveredTailCopy,
+  type TranscriptionCoverage,
+  type TranscriptionCoverageExtras,
+} from './transcriptionCoverage';
 import type { SessionRecord, SnipRecord, TranscriptRecord } from './types';
 
 export type SessionBadge = 'ready' | 'part-tx' | null;
@@ -7,37 +15,44 @@ export type SessionTilePreview = {
   transcriptCount: number;
   snippet: string;
   badge: SessionBadge;
+  coverage: TranscriptionCoverage;
+  coverageNote: string | null;
 };
 
 const TILE_SNIPPET_MAX = 100;
 
 export function computeSessionBadge(
   session: SessionRecord,
-  snipCount: number,
-  transcriptCount: number
+  snips: SnipRecord[],
+  transcripts: TranscriptRecord[],
+  extras?: TranscriptionCoverageExtras
 ): SessionBadge {
-  if (!session.hasSnips || snipCount === 0) return null;
-  if (transcriptCount === 0) return null;
-  if (transcriptCount < snipCount) return 'part-tx';
-  return 'ready';
+  return coverageBadge(sessionTranscriptionCoverage(session, snips, transcripts, extras).status);
 }
 
 export function sessionTilePreview(
   session: SessionRecord,
   snips: SnipRecord[],
-  transcripts: TranscriptRecord[]
+  transcripts: TranscriptRecord[],
+  extras?: TranscriptionCoverageExtras
 ): SessionTilePreview {
-  const snipCount = snips.length;
-  const transcriptCount = transcripts.filter((item) => item.text?.trim()).length;
+  const coverage = sessionTranscriptionCoverage(
+    session,
+    snips,
+    transcripts,
+    extras ?? coverageExtrasForSession(session.id)
+  );
   const text = transcripts
     .map((item) => item.text || '')
     .filter((piece) => piece.trim())
     .join(' ');
   const snippet = text.length > TILE_SNIPPET_MAX ? `${text.slice(0, TILE_SNIPPET_MAX)}...` : text;
   return {
-    snipCount,
-    transcriptCount,
+    snipCount: snips.length,
+    transcriptCount: coverage.transcribedCount,
     snippet,
-    badge: computeSessionBadge(session, snipCount, transcriptCount),
+    badge: coverageBadge(coverage.status),
+    coverage,
+    coverageNote: uncoveredTailCopy(coverage),
   };
 }

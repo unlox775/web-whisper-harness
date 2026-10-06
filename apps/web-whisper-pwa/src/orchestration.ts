@@ -86,6 +86,8 @@ export async function ensureSnips(sessionId: string): Promise<SnipRecord[]> {
     if (existing.snips?.length) return existing.snips as SnipRecord[];
     throw new Error(analysis.error || 'Volume analysis failed');
   }
+  // Growing window: proposeSnipsForSession freezes stored snips and sets
+  // windowStartTime = last snip end so uncovered audio can become new snips.
   const proposed = await proposeSnipsForSession(sessionId, { includeTrailing: true });
   if (!proposed.success) {
     const existing = await sessionStore.getSnipsForSession(sessionId);
@@ -219,6 +221,9 @@ export async function transcribeSession(
   options?: { retryFailedOnly?: boolean; onTranscriptWritten?: () => Promise<void> | void }
 ): Promise<TranscribeOutcome> {
   onProgress({ phase: 'analyzing', completed: 0, total: 0 });
+  // RETRY TX re-runs volume + proposeSnipsForSession so uncovered audio past
+  // lastSnipEnd can become new snips (same live ingest window). It does not
+  // only re-hit Groq on already-closed snips.
   const snips = await ensureSnips(sessionId);
   if (snips.length === 0) {
     return { total: 0, completed: 0, failed: 0, empty: true, failures: [] };

@@ -30,6 +30,7 @@ import {
   initializeRecordingWakeLock,
   setRecordingWakeLockActive,
 } from './wakeLock';
+import { rememberRecorderDurationSeconds } from './recorderDuration';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
 
 function captureStartOptions() {
@@ -371,13 +372,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       finishingRef.current = true;
       const handle = handleRef.current;
       const id = recordingSessionIdRef.current;
-      let summary: { hasAudio?: boolean; sessionId?: string | null } = { hasAudio: false, sessionId: id };
+      let summary: { hasAudio?: boolean; sessionId?: string | null; totalDuration?: number } = {
+        hasAudio: false,
+        sessionId: id,
+      };
       try {
         if (handle) {
+          const liveDuration = handle.getStatus()?.currentDuration;
+          if (id && liveDuration) rememberRecorderDurationSeconds(id, liveDuration);
           summary = await handle.stop();
         }
       } catch {
         // Abort/stop must never drop audio that already landed in IndexedDB.
+      }
+      if (id && typeof summary.totalDuration === 'number') {
+        rememberRecorderDurationSeconds(id, summary.totalDuration);
       }
       handleRef.current = null;
       recordingSessionIdRef.current = null;

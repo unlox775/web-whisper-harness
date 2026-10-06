@@ -3,14 +3,18 @@ import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { useApp } from '../context';
 import { transcribeSession } from '../orchestration';
-import { computeSessionBadge, sessionTilePreview, type SessionTilePreview } from '../sessionTile';
+import { sessionTilePreview, type SessionTilePreview } from '../sessionTile';
 import { emitTranscriptionEvent, subscribeSessionTranscription } from '../transcriptionEvents';
+import { sessionTranscriptionCoverage, uncoveredTailCopy } from '../transcriptionCoverage';
+import { coverageExtrasForSession } from '../recorderDuration';
 import type { SessionRecord, SnipRecord, TranscriptRecord } from '../types';
 import {
   homeAfterStopPreview,
   homeAfterStopStalePreview,
+  homePartialCoveragePreview,
   isHomeAfterStopScreenshot,
   isHomeAfterStopStaleScreenshot,
+  isHomePartialCoverageScreenshot,
   isHomeTileLiveScreenshot,
   readScreenshotMode,
 } from '../screenshotMode';
@@ -21,33 +25,30 @@ function SessionCard({
   session,
   onRetry,
   retrying,
-  previewCounts,
+  preview,
 }: {
   session: SessionRecord;
   onRetry: (sessionId: string) => void;
   retrying: boolean;
-  previewCounts?: { snipCount: number; transcriptCount: number; snippet: string };
+  preview?: { snips: SnipRecord[]; transcripts: TranscriptRecord[]; snippet: string };
 }) {
   const app = useApp();
-  const [tile, setTile] = useState<SessionTilePreview>({
-    snipCount: previewCounts?.snipCount ?? 0,
-    transcriptCount: previewCounts?.transcriptCount ?? 0,
-    snippet: previewCounts?.snippet ?? '',
-    badge: null,
-  });
+  const [tile, setTile] = useState<SessionTilePreview>(() =>
+    preview
+      ? sessionTilePreview(session, preview.snips, preview.transcripts)
+      : {
+          snipCount: 0,
+          transcriptCount: 0,
+          snippet: '',
+          badge: null,
+          coverage: sessionTranscriptionCoverage(session, [], []),
+          coverageNote: null,
+        }
+  );
 
   useEffect(() => {
-    if (previewCounts) {
-      setTile({
-        snipCount: previewCounts.snipCount,
-        transcriptCount: previewCounts.transcriptCount,
-        snippet: previewCounts.snippet,
-        badge: computeSessionBadge(
-          session,
-          previewCounts.snipCount,
-          previewCounts.transcriptCount
-        ),
-      });
+    if (preview) {
+      setTile(sessionTilePreview(session, preview.snips, preview.transcripts));
       return undefined;
     }
 
@@ -60,7 +61,8 @@ function SessionCard({
         sessionTilePreview(
           session,
           (snipsResult.snips || []) as SnipRecord[],
-          (transcriptsResult.transcripts || []) as TranscriptRecord[]
+          (transcriptsResult.transcripts || []) as TranscriptRecord[],
+          coverageExtrasForSession(session.id)
         )
       );
     }
@@ -71,7 +73,7 @@ function SessionCard({
     });
   }, [previewCounts, session]);
 
-  const { snippet, badge } = tile;
+  const { snippet, badge, coverageNote } = tile;
   const showRetry = badge === 'part-tx';
 
   return (
@@ -95,6 +97,7 @@ function SessionCard({
         {session.chunkCount === 0 ? ' · no playable audio' : ''}
       </div>
       {snippet ? <div className="session-snippet">{snippet}</div> : null}
+      {coverageNote ? <p className="session-coverage-note">{coverageNote}</p> : null}
       <div className="session-actions" onClick={(event) => event.stopPropagation()}>
         <button className="linkish" onClick={() => app.openSession(session.id, true)}>
           Play
@@ -133,13 +136,15 @@ export function HomeScreen() {
   const screenshot = readScreenshotMode();
   const liveTile = isHomeTileLiveScreenshot(screenshot);
   const [liveTileDone, setLiveTileDone] = useState(false);
-  const homePreview = isHomeAfterStopStaleScreenshot(screenshot)
-    ? homeAfterStopStalePreview()
-    : isHomeAfterStopScreenshot(screenshot) || liveTile
-      ? liveTile && !liveTileDone
-        ? homeAfterStopStalePreview()
-        : homeAfterStopPreview()
-      : null;
+  const homePreview = isHomePartialCoverageScreenshot(screenshot)
+    ? homePartialCoveragePreview()
+    : isHomeAfterStopStaleScreenshot(screenshot)
+      ? homeAfterStopStalePreview()
+      : isHomeAfterStopScreenshot(screenshot) || liveTile
+        ? liveTile && !liveTileDone
+          ? homeAfterStopStalePreview()
+          : homeAfterStopPreview()
+        : null;
   const sessions = homePreview ? [homePreview.session] : app.sessions;
 
   useEffect(() => {
@@ -169,6 +174,16 @@ export function HomeScreen() {
         () => {},
         { retryFailedOnly: true, onTranscriptWritten: () => app.enforceCap({ force: true }) }
       );
+      const listed = await sessionStore.getSession(sessionId);
+      const snipsResult = await sessionStore.getSnipsForSession(sessionId);
+      const transcriptsResult = await sessionStore.getTranscriptsForSession(sessionId);
+      const coverage = sessionTranscriptionCoverage(
+        (listed || { duration: 0 }) as SessionRecord,
+        (snipsResult.snips || []) as SnipRecord[],
+        (transcriptsResult.transcripts || []) as TranscriptRecord[],
+        coverageExtrasForSession(sessionId)
+      );
+      const tailNote = uncoveredTailCopy(coverage);
       if (outcome.stopReason) {
         app.showToast(`Transcription failed: ${outcome.stopReason}`, 'error');
       } else if (outcome.failed > 0) {
@@ -176,8 +191,13 @@ export function HomeScreen() {
           `Transcription failed: ${outcome.failed} snip${outcome.failed === 1 ? '' : 's'} failed`,
           'warning'
         );
-      } else {
+        if (tailNote) app.showToast(tailNote, 'warning');
+      } else if (tailNote) {
+        app.showToast(tailNote, 'warning');
+      } else if (coverage.status === 'ready') {
         app.showToast('Transcription completed!', 'success');
+      } else if (outcome.empty) {
+        app.showToast('No speech detected. Transcription skipped.', 'warning');
       }
       await app.refresh();
     } catch (error) {
@@ -269,11 +289,11 @@ export function HomeScreen() {
               session={session}
               onRetry={handleRetry}
               retrying={retryingSession === session.id}
-              previewCounts={
+              preview={
                 homePreview && homePreview.session.id === session.id
                   ? {
-                      snipCount: homePreview.snipCount,
-                      transcriptCount: homePreview.transcriptCount,
+                      snips: homePreview.snips,
+                      transcripts: homePreview.transcripts,
                       snippet: homePreview.snippet,
                     }
                   : undefined
