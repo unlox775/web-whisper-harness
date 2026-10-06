@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Capture Engine Isolation Demo</title>
-  <script type="module" crossorigin src="./assets/index-BpkTjuzT.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-DV6RwN_8.css">
+  <script type="module" crossorigin src="./assets/index-B-4W-5gV.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-BSD4Evj5.css">
 </head>
 <body>
   <!-- Top Chrome Panel -->
@@ -41,6 +41,11 @@
       <button id="stopBtn" class="btn btn-stop" disabled>Stop Capture</button>
       <button id="simulateStallBtn" class="btn btn-stall" disabled>Simulate stall</button>
       <button id="resetBtn" class="btn btn-reset">Reset</button>
+
+      <p class="factory-note">
+        <code>flushPending()</code> / <code>whenPersistIdle()</code> resolve immediately
+        here (in-memory; no session-store writes).
+      </p>
 
       <div id="streamBanner" class="stream-banner idle" role="status">
         Stream: idle
