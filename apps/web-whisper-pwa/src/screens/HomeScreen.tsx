@@ -71,7 +71,7 @@ function SessionCard({
     return subscribeSessionTranscription(session.id, () => {
       void loadTile();
     });
-  }, [previewCounts, session]);
+  }, [preview, session]);
 
   const { snippet, badge, coverageNote } = tile;
   const showRetry = badge === 'part-tx';
@@ -235,7 +235,7 @@ export function HomeScreen() {
       </header>
 
       <main className="scroll">
-        {!app.settings.onboardingDismissed ? (
+        {!app.settings.onboardingDismissed && !homePreview ? (
           <section className="card">
             <div className="card-head">
               <h3>Transcription setup is insanely easy.</h3>
