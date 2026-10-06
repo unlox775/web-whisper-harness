@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-10-06T18:05:17Z
+Resolved: 2026-10-06T19:10:00Z
 Product: apps/web-whisper-pwa
 
 # Feedback: Transcription coverage — do not claim complete when audio remains past last snip
@@ -99,11 +100,41 @@ If you change how status is written or derived, all three must match.
 
 Mark this spec resolved when:
 
-- [ ] Coverage helper compares last snip end to session/recorder duration with a documented ~2s threshold
-- [ ] READY / complete is never shown when uncovered audio > threshold, even if every existing snip has text
-- [ ] Copy states transcription is incomplete and more audio exists beyond MM:SS
-- [ ] Home, Session Detail, and overlay (if applicable) agree
-- [ ] RETRY TX can process the uncovered window, not only existing snips
-- [ ] iPhone DevTools (or fixture) proof of the false-complete case now showing PART TX
-- [ ] `make build` published `docs/` PWA artifacts
-- [ ] Spec updated with a Resolution section documenting what shipped
+- [x] Coverage helper compares last snip end to session/recorder duration with a documented ~2s threshold
+- [x] READY / complete is never shown when uncovered audio > threshold, even if every existing snip has text
+- [x] Copy states transcription is incomplete and more audio exists beyond MM:SS
+- [x] Home, Session Detail, and overlay (if applicable) agree
+- [x] RETRY TX can process the uncovered window, not only existing snips
+- [x] iPhone DevTools (or fixture) proof of the false-complete case now showing PART TX
+- [x] `make build` published `docs/` PWA artifacts
+- [x] Spec updated with a Resolution section documenting what shipped
+
+## Resolution
+
+**Resolved:** 2026-10-06T19:10:00Z on branch `cursor/pwa-transcription-coverage-partial-a4f8` (draft PR).
+
+### What shipped
+
+1. `sessionTranscriptionCoverage(session, snips, transcripts, extras?)` in `apps/web-whisper-pwa/src/transcriptionCoverage.ts`.
+   - `lastSnipEndMs` = max snip `endTime` (seconds × 1000); 0 when there are no snips.
+   - `durationMs` = max(`session.duration` × 1000, remembered capture-engine `totalDuration` / `currentDuration`).
+   - `uncoveredMs` = max(0, durationMs − lastSnipEndMs).
+   - `COVERAGE_GAP_THRESHOLD_MS = 2000`. Uncovered **greater than** 2.0s is incomplete.
+2. Status `partial` (Home/Detail badge **PART TX**, orange) when some snips lack text **or** every existing snip has text but uncovered > threshold. Zero snips + duration > threshold is PART TX, never READY.
+3. **READY** only when `snipCount > 0`, every snip has text, and uncovered ≤ 2s.
+4. Copy: `Transcription is incomplete. More audio exists beyond MM:SS.` (`MM:SS` = last snip end, or `0:00`). Shown on Home cards and Session Detail; missing-transcript retry copy is kept and the tail note is added when both apply.
+5. Live overlay does not flip to complete/READY (trailing audio is still being recorded).
+6. RETRY TX / `transcribeSession` still calls `ensureSnips` → `proposeSnipsForSession({ includeTrailing: true })`, which freezes stored snips and sets `windowStartTime = last snip end`. Toasts no longer say “completed” while the tail is uncovered.
+7. Fixtures: `?screenshot=home-partial-coverage`, `?screenshot=session-partial-coverage`.
+
+### Untouched
+
+Logging Settings, capture persist queue / `flushPending`, volume-analyzer cut constants, session-store schema.
+
+### Proof shots (iPhone 12 Pro, 390×844 CSS → 1170×2532)
+
+- `documentation/qa/home-partial-coverage-iphone.png` — PART TX + beyond 0:45 on a 3:00 take
+- `documentation/qa/session-partial-coverage-iphone.png` — same helper on Session Detail
+- `documentation/qa/home-after-stop-ready-regression-iphone.png` — covered tail still READY
+- `documentation/qa/session-transcribed-ready-regression-iphone.png` — covered Session Detail still READY
+- Notes: `documentation/qa/transcription-coverage-partial-status.md`

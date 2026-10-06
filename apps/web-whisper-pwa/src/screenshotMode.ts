@@ -78,6 +78,14 @@ export function isHomeAfterStopScreenshot(mode: string | null): boolean {
   return mode === 'home-after-stop';
 }
 
+export function isHomePartialCoverageScreenshot(mode: string | null): boolean {
+  return mode === 'home-partial-coverage';
+}
+
+export function isSessionPartialCoverageScreenshot(mode: string | null): boolean {
+  return mode === 'session-partial-coverage';
+}
+
 export function isHomeAfterStopStaleScreenshot(mode: string | null): boolean {
   return mode === 'home-after-stop-stale';
 }
@@ -90,7 +98,8 @@ export function isHomeTileScreenshot(mode: string | null): boolean {
   return (
     isHomeAfterStopScreenshot(mode) ||
     isHomeAfterStopStaleScreenshot(mode) ||
-    isHomeTileLiveScreenshot(mode)
+    isHomeTileLiveScreenshot(mode) ||
+    isHomePartialCoverageScreenshot(mode)
   );
 }
 
@@ -170,19 +179,61 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
   };
 }
 
+function fixtureSnip(
+  sessionId: string,
+  id: string,
+  startTime: number,
+  endTime: number,
+  createdAt: string
+): SnipRecord {
+  return {
+    id,
+    sessionId,
+    startChunkIndex: 0,
+    endChunkIndex: 0,
+    startTime,
+    endTime,
+    duration: endTime - startTime,
+    chunkIds: ['chk-0'],
+    confidence: 0.9,
+    createdAt,
+  };
+}
+
+function fixtureTx(
+  sessionId: string,
+  snipId: string,
+  text: string,
+  createdAt: string
+): TranscriptRecord {
+  return { snipId, sessionId, text, createdAt, updatedAt: createdAt };
+}
+
 export function homeAfterStopPreview(): {
   session: SessionRecord;
+  snips: SnipRecord[];
+  transcripts: TranscriptRecord[];
   snipCount: number;
   transcriptCount: number;
   snippet: string;
 } {
   const createdAt = new Date();
   createdAt.setMinutes(createdAt.getMinutes() - 1);
+  const iso = createdAt.toISOString();
+  const sessionId = 'ses-screenshot-after-stop';
+  const snips = [
+    fixtureSnip(sessionId, 'snip-a', 0, 20, iso),
+    fixtureSnip(sessionId, 'snip-b', 20, 46.5, iso),
+  ];
+  const transcripts = [
+    fixtureTx(sessionId, 'snip-a', HOME_SNIPPET, iso),
+    fixtureTx(sessionId, 'snip-b', 'We need milk, eggs, and sourdough.', iso),
+  ];
   return {
     session: {
-      id: 'ses-screenshot-after-stop',
-      createdAt: createdAt.toISOString(),
-      updatedAt: createdAt.toISOString(),
+      id: sessionId,
+      createdAt: iso,
+      updatedAt: iso,
       duration: 47,
       chunkCount: 12,
       sizeBytes: 188416,
@@ -191,6 +242,8 @@ export function homeAfterStopPreview(): {
       hasTranscript: true,
       status: 'ready',
     },
+    snips,
+    transcripts,
     snipCount: 2,
     transcriptCount: 2,
     snippet: HOME_SNIPPET,
@@ -202,17 +255,26 @@ const HOME_STALE_SNIPPET =
 
 export function homeAfterStopStalePreview(): {
   session: SessionRecord;
+  snips: SnipRecord[];
+  transcripts: TranscriptRecord[];
   snipCount: number;
   transcriptCount: number;
   snippet: string;
 } {
   const createdAt = new Date();
   createdAt.setMinutes(createdAt.getMinutes() - 1);
+  const iso = createdAt.toISOString();
+  const sessionId = 'ses-screenshot-after-stop';
+  const snips = [
+    fixtureSnip(sessionId, 'snip-a', 0, 20, iso),
+    fixtureSnip(sessionId, 'snip-b', 20, 46.5, iso),
+  ];
+  const transcripts = [fixtureTx(sessionId, 'snip-a', HOME_STALE_SNIPPET, iso)];
   return {
     session: {
-      id: 'ses-screenshot-after-stop',
-      createdAt: createdAt.toISOString(),
-      updatedAt: createdAt.toISOString(),
+      id: sessionId,
+      createdAt: iso,
+      updatedAt: iso,
       duration: 47,
       chunkCount: 12,
       sizeBytes: 188416,
@@ -221,9 +283,52 @@ export function homeAfterStopStalePreview(): {
       hasTranscript: true,
       status: 'ready',
     },
+    snips,
+    transcripts,
     snipCount: 2,
     transcriptCount: 1,
     snippet: HOME_STALE_SNIPPET,
+  };
+}
+
+export function homePartialCoveragePreview(): {
+  session: SessionRecord;
+  snips: SnipRecord[];
+  transcripts: TranscriptRecord[];
+  snipCount: number;
+  transcriptCount: number;
+  snippet: string;
+} {
+  const createdAt = new Date();
+  createdAt.setMinutes(createdAt.getMinutes() - 1);
+  const iso = createdAt.toISOString();
+  const sessionId = 'ses-screenshot-partial-coverage';
+  const snips = [
+    fixtureSnip(sessionId, 'snip-a', 0, 20, iso),
+    fixtureSnip(sessionId, 'snip-b', 20, 45, iso),
+  ];
+  const transcripts = [
+    fixtureTx(sessionId, 'snip-a', HOME_SNIPPET, iso),
+    fixtureTx(sessionId, 'snip-b', 'We need milk, eggs, and sourdough.', iso),
+  ];
+  return {
+    session: {
+      id: sessionId,
+      createdAt: iso,
+      updatedAt: iso,
+      duration: 180,
+      chunkCount: 45,
+      sizeBytes: 720896,
+      hasVolumeProfile: true,
+      hasSnips: true,
+      hasTranscript: true,
+      status: 'ready',
+    },
+    snips,
+    transcripts,
+    snipCount: 2,
+    transcriptCount: 2,
+    snippet: HOME_SNIPPET,
   };
 }
 
@@ -256,8 +361,8 @@ export function sessionTranscribedPreview(): {
       startChunkIndex: 3,
       endChunkIndex: 6,
       startTime: 12.4,
-      endTime: 28.1,
-      duration: 15.7,
+      endTime: 46.5,
+      duration: 34.1,
       chunkIds: ['chk-3', 'chk-4', 'chk-5', 'chk-6'],
       confidence: 0.88,
       createdAt: iso,
@@ -287,6 +392,77 @@ export function sessionTranscribedPreview(): {
       duration: 47,
       chunkCount: 12,
       sizeBytes: 188416,
+      hasVolumeProfile: true,
+      hasSnips: true,
+      hasTranscript: true,
+      status: 'ready',
+    },
+    snips,
+    transcripts,
+    transcriptText: SESSION_TRANSCRIPT,
+  };
+}
+
+export function sessionPartialCoveragePreview(): {
+  session: SessionRecord;
+  snips: SnipRecord[];
+  transcripts: TranscriptRecord[];
+  transcriptText: string;
+} {
+  const createdAt = new Date();
+  createdAt.setMinutes(createdAt.getMinutes() - 2);
+  const iso = createdAt.toISOString();
+  const sessionId = 'ses-screenshot-partial-coverage';
+  const snips: SnipRecord[] = [
+    {
+      id: 'snip-coverage-0',
+      sessionId,
+      startChunkIndex: 0,
+      endChunkIndex: 2,
+      startTime: 0,
+      endTime: 20,
+      duration: 20,
+      chunkIds: ['chk-0', 'chk-1', 'chk-2'],
+      confidence: 0.9,
+      createdAt: iso,
+    },
+    {
+      id: 'snip-coverage-1',
+      sessionId,
+      startChunkIndex: 3,
+      endChunkIndex: 6,
+      startTime: 20,
+      endTime: 45,
+      duration: 25,
+      chunkIds: ['chk-3', 'chk-4', 'chk-5', 'chk-6'],
+      confidence: 0.88,
+      createdAt: iso,
+    },
+  ];
+  const transcripts: TranscriptRecord[] = [
+    {
+      snipId: 'snip-coverage-0',
+      sessionId,
+      text: LONG_SNIP_TRANSCRIPT,
+      createdAt: iso,
+      updatedAt: iso,
+    },
+    {
+      snipId: 'snip-coverage-1',
+      sessionId,
+      text: 'We need milk, eggs, sourdough, the good butter not the cheap one, and those frozen blueberries she actually eats.',
+      createdAt: iso,
+      updatedAt: iso,
+    },
+  ];
+  return {
+    session: {
+      id: sessionId,
+      createdAt: iso,
+      updatedAt: iso,
+      duration: 180,
+      chunkCount: 45,
+      sizeBytes: 720896,
       hasVolumeProfile: true,
       hasSnips: true,
       hasTranscript: true,

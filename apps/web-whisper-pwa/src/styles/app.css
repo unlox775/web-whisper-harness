@@ -328,6 +328,13 @@ p {
   overflow: hidden;
 }
 
+.session-coverage-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #f97316;
+}
+
 .session-actions {
   display: flex;
   justify-content: space-between;
@@ -1116,6 +1123,18 @@ a.isolation-demos-head-link {
   align-items: center;
   margin-bottom: 12px;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.session-detail-tx-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.session-detail-coverage-note {
+  margin-top: 8px;
 }
 
 .session-detail-tx-actions {
