@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Context chain — Transcription Client Isolation Demo</title>
+  <script type="module" crossorigin src="./assets/context-chain-BWHay0Y5.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/compact-mobile-ClYX_uch.js">
+  <link rel="stylesheet" crossorigin href="./assets/compact-mobile-CUc-nG0w.css">
+</head>
+<body>
+  <header class="chrome-panel">
+    <div class="chrome-left">
+      <h1>Context chain</h1>
+      <a class="chrome-link" href="./index.html">← Main demo</a>
+    </div>
+    <div class="chrome-center">
+      <span id="modeChip" class="mode-chip mode-fixture">FIXTURE MODE (mock Groq)</span>
+    </div>
+    <div class="chrome-right">
+      <label class="toggle-container">
+        <input type="checkbox" id="liveModeToggle">
+        <span>Live Groq API</span>
+      </label>
+    </div>
+  </header>
+
+  <main class="context-page">
+    <section class="context-intro">
+      <p>
+        Each <strong>snip</strong> is one Groq Whisper call (the assembled speech segment,
+        not a raw 4s chunk). With context, snip N gets a <code>prompt</code>: vocabulary
+        first, then the tail of the transcript so far (about 150 words / 224 tokens).
+        Snip N waits until N−1 resolves. That is slower than parallel calls; it keeps
+        spelling and words split at a cut consistent.
+      </p>
+      <label class="field">
+        Vocabulary
+        <input id="vocabInput" type="text" value="Asana, Groq, BrainGraft, TeleLinux" autocomplete="off">
+      </label>
+      <div class="key-row context-key-row">
+        <input
+          id="apiKeyInput"
+          type="text"
+          placeholder="Paste Groq API key (live mode only)"
+          autocomplete="off"
+          spellcheck="false"
+        >
+        <button id="pasteKeyBtn" class="btn btn-secondary" type="button">Paste</button>
+      </div>
+      <p id="keySourceStatus" class="audio-status"></p>
+      <div class="context-actions">
+        <button id="runCompareBtn" class="btn btn-primary" type="button">Run side-by-side</button>
+        <button id="runGuardBtn" class="btn btn-secondary" type="button">Run guard fallback</button>
+      </div>
+      <p id="runStatus" class="audio-status">Fixture mock is the safe default. Live Groq uses the same silent fixture blob for each snip so you can inspect prompts without a session zip.</p>
+    </section>
+
+    <section class="compare-grid">
+      <article class="compare-col">
+        <h2>Without context</h2>
+        <p class="col-lead">Empty <code>prompt</code>. Boundary spelling drifts.</p>
+        <div id="withoutOutput" class="transcript-output placeholder">Click Run side-by-side.</div>
+      </article>
+      <article class="compare-col compare-col-on">
+        <h2>With context</h2>
+        <p class="col-lead">Vocabulary + previous tail. Serial Groq calls.</p>
+        <div id="withOutput" class="transcript-output placeholder">Click Run side-by-side.</div>
+      </article>
+    </section>
+
+    <section class="compare-col guard-panel">
+      <h2>Poisoning guard</h2>
+      <p class="col-lead">
+        Previous snip is empty / repetitive / high <code>no_speech_prob</code>.
+        Next prompt is <strong>vocabulary only</strong> — the hallucinated tail is not sent.
+      </p>
+      <div id="guardOutput" class="transcript-output placeholder">Click Run guard fallback.</div>
+    </section>
+  </main>
+
+</body>
+</html>

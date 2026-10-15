@@ -30,6 +30,7 @@ import {
   loadStoredApiKey,
   persistDemoApiKey,
 } from './apiKeyStore.js';
+import './styles.css';
 import '../../../isolation-demo-shared/compact-mobile.css';
 
 let currentMode = 'fixture';

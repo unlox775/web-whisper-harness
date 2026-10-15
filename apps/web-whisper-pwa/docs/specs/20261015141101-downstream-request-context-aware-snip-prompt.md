@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: downstream-request
 Created: 2026-10-15T14:11:01Z
+Resolved: 2026-10-15T16:30:00Z
 Product: apps/web-whisper-pwa
 Requested By: packages/lib/transcription-client
 Customer Relationship: web-whisper-pwa consumes transcription-client
@@ -60,3 +61,9 @@ Document in Settings help that snips transcribe one after another so spelling st
 - session-store transcript schema
 - Changing volume-analyzer snip cuts
 - Threshold UI
+
+## Resolution
+
+**Resolved:** 2026-10-15T16:30:00Z
+
+Settings Transcription section has a context-aware toggle (default on) and a vocabulary field, persisted in the existing localStorage family. `transcribeSession`, live ingest, leftover TX, and per-snip retry pass `transcriptionContextFromSettings`. Help text documents the serial latency tradeoff. Screenshot: `documentation/qa/pwa-settings-context-prompt.png`.

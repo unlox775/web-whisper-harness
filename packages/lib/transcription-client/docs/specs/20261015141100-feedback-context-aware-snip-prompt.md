@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-10-15T14:11:00Z
+Resolved: 2026-10-15T16:30:00Z
 Product: packages/lib/transcription-client
 
 # Feedback: Context-aware Whisper snip prompts
@@ -102,14 +103,35 @@ The PWA must expose Settings (on/off default on, vocabulary field) and pass them
 
 ## Resolution Criteria
 
-- [ ] Spec + README / customer-doc addenda describe the context chain, request/response shape, and serial latency tradeoff
-- [ ] `buildContextPrompt` keeps vocabulary first, trims ~150 words / 224 tokens at a word boundary
-- [ ] Guard falls back to vocabulary-only on high `no_speech_prob`, low `avg_logprob`, empty/repetitive text
-- [ ] `transcribeSequence` / chain is serial (N waits on N−1); retries reuse prior-snip context
-- [ ] Unit tests mock Groq; no live paid calls
-- [ ] Isolation Demo shows with/without context side by side plus guard fallback
-- [ ] `make build` refreshes PWA + Isolation Demo publish artifacts
-- [ ] Draft PR; do not mark ready; do not merge
+- [x] Spec + README / customer-doc addenda describe the context chain, request/response shape, and serial latency tradeoff
+- [x] `buildContextPrompt` keeps vocabulary first, trims ~150 words / 224 tokens at a word boundary
+- [x] Guard falls back to vocabulary-only on high `no_speech_prob`, low `avg_logprob`, empty/repetitive text
+- [x] `transcribeSequence` / chain is serial (N waits on N−1); retries reuse prior-snip context
+- [x] Unit tests mock Groq; no live paid calls
+- [x] Isolation Demo shows with/without context side by side plus guard fallback
+- [x] `make build` refreshes PWA + Isolation Demo publish artifacts
+- [x] Draft PR; do not mark ready; do not merge
+
+## Resolution
+
+**Resolved:** 2026-10-15T16:30:00Z  
+**Phase:** Phase 07 — context-aware Whisper snip prompts  
+**Runner:** Cursor Cloud Agent (grok-4.6)
+
+### What shipped
+
+- `src/contextPrompt.js` — `buildContextPrompt`, `createContextChain`, trim/token budget, hallucination + quality guard
+- `src/transcribeSequence.js` — serial snip N waits on N−1
+- `transcribeAudio` sends `prompt` + `verbose_json`, returns `avgLogprob` / `noSpeechProb`, retries reuse the same prompt
+- Isolation Demo `context-chain.html` (fixture mock side-by-side + guard) and archive step-through on the main demo
+- PWA Settings + orchestration consume the chain (downstream spec)
+
+### Validation
+
+- `npm --prefix packages/lib/transcription-client test` — 26 pass (mocked Groq)
+- `npm --prefix packages/lib/transcription-client/isolation-demo test` — 25 pass
+- `npm --prefix apps/web-whisper-pwa test` — pass including settings + retry-context helpers
+- Browser: fixture compare + guard on published Isolation Demo; PWA Settings shows toggle + vocabulary
 
 ## Notes For Phase 07
 

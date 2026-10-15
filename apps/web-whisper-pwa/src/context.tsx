@@ -292,15 +292,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!ready) return;
     const mode = readScreenshotMode();
-    if (
-      isIsolationSettingsScreenshot(mode) ||
-      isSettingsLogLevelsScreenshot(mode) ||
-      isSettingsContextScreenshot(mode)
-    ) {
+    if (isIsolationSettingsScreenshot(mode) || isSettingsLogLevelsScreenshot(mode)) {
       if (!settings.developerModeEnabled) {
         updateSetting('developerModeEnabled', true);
       }
-      if (isSettingsContextScreenshot(mode) && !settings.transcriptionVocabulary) {
+      setSettingsOpen(true);
+    }
+    if (isSettingsContextScreenshot(mode)) {
+      if (!settings.transcriptionVocabulary) {
         updateSetting('transcriptionVocabulary', 'Asana, Groq, BrainGraft, TeleLinux');
       }
       setSettingsOpen(true);

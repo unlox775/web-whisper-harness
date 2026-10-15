@@ -20,6 +20,7 @@ import {
   mockGuardTranscribe,
   snipItems,
 } from './contextFixtures.js';
+import './styles.css';
 import '../../../isolation-demo-shared/compact-mobile.css';
 
 const liveModeToggle = document.getElementById('liveModeToggle');

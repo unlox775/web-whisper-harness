@@ -8,7 +8,7 @@ npm install
 npm start
 ```
 
-The demo will open in your browser at `http://localhost:3002`. Open `/context-chain.html` for the with/without-context comparison (or use the chrome link).
+Vite serves the demo at `http://localhost:3002` (uses the PWA's Vite so `@web-whisper/*` aliases resolve). Open `/context-chain.html` for the with/without-context comparison (or use the chrome link). Requires `npm --prefix apps/web-whisper-pwa install` from the repo root first.
 
 ## What This Demo Does
 
