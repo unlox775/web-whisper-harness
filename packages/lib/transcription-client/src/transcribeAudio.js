@@ -2,6 +2,7 @@
  * Transcribe audio using Groq Whisper API
  */
 
+import { extractTranscriptionQuality } from './contextPrompt.js';
 import { fixtureTranscribe } from './fixture.js';
 
 const GROQ_API_ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
@@ -29,8 +30,12 @@ export function filenameForAudioBlob(audioBlob) {
  * @param {string} options.apiKey - Groq API key (required for live mode)
  * @param {'fixture' | 'live'} options.mode - Operation mode (default: 'fixture')
  * @param {string} options.language - Optional language hint (ISO 639-1 code)
+ * @param {string} options.prompt - Optional Whisper context (vocabulary + prior tail)
+ * @param {boolean} options.contextEnabled - When not false, request verbose_json for quality
+ * @param {'json' | 'verbose_json'} options.responseFormat - Override Groq response_format
+ * @param {typeof fetch} options.fetch - Injected fetch (tests)
  * @param {string} options.simulateError - Error to simulate in fixture mode
- * @returns {Promise<{text: string, language?: string} | {error: string}>}
+ * @returns {Promise<{text: string, language?: string, avgLogprob?: number, noSpeechProb?: number} | {error: string}>}
  */
 export async function transcribeAudio(audioBlob, options = {}) {
   const mode = options.mode || 'fixture';
@@ -101,13 +106,20 @@ async function attemptTranscription(audioBlob, options) {
     const formData = new FormData();
     formData.append('file', audioBlob, filenameForAudioBlob(audioBlob));
     formData.append('model', WHISPER_MODEL);
-    formData.append('response_format', 'json');
-    
+    const responseFormat = resolveResponseFormat(options);
+    formData.append('response_format', responseFormat);
+
     if (options.language) {
       formData.append('language', options.language);
     }
 
-    const response = await fetch(GROQ_API_ENDPOINT, {
+    const prompt = String(options.prompt || '').trim();
+    if (prompt) {
+      formData.append('prompt', prompt);
+    }
+
+    const fetchImpl = options.fetch || globalThis.fetch;
+    const response = await fetchImpl(GROQ_API_ENDPOINT, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${options.apiKey}`
@@ -121,10 +133,15 @@ async function attemptTranscription(audioBlob, options) {
     // Parse response based on status code
     if (response.ok) {
       const data = await response.json();
-      return {
+      const quality = extractTranscriptionQuality(data);
+      const result = {
         text: data.text || '',
-        language: data.language
+        language: data.language,
       };
+      if (quality.avgLogprob != null) result.avgLogprob = quality.avgLogprob;
+      if (quality.noSpeechProb != null) result.noSpeechProb = quality.noSpeechProb;
+      if (quality.compressionRatio != null) result.compressionRatio = quality.compressionRatio;
+      return result;
     }
 
     // Handle error responses
@@ -155,6 +172,13 @@ async function attemptTranscription(audioBlob, options) {
     
     throw error;
   }
+}
+
+function resolveResponseFormat(options) {
+  if (options.responseFormat === 'json' || options.responseFormat === 'verbose_json') {
+    return options.responseFormat;
+  }
+  return options.contextEnabled === false ? 'json' : 'verbose_json';
 }
 
 /**

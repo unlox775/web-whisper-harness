@@ -74,6 +74,10 @@ export function isSettingsLogLevelsScreenshot(mode: string | null): boolean {
   return mode === 'settings-log-levels';
 }
 
+export function isSettingsContextScreenshot(mode: string | null): boolean {
+  return mode === 'settings-context';
+}
+
 export function isSessionDebugExportScreenshot(mode: string | null): boolean {
   return mode === 'session-debug-export';
 }

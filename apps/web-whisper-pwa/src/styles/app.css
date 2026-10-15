@@ -741,7 +741,8 @@ label.field {
 input[type='text'],
 input[type='password'],
 input[type='number'],
-select {
+select,
+textarea {
   width: 100%;
   margin-top: 6px;
   background: var(--bg-input);
@@ -754,9 +755,16 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: 2px solid var(--accent-primary);
   border-color: var(--accent-primary);
+}
+
+textarea {
+  min-height: 64px;
+  resize: vertical;
+  font-family: inherit;
 }
 
 .key-row {

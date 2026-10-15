@@ -5,6 +5,7 @@ import {
   homeAfterStopPreview,
   homePartialCoveragePreview,
   isSessionDebugExportScreenshot,
+  isSettingsContextScreenshot,
   isSettingsLogLevelsScreenshot,
   sessionPartialCoveragePreview,
   sessionTranscribedPreview,
@@ -12,8 +13,9 @@ import {
 import { sessionTranscriptionCoverage, uncoveredTailCopy } from './transcriptionCoverage.ts';
 
 describe('screenshot coverage fixtures', () => {
-  it('recognizes Settings log-level and Debug export screenshot helpers', () => {
+  it('recognizes Settings log-level, context, and Debug export screenshot helpers', () => {
     assert.equal(isSettingsLogLevelsScreenshot('settings-log-levels'), true);
+    assert.equal(isSettingsContextScreenshot('settings-context'), true);
     assert.equal(isSessionDebugExportScreenshot('session-debug-export'), true);
     assert.equal(isSettingsLogLevelsScreenshot('isolation-settings'), false);
   });

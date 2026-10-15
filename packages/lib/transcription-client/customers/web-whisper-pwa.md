@@ -402,3 +402,9 @@ Phase 06 will implement `transcribeAudio` with Groq API integration, `validateKe
 ## Phase 07 addendum — structured logs only
 
 Planning only. No deep behavior change. Transcription-client **emits structured logs via session-store** (`sessionStore.log('transcription-client', level, () => ({ message, details }), { sessionId })`). The PWA configures per-package levels and the active take id; session-store gates the lazy payload. We still do not write transcripts (you call `writeTranscript`). We do not own a logger product.
+
+## Phase 07 addendum — context-aware snip prompts
+
+Spec: `docs/specs/20261015141100-feedback-context-aware-snip-prompt.md`. Downstream PWA request: `apps/web-whisper-pwa/docs/specs/20261015141101-downstream-request-context-aware-snip-prompt.md`.
+
+The PWA now passes Settings (`contextAwareTranscription` default on, `transcriptionVocabulary`) into the snip chain. `transcribeAudio` accepts `prompt` and returns `verbose_json` quality (`avgLogprob`, `noSpeechProb`) so the next snip can apply the poisoning guard. `createContextChain` / `transcribeSequence` serialize Groq calls: snip N starts when N−1 resolves. Per-snip retry rebuilds the prompt from snips before the retried one. We still do not write transcripts or store the prompt. Serial transcription is slower than a parallel fan-out for a long post-stop batch; that is the spelling-continuity tradeoff.

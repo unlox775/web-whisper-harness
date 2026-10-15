@@ -65,6 +65,13 @@ export type AppSettings = {
   developerModeEnabled: boolean;
   onboardingDismissed: boolean;
   logLevels: PackageLogLevels;
+  contextAwareTranscription: boolean;
+  transcriptionVocabulary: string;
   keyValid: boolean | null;
   keyStatus: string;
+};
+
+export type TranscriptionContextSettings = {
+  contextEnabled: boolean;
+  vocabulary: string;
 };

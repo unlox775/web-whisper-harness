@@ -12,7 +12,13 @@ import * as sessionStore from '@web-whisper/session-store';
 import { CaptureError, flushPending, startCapture, type CaptureHandle } from '@web-whisper/capture-engine';
 import { validateKey } from '@web-whisper/transcription-client';
 import { applyLoggerConfig, type PackageLogLevels } from './logSettings';
-import { capBytesFromMb, loadSettings, saveLogLevels, saveSetting } from './settings';
+import {
+  capBytesFromMb,
+  loadSettings,
+  saveLogLevels,
+  saveSetting,
+  transcriptionContextFromSettings,
+} from './settings';
 import { ingestGrowingSession, transcribeSession } from './orchestration';
 import {
   createRetentionGate,
@@ -22,6 +28,7 @@ import {
   isIsolationSettingsScreenshot,
   isSessionDebugExportScreenshot,
   isSessionDetailScreenshot,
+  isSettingsContextScreenshot,
   isSettingsLogLevelsScreenshot,
   readScreenshotMode,
 } from './screenshotMode';
@@ -268,6 +275,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (key === 'storageCapMb') saveSetting('storageCapMb', Number(value));
       if (key === 'developerModeEnabled') saveSetting('developerModeEnabled', Boolean(value));
       if (key === 'onboardingDismissed') saveSetting('onboardingDismissed', Boolean(value));
+      if (key === 'contextAwareTranscription') {
+        saveSetting('contextAwareTranscription', Boolean(value));
+      }
+      if (key === 'transcriptionVocabulary') saveSetting('transcriptionVocabulary', String(value));
       if (key === 'logLevels') {
         saveLogLevels(value as PackageLogLevels);
         syncLogger({ levels: value as PackageLogLevels });
@@ -281,9 +292,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!ready) return;
     const mode = readScreenshotMode();
-    if (isIsolationSettingsScreenshot(mode) || isSettingsLogLevelsScreenshot(mode)) {
+    if (
+      isIsolationSettingsScreenshot(mode) ||
+      isSettingsLogLevelsScreenshot(mode) ||
+      isSettingsContextScreenshot(mode)
+    ) {
       if (!settings.developerModeEnabled) {
         updateSetting('developerModeEnabled', true);
+      }
+      if (isSettingsContextScreenshot(mode) && !settings.transcriptionVocabulary) {
+        updateSetting('transcriptionVocabulary', 'Asana, Groq, BrainGraft, TeleLinux');
       }
       setSettingsOpen(true);
     }
@@ -469,6 +487,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               apiKey: canTranscribe ? apiKey : undefined,
               includeTrailing: true,
               transcribe: false,
+              ...transcriptionContextFromSettings(settings),
             });
           } catch (error) {
             console.warn('Post-recording snip commit failed', error);
@@ -476,6 +495,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (canTranscribe && apiKey) {
             void transcribeSession(id, apiKey, () => {}, {
               onTranscriptWritten: () => enforceCap({ force: true }),
+              ...transcriptionContextFromSettings(settings),
             })
               .then(() => refresh())
               .catch((error) => {
@@ -511,6 +531,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       settleLoggerIfIdle,
       settings.groqApiKey,
       settings.keyValid,
+      settings.contextAwareTranscription,
+      settings.transcriptionVocabulary,
       showToast,
     ]
   );

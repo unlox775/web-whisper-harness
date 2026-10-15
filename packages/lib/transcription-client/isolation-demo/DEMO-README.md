@@ -8,7 +8,7 @@ npm install
 npm start
 ```
 
-The demo will open in your browser at `http://localhost:3002`.
+The demo will open in your browser at `http://localhost:3002`. Open `/context-chain.html` for the with/without-context comparison (or use the chrome link).
 
 ## What This Demo Does
 
@@ -60,7 +60,8 @@ This isolation demo proves that transcription-client works correctly:
 ✓ Error handling (network failure, rate limit, invalid key, invalid audio)  
 ✓ Retry logic with exponential backoff  
 ✓ Structured error results (no thrown exceptions)  
-✓ Language detection (optional)
+✓ Language detection (optional)  
+✓ Context chain page: with vs without Whisper `prompt`, plus guard fallback (fixture mock; optional live Groq)
 
 ## Troubleshooting
 

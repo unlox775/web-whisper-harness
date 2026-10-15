@@ -11,6 +11,7 @@
   <header class="chrome-panel">
     <div class="chrome-left">
       <h1>Transcription Client Isolation Demo</h1>
+      <a class="chrome-link" href="./context-chain.html">Context chain demo →</a>
     </div>
     <div class="chrome-center">
       <span id="modeChip" class="mode-chip mode-fixture">FIXTURE MODE (mock transcript)</span>
@@ -86,6 +87,21 @@
         <button id="validateKeyBtn" class="btn btn-primary" disabled>
           Validate Key
         </button>
+      </div>
+
+      <div class="control-section">
+        <label class="radio-row">
+          <input type="checkbox" id="contextEnabledToggle" checked>
+          Context prompts (serial snips)
+        </label>
+        <label for="vocabInput">Vocabulary</label>
+        <input
+          id="vocabInput"
+          type="text"
+          placeholder="Asana, Groq, BrainGraft, TeleLinux"
+          autocomplete="off"
+        >
+        <p class="field-hint">Sent at the front of Whisper <code>prompt</code>. Archive step-through waits for snip N−1 before N.</p>
       </div>
 
       <div class="control-section">
