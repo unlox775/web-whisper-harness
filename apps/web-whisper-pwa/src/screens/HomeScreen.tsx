@@ -3,6 +3,7 @@ import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { useApp } from '../context';
 import { transcribeSession } from '../orchestration';
+import { transcriptionContextFromSettings } from '../settings';
 import { sessionTilePreview, type SessionTilePreview } from '../sessionTile';
 import { emitTranscriptionEvent, subscribeSessionTranscription } from '../transcriptionEvents';
 import { sessionTranscriptionCoverage, uncoveredTailCopy } from '../transcriptionCoverage';
@@ -172,7 +173,11 @@ export function HomeScreen() {
         sessionId,
         app.settings.groqApiKey,
         () => {},
-        { retryFailedOnly: true, onTranscriptWritten: () => app.enforceCap({ force: true }) }
+        {
+          retryFailedOnly: true,
+          onTranscriptWritten: () => app.enforceCap({ force: true }),
+          ...transcriptionContextFromSettings(app.settings),
+        }
       );
       const listed = await sessionStore.getSession(sessionId);
       const snipsResult = await sessionStore.getSnipsForSession(sessionId);

@@ -48,7 +48,8 @@ const DEMOS = [
     react: false,
     storage: 'API key in ww-iso-transcription-client:groqApiKey (also reads groq_api_key)',
     namespace: 'ww-iso-transcription-client:',
-    blurb: 'Paste Groq key (persists). Archive: mock refuses; live Groq steps time-trimmed snips or chunks.',
+    blurb: 'Paste Groq key (persists). Archive: mock refuses; live Groq steps time-trimmed snips or chunks. Context chain page compares with/without Whisper prompt.',
+    html: ['index.html', 'context-chain.html'],
   },
   {
     id: 'session-store',
@@ -224,6 +225,15 @@ for (const demo of DEMOS) {
       emptyOutDir: true,
       assetsDir: 'assets',
       sourcemap: false,
+      ...(Array.isArray(demo.html) && demo.html.length > 1
+        ? {
+            rollupOptions: {
+              input: Object.fromEntries(
+                demo.html.map((file) => [file.replace(/\.html$/, ''), join(demo.root, file)])
+              ),
+            },
+          }
+        : {}),
     },
     logLevel: 'warn',
   });
@@ -232,9 +242,12 @@ for (const demo of DEMOS) {
 await writeFile(join(docsIsolation, 'index.html'), indexHtml());
 
 for (const demo of DEMOS) {
-  const page = join(docsIsolation, demo.id, 'index.html');
-  if (!(await exists(page))) {
-    throw new Error(`Expected published demo at ${page}`);
+  const pages = demo.html || ['index.html'];
+  for (const file of pages) {
+    const page = join(docsIsolation, demo.id, file);
+    if (!(await exists(page))) {
+      throw new Error(`Expected published demo at ${page}`);
+    }
   }
 }
 

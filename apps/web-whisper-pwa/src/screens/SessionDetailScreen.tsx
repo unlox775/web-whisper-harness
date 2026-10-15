@@ -5,6 +5,8 @@ import { formatBytes, formatDuration, formatCapturedRange, formatDurationHeroSty
 import { runDoctor, type DoctorReport } from '../doctor';
 import { assembleSnipTranscriptionBlob } from '../assembleSnipAudio';
 import { transcribeSession, type TranscribeProgress } from '../orchestration';
+import { promptChainFromTranscripts } from '../transcriptionContext';
+import { transcriptionContextFromSettings } from '../settings';
 import { useApp } from '../context';
 import type { ChunkRecord, SessionRecord, SnipRecord, TranscriptRecord } from '../types';
 import { VolumeHistogram } from '../components/VolumeHistogram';
@@ -275,7 +277,11 @@ export function SessionDetailScreen() {
         sessionId,
         app.settings.groqApiKey,
         setProgress,
-        { retryFailedOnly, onTranscriptWritten: () => app.enforceCap({ force: true }) }
+        {
+          retryFailedOnly,
+          onTranscriptWritten: () => app.enforceCap({ force: true }),
+          ...transcriptionContextFromSettings(app.settings),
+        }
       );
       setFailures(outcome.failures);
       await load();
@@ -339,7 +345,16 @@ export function SessionDetailScreen() {
       }
       const { transcribeAudio } = await import('@web-whisper/transcription-client');
       // Same per-snip path as transcribePendingSnips: one assembled snip blob.
-      const result = await transcribeAudio(blob, { apiKey: app.settings.groqApiKey, mode: 'live' });
+      // Retry reuses context from snips before this one, not from a failed attempt of it.
+      const context = transcriptionContextFromSettings(app.settings);
+      const chain = promptChainFromTranscripts(snips, transcripts, context, snipId);
+      const promptInfo = context.contextEnabled ? chain.promptForNext() : { prompt: '' };
+      const result = await transcribeAudio(blob, {
+        apiKey: app.settings.groqApiKey,
+        mode: 'live',
+        prompt: promptInfo.prompt,
+        contextEnabled: context.contextEnabled,
+      });
       if ('error' in result && result.error) {
         const existingFailure = failures.find((f) => f.snipId === snipId);
         if (!existingFailure) {

@@ -4,6 +4,7 @@ import {
   overlayTranscriptText,
 } from '../orchestration';
 import { formatDuration } from '../format';
+import { transcriptionContextFromSettings } from '../settings';
 import { useApp } from '../context';
 import { playThreeBeepPattern, scheduleNoAudioBeeps } from '../noAudioAlert';
 import {
@@ -72,6 +73,7 @@ export function RecordingScreen() {
           includeTrailing: false,
           transcribe: canTranscribe,
           onTranscriptWritten: () => app.enforceCap({ force: true }),
+          ...transcriptionContextFromSettings(app.settings),
         });
         applyDurableState(result.snips, result.transcripts, result.failures);
       } catch (err) {
@@ -88,6 +90,8 @@ export function RecordingScreen() {
     app.recordingSessionId,
     app.settings.groqApiKey,
     app.settings.keyValid,
+    app.settings.contextAwareTranscription,
+    app.settings.transcriptionVocabulary,
     app.enforceCap,
     preview,
   ]);
@@ -107,6 +111,7 @@ export function RecordingScreen() {
         includeTrailing: false,
         transcribe: true,
         onTranscriptWritten: () => app.enforceCap({ force: true }),
+        ...transcriptionContextFromSettings(app.settings),
       });
       applyDurableState(result.snips, result.transcripts, result.failures);
     } catch (err) {

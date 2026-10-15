@@ -1,5 +1,9 @@
 import * as sessionStore from '@web-whisper/session-store';
 import { transcribeAudio } from '@web-whisper/transcription-client';
+import type { TranscriptionContextSettings } from './types';
+import { orderedSnips, promptChainFromTranscripts } from './transcriptionContext';
+
+export { promptChainFromTranscripts } from './transcriptionContext';
 import {
   analyzeVolumeForSession,
   proposeSnipsForSession,
@@ -127,7 +131,8 @@ async function transcribePendingSnips(
   apiKey: string,
   already: TranscriptRecord[],
   onProgress?: (progress: TranscribeProgress) => void,
-  onTranscriptWritten?: () => Promise<void> | void
+  onTranscriptWritten?: () => Promise<void> | void,
+  context: TranscriptionContextSettings = { contextEnabled: true, vocabulary: '' }
 ): Promise<{
   completed: number;
   failed: number;
@@ -138,7 +143,14 @@ async function transcribePendingSnips(
     already.filter((item) => item.text?.trim()).map((item) => item.snipId)
   );
 
-  const targets = snips.filter((snip) => !done.has(snip.id) && !transcribingSnips.has(snip.id));
+  const ordered = orderedSnips(snips);
+  const targets = ordered.filter((snip) => !done.has(snip.id) && !transcribingSnips.has(snip.id));
+  const contextEnabled = context.contextEnabled !== false;
+  const chain = promptChainFromTranscripts(
+    ordered.filter((snip) => done.has(snip.id)),
+    already,
+    context
+  );
   let completed = snips.length - targets.length;
   let failed = 0;
   const failures: Array<{ snipId: string; error: string }> = [];
@@ -162,7 +174,18 @@ async function transcribePendingSnips(
       }
       // One Groq call per snip. `blob` is assembleSnipTranscriptionBlob output
       // (time-trimmed snip audio), not a raw 4s chunk and not the session tape.
-      const result = await transcribeAudio(blob, { apiKey, mode: 'live' });
+      // Serial: this request starts after the previous snip resolved so the
+      // Whisper prompt can use that tail (or vocabulary only if poisoned).
+      const promptInfo = contextEnabled ? chain.promptForNext() : { prompt: '' };
+      const result = await transcribeAudio(blob, {
+        apiKey,
+        mode: 'live',
+        prompt: promptInfo.prompt,
+        contextEnabled,
+      });
+      if (contextEnabled) {
+        chain.observeResult(result);
+      }
       if ('error' in result && result.error) {
         failed += 1;
         failures.push({ snipId: snip.id, error: result.error });
@@ -209,6 +232,8 @@ export function ingestGrowingSession(
     includeTrailing?: boolean;
     transcribe?: boolean;
     onTranscriptWritten?: () => Promise<void> | void;
+    contextEnabled?: boolean;
+    vocabulary?: string;
   } = {}
 ): Promise<LiveIngestResult> {
   return withSessionLock(sessionId, async () => {
@@ -227,7 +252,11 @@ export function ingestGrowingSession(
         options.apiKey,
         transcripts,
         undefined,
-        options.onTranscriptWritten
+        options.onTranscriptWritten,
+        {
+          contextEnabled: options.contextEnabled !== false,
+          vocabulary: options.vocabulary || '',
+        }
       );
       failures.push(...outcome.failures);
       ({ snips, transcripts } = await loadDurableState(sessionId));
@@ -242,7 +271,12 @@ export async function transcribeSession(
   sessionId: string,
   apiKey: string,
   onProgress: (progress: TranscribeProgress) => void,
-  options?: { retryFailedOnly?: boolean; onTranscriptWritten?: () => Promise<void> | void }
+  options?: {
+    retryFailedOnly?: boolean;
+    onTranscriptWritten?: () => Promise<void> | void;
+    contextEnabled?: boolean;
+    vocabulary?: string;
+  }
 ): Promise<TranscribeOutcome> {
   beginCountedWork(transcribeInFlight, sessionId);
   try {
@@ -256,7 +290,12 @@ async function transcribeSessionInner(
   sessionId: string,
   apiKey: string,
   onProgress: (progress: TranscribeProgress) => void,
-  options?: { retryFailedOnly?: boolean; onTranscriptWritten?: () => Promise<void> | void }
+  options?: {
+    retryFailedOnly?: boolean;
+    onTranscriptWritten?: () => Promise<void> | void;
+    contextEnabled?: boolean;
+    vocabulary?: string;
+  }
 ): Promise<TranscribeOutcome> {
   onProgress({ phase: 'analyzing', completed: 0, total: 0 });
   // RETRY TX re-runs volume + proposeSnipsForSession so uncovered audio past
@@ -278,7 +317,11 @@ async function transcribeSessionInner(
     apiKey,
     transcripts,
     onProgress,
-    options?.onTranscriptWritten
+    options?.onTranscriptWritten,
+    {
+      contextEnabled: options?.contextEnabled !== false,
+      vocabulary: options?.vocabulary || '',
+    }
   );
   emitTranscriptionEvent({ type: 'transcription-finished', sessionId });
   return {

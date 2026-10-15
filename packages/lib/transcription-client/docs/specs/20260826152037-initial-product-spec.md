@@ -93,7 +93,8 @@ All interfaces use planning names (not frozen TypeScript APIs). Phase 06 impleme
 - Body (multipart/form-data):
   - `file`: audio blob (MP3)
   - `model`: `whisper-large-v3` (or current Groq-recommended Whisper model; Phase 06 will verify the exact model name)
-  - `response_format`: `json` (default; returns `{text: "...", language: "..."}`)
+  - `response_format`: `verbose_json` when context-aware prompting is on (default), so the next snip can read `avg_logprob` / `no_speech_prob`; `json` when context is off
+  - Optional: `prompt` (Whisper context; max 224 tokens — see `20261015141100-feedback-context-aware-snip-prompt.md`)
   - Optional: `temperature`, `language` (if caller wants to hint the expected language; leave unspecified by default for auto-detection)
 
 **Response parsing:**
@@ -117,7 +118,8 @@ All interfaces use planning names (not frozen TypeScript APIs). Phase 06 impleme
 | **Interface** | **Caller** | **Input** | **Output** | **Store Changed** | **Failure Result** |
 |---------------|------------|-----------|------------|-------------------|--------------------|
 | `validateKey(apiKey)` | PWA settings screen | API key string | `{valid: boolean, reason?: string}` | None | `{valid: false, reason: string}` |
-| `transcribeAudio(audioBlob, apiKey)` | PWA transcription flow | Audio blob (MP3), API key | `{text: string, language?: string}` or `{error: string}` | None (PWA writes to session-store) | `{error: string}` |
+| `transcribeAudio(audioBlob, apiKey)` | PWA transcription flow | Audio blob (MP3), API key, optional `prompt` | `{text, language?, avgLogprob?, noSpeechProb?}` or `{error}` | None (PWA writes to session-store) | `{error: string}` |
+| `buildContextPrompt` / `createContextChain` / `transcribeSequence` | PWA snip loop, Isolation Demo context page | vocabulary, prior transcript, ordered snip blobs | Groq `prompt` + serial results | None | poisoned previous → vocabulary-only prompt |
 
 ## Events and Telemetry
 

@@ -4,7 +4,7 @@ import {
   serializePackageLogLevels,
   type PackageLogLevels,
 } from './logSettings';
-import type { AppSettings } from './types';
+import type { AppSettings, TranscriptionContextSettings } from './types';
 
 const KEYS = {
   groqApiKey: 'groq_api_key',
@@ -12,6 +12,8 @@ const KEYS = {
   developerModeEnabled: 'developer_mode_enabled',
   onboardingDismissed: 'onboarding_dismissed',
   logLevels: LOG_LEVELS_STORAGE_KEY,
+  contextAwareTranscription: 'context_aware_transcription',
+  transcriptionVocabulary: 'transcription_vocabulary',
 } as const;
 
 function readRaw(key: string): string | null {
@@ -32,14 +34,28 @@ export function loadSettings(): AppSettings {
   const storageCapMb = capRaw ? Number(capRaw) || 200 : 200;
   const developerModeEnabled = readRaw(KEYS.developerModeEnabled) === 'true';
   const onboardingDismissed = readRaw(KEYS.onboardingDismissed) === 'true';
+  const contextRaw = readRaw(KEYS.contextAwareTranscription);
+  const contextAwareTranscription = contextRaw !== 'false';
+  const transcriptionVocabulary = readRaw(KEYS.transcriptionVocabulary) ?? '';
   return {
     groqApiKey,
     storageCapMb,
     developerModeEnabled,
     onboardingDismissed,
     logLevels: parsePackageLogLevels(readRaw(KEYS.logLevels)),
+    contextAwareTranscription,
+    transcriptionVocabulary,
     keyValid: groqApiKey ? null : false,
     keyStatus: groqApiKey ? 'Checking' : 'Missing',
+  };
+}
+
+export function transcriptionContextFromSettings(
+  settings: Pick<AppSettings, 'contextAwareTranscription' | 'transcriptionVocabulary'>
+): TranscriptionContextSettings {
+  return {
+    contextEnabled: settings.contextAwareTranscription !== false,
+    vocabulary: settings.transcriptionVocabulary || '',
   };
 }
 

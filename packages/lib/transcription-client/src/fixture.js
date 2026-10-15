@@ -28,11 +28,19 @@ export async function fixtureTranscribe(audioBlob, options = {}) {
     }
   }
 
-  // Return mock transcript immediately
-  return {
-    text: FIXTURE_TRANSCRIPT,
-    language: 'en'
+  const quality = options.fixtureQuality || {};
+  const text =
+    typeof options.fixtureText === 'string' ? options.fixtureText : FIXTURE_TRANSCRIPT;
+  const result = {
+    text,
+    language: options.language || 'en',
   };
+  if (typeof quality.avgLogprob === 'number') result.avgLogprob = quality.avgLogprob;
+  else result.avgLogprob = -0.2;
+  if (typeof quality.noSpeechProb === 'number') result.noSpeechProb = quality.noSpeechProb;
+  else result.noSpeechProb = 0.01;
+  if (options.prompt) result.prompt = options.prompt;
+  return result;
 }
 
 /**

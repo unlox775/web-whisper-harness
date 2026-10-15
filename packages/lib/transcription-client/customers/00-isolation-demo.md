@@ -457,3 +457,7 @@ if (result.error) {
 Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement `transcribeAudio` with fixture/live modes, `validateKey` with format check, build Isolation Demo with fixture and optional live testing.
+
+## Phase 07 addendum — context-aware snip prompts
+
+The Isolation Demo now includes a **Context chain** page (`context-chain.html`) that runs a fixture snip sequence **with context** and **without** side by side, prints the Groq `prompt` for each snip, and has a poisoning-guard scenario (empty / repetitive / high `no_speech_prob` previous snip → vocabulary only). Mock responses are the safe default. Optional live Groq uses the same persisted demo key as the main page. Archive step-through on the main page uses the serial context chain when Live Groq is on.

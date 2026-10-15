@@ -139,6 +139,36 @@ export function SettingsModal() {
               </a>
               .
             </p>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={app.settings.contextAwareTranscription}
+                onChange={(event) =>
+                  app.updateSetting('contextAwareTranscription', event.target.checked)
+                }
+              />
+              Context-aware transcription
+            </label>
+            <p className="help">
+              Each snip waits for the previous Groq result and sends a Whisper
+              prompt: vocabulary first, then the tail of the transcript so far.
+              That keeps spelling consistent across cuts. It is slower than
+              sending snips in parallel.
+            </p>
+            <label className="field">
+              Vocabulary
+              <textarea
+                rows={2}
+                placeholder="Asana, Groq, BrainGraft, TeleLinux"
+                value={app.settings.transcriptionVocabulary}
+                onChange={(event) =>
+                  app.updateSetting('transcriptionVocabulary', event.target.value)
+                }
+              />
+            </label>
+            <p className="help">
+              Optional names and spellings to keep consistent. Left empty is fine.
+            </p>
           </section>
 
           <section className="section">

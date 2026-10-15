@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it, beforeEach } from 'node:test';
 import { defaultPackageLogLevels, LOG_LEVELS_STORAGE_KEY } from './logSettings.ts';
-import { loadSettings, saveLogLevels } from './settings.ts';
+import { loadSettings, saveLogLevels, saveSetting, transcriptionContextFromSettings } from './settings.ts';
 
 function installMemoryStorage() {
   const map = new Map<string, string>();
@@ -48,5 +48,33 @@ describe('settings log level persistence', () => {
     saveLogLevels(next);
     assert.equal(typeof map.get(LOG_LEVELS_STORAGE_KEY), 'string');
     assert.deepEqual(loadSettings().logLevels, next);
+  });
+});
+
+describe('context-aware transcription settings', () => {
+  beforeEach(() => {
+    installMemoryStorage();
+  });
+
+  it('defaults context on and vocabulary empty', () => {
+    const loaded = loadSettings();
+    assert.equal(loaded.contextAwareTranscription, true);
+    assert.equal(loaded.transcriptionVocabulary, '');
+    assert.deepEqual(transcriptionContextFromSettings(loaded), {
+      contextEnabled: true,
+      vocabulary: '',
+    });
+  });
+
+  it('persists the toggle off and a vocabulary line', () => {
+    saveSetting('contextAwareTranscription', false);
+    saveSetting('transcriptionVocabulary', 'Asana, Groq, BrainGraft, TeleLinux');
+    const loaded = loadSettings();
+    assert.equal(loaded.contextAwareTranscription, false);
+    assert.equal(loaded.transcriptionVocabulary, 'Asana, Groq, BrainGraft, TeleLinux');
+    assert.deepEqual(transcriptionContextFromSettings(loaded), {
+      contextEnabled: false,
+      vocabulary: 'Asana, Groq, BrainGraft, TeleLinux',
+    });
   });
 });

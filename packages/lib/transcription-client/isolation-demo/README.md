@@ -9,6 +9,7 @@ Proves that transcription-client:
 - Transcribes audio (fixture mode: mock transcript returned immediately; live mode: real HTTP request to Groq)
 - Handles errors (network failure, rate limit, invalid key, invalid audio format)
 - Supports retry logic (network failure → auto-retry with exponential backoff)
+- Context-aware snip prompts (vocabulary + previous tail, serial Groq calls, poisoning guard)
 
 ## Runtime
 
@@ -24,7 +25,9 @@ Proves that transcription-client:
 
 **Archive step-through:** prefer **snips** when `snips.json` / `snipsWithTranscripts` has assemble-able audio. Each snip is assembled with the shared PWA helper (`assembleSnipTranscriptionBlob`): decode and time-trim to `[startTime, endTime]` (WAV). If decode fails, exclusive-chunk MP3 concat so a mid-cut ~4s boundary chunk is owned by only one snip. Slim zip (chunks only, or `hasSnips: true` without `snips.json`) steps through **chunks**. Next transcribes one unit; Transcribe remaining walks the rest sequentially.
 
-**Archive + mock:** refuse with `Switch to Live Groq API to transcribe this archive`. Never show the fixture sentence as if it were an archive transcript. Live Groq sends each unit on the existing `transcribeAudio(..., { mode: 'live' })` path.
+**Archive + mock:** refuse with `Switch to Live Groq API to transcribe this archive`. Never show the fixture sentence as if it were an archive transcript. Live Groq sends each unit on the existing `transcribeAudio(..., { mode: 'live' })` path, with an optional Whisper `prompt` from the context chain (vocabulary first, then prior-snip tail). Snip N waits for N−1.
+
+**Context chain page:** `context-chain.html` (linked from the main demo chrome). Side-by-side fixture snips with and without context, plus a poisoning-guard run. Mock responses are the safe default; live Groq is optional.
 
 **Safe default**: Fixture mode (no Groq API key required, no network calls, instant mock transcript).
 

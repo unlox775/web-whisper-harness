@@ -14,7 +14,7 @@
  * assembleSnipTranscriptionBlob helper (not overlapping chunk concat).
  */
 
-import { validateKey, transcribeAudio } from '../src/index.js';
+import { validateKey, transcribeAudio, createContextChain } from '../src/index.js';
 import { createFixtureAudioBlob } from '../src/fixture.js';
 import { startCapture, CaptureError } from '@web-whisper/capture-engine';
 import { parseSessionArchive } from '@web-whisper/session-store';
@@ -30,6 +30,7 @@ import {
   loadStoredApiKey,
   persistDemoApiKey,
 } from './apiKeyStore.js';
+import './styles.css';
 import '../../../isolation-demo-shared/compact-mobile.css';
 
 let currentMode = 'fixture';
@@ -73,6 +74,10 @@ const archiveStatus = document.getElementById('archiveStatus');
 const archiveMockWarning = document.getElementById('archiveMockWarning');
 const archiveStepStatus = document.getElementById('archiveStepStatus');
 const audioSourceRadios = document.querySelectorAll('input[name="audioSource"]');
+const contextEnabledToggle = document.getElementById('contextEnabledToggle');
+const vocabInput = document.getElementById('vocabInput');
+
+let archiveChain = null;
 
 function storage() {
   try {
@@ -134,6 +139,8 @@ function setupEventListeners() {
   });
   apiKeyInput.addEventListener('paste', handleApiKeyPaste);
   pasteKeyBtn.addEventListener('click', handlePasteKeyButton);
+  contextEnabledToggle?.addEventListener('change', resetArchiveChain);
+  vocabInput?.addEventListener('input', resetArchiveChain);
 }
 
 function handleApiKeyPaste(event) {
@@ -252,6 +259,7 @@ async function handleArchiveUpload(event) {
   archiveUnits = [];
   archiveUnitKind = 'chunk';
   nextUnitIndex = 0;
+  resetArchiveChain();
   if (!file) {
     resetArchiveStatus();
     updateArchiveWarning();
@@ -407,7 +415,7 @@ function renderTranscript() {
   transcriptOutput.className = 'transcript-output success';
 }
 
-function formatUnitHeader(unit, index, total, assemblyKind) {
+function formatUnitHeader(unit, index, total, assemblyKind, promptInfo) {
   const range =
     Number.isFinite(unit.startTime) && Number.isFinite(unit.endTime)
       ? ` ${Number(unit.startTime).toFixed(1)}–${Number(unit.endTime).toFixed(1)}s`
@@ -418,7 +426,10 @@ function formatUnitHeader(unit, index, total, assemblyKind) {
       : assemblyKind === 'concat-mp3'
         ? ' · exclusive-chunk mp3'
         : '';
-  return `[${index + 1}/${total}] ${unit.label}${range}${kindNote}`;
+  const promptNote = promptInfo?.kind
+    ? ` · prompt ${promptInfo.kind}${promptInfo.guardReason ? `/${promptInfo.guardReason}` : ''}`
+    : '';
+  return `[${index + 1}/${total}] ${unit.label}${range}${kindNote}${promptNote}`;
 }
 
 async function handleValidateKey() {
@@ -469,9 +480,33 @@ function updateValidationStatus(valid, reason = '') {
   }
 }
 
-async function transcribeOneBlob(blob, simulateError) {
+function contextEnabled() {
+  return Boolean(contextEnabledToggle?.checked);
+}
+
+function vocabulary() {
+  return vocabInput?.value.trim() || '';
+}
+
+function resetArchiveChain() {
+  archiveChain = null;
+}
+
+function archiveContextChain() {
+  if (!archiveChain) {
+    archiveChain = createContextChain({
+      enabled: contextEnabled(),
+      vocabulary: vocabulary(),
+    });
+  }
+  return archiveChain;
+}
+
+async function transcribeOneBlob(blob, simulateError, prompt = '') {
   const options = {
     mode: currentMode,
+    prompt,
+    contextEnabled: contextEnabled(),
   };
 
   if (currentMode === 'live') {
@@ -575,8 +610,14 @@ async function transcribeArchiveUnits({ stepOnce }) {
         transcriptOutput.className = 'transcript-output error';
         return;
       }
-      const header = formatUnitHeader(unit, i, archiveUnits.length, assembled.kind);
-      const result = await transcribeOneBlob(assembled.blob, null);
+      const promptInfo = contextEnabled()
+        ? archiveContextChain().promptForNext()
+        : { prompt: '', kind: 'disabled', guardReason: null };
+      const header = formatUnitHeader(unit, i, archiveUnits.length, assembled.kind, promptInfo);
+      const result = await transcribeOneBlob(assembled.blob, null, promptInfo.prompt);
+      if (contextEnabled()) {
+        archiveContextChain().observeResult(result);
+      }
       if (result.error) {
         transcriptLines.push(`${header}\nError: ${result.error}`);
         nextUnitIndex = i;
@@ -613,6 +654,7 @@ function handleReset() {
   archiveUnits = [];
   archiveUnitKind = 'chunk';
   nextUnitIndex = 0;
+  resetArchiveChain();
   archiveFileInput.value = '';
   resetArchiveStatus();
   updateLiveAudioStatus();
