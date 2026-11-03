@@ -17,3 +17,7 @@ The PWA is NOT a producer for other packages. Instead, the PWA is a **customer**
 - `packages/datastore/session-store/customers/web-whisper-pwa.md`
 
 Since no other packages depend on the PWA (dependency flow is PWA → lib packages → session-store), this customers/ folder has no package-to-package customer docs.
+
+## Durability (2026-11-03)
+
+The PWA does **not** coordinate chunk writers with retention; session-store owns its concurrency and capture-engine never drops chunks. Binding rules: `docs/DURABILITY-CONTRACT.md`. Implementing specs: `apps/web-whisper-pwa/docs/specs/20261103175002-*`, `20261103175003-*`.

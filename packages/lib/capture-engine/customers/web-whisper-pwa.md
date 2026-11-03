@@ -486,7 +486,7 @@ Shipped. Persist queue + `flushPending()` / `whenPersistIdle()` are live on this
 
 ### Persist queue must not die silently
 
-If `session-store.writeChunk` fails (including `{ error: 'transaction_conflict' }`), I catch it, emit `captureError('store_write_failed', …)`, retry **once** on transient conflict, then **continue** the persist queue. One failure must not reject the shared promise tail so later chunks never write. I still do not call `enforceRetentionPolicy` (you orchestrate that).
+**Superseded by `docs/DURABILITY-CONTRACT.md`:** I never drop an encoded chunk. Transient store errors: I hold the chunk in a bounded pending buffer (≥ 5 min of audio) and retry with backoff bounded by time (≥ 30 s); later chunks queue in seq order. `store_write_failed` is diagnostic only. If the buffer nears capacity I emit `persist_backpressure`. Only a permanent error ends in `chunk_lost { sessionId, seq, startMs, endMs, reason }` (also persisted via `recordChunkLost`). `flushPending()` resolves `{ savedCount, lostChunks }`. I do not call `enforceRetentionPolicy`. Spec: `docs/specs/20261103175001-feedback-never-drop-encoded-chunks.md`.
 
 ### `flushPending()` / `whenPersistIdle()`
 

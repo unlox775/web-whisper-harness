@@ -388,7 +388,7 @@ Session-store MUST return error objects (NOT throw exceptions). If session-store
 **IndexedDB quota exceeded** (during write operations like `writeChunk`, `writeTranscript`):
 - Session-store returns `{error: 'quota_exceeded', attemptedBytes?: number}`
 - I show error toast "Storage full. Delete old sessions to free space."
-- I may automatically call `enforceRetentionPolicy(capBytes)` and retry write (one retry only, to avoid infinite loop)
+- **Superseded by `docs/DURABILITY-CONTRACT.md`:** on `quota_exceeded` the store has already attempted retention; the error is `class: 'permanent'`. Do not loop; the chunk is reported via `chunk_lost`.
 
 **Null return values**:
 - `getSession(sessionId)` returns `null` if session does not exist → I treat this as "not found" error + navigate back to home
@@ -681,7 +681,9 @@ Default per-package level is `info`. Levels you persist in Settings localStorage
 
 `enforceRetentionPolicy(capBytes)` also **age-prunes** log rows (default 14 days) and may drop oldest logs under cap pressure. `deleteSession` cascades that session’s logs.
 
-**You must not overlap retention with live chunk writers.** Before `enforceRetentionPolicy` during or after recording:
+**Superseded by `docs/DURABILITY-CONTRACT.md`:** you no longer coordinate writers with retention. `enforceRetentionPolicy` is safe to call any time and is cheap under cap; run it after Stop / idle / Settings, not per chunk. Use `getChunkCoverage(sessionId)` for gaps and saved duration. Spec: `docs/specs/20261103175000-feedback-owner-serialized-writes-never-reject.md`.
+
+~~**You must not overlap retention with live chunk writers.** Before `enforceRetentionPolicy` during or after recording:~~
 
 1. `await` capture-engine `flushPending()` / `whenPersistIdle()`
 2. Then call `enforceRetentionPolicy`

@@ -44,8 +44,8 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 ### Storage Management
 
 - `getStorageStats()` → returns `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount}` (`usedBytes` includes log bytes; the existing **1.1 IndexedDB overhead** applies to logs the same way as chunks)
-- `enforceRetentionPolicy(capBytes)` → purges audio (and volume/waveform data) for snips that already have a successful transcript when over/approaching the cap; keeps sessions and transcript text. Oldest fully-transcribed audio first. Untranscribed audio is never deleted. Also **age-prunes log rows** (default 14 days) and may drop oldest logs under cap pressure. **Callers must serialize with writers:** PWA awaits capture-engine `flushPending()` before this call so retention does not overlap `writeChunk` `readwrite` transactions.
-- `writeChunk` may return `{ error: 'transaction_conflict' }` if a long retention `readwrite` aborted the write (structured object, not a throw).
+- `enforceRetentionPolicy(capBytes)` → purges audio (and volume/waveform data) for snips that already have a successful transcript when over/approaching the cap; keeps sessions and transcript text. Oldest fully-transcribed audio first. Untranscribed audio is never deleted. Also **age-prunes log rows** (default 14 days) and may drop oldest logs under cap pressure. Safe to call any time: runs in the store's own serialized queue, in small batches that yield to writes, and exits cheaply under cap (per `docs/DURABILITY-CONTRACT.md`; implementation pending spec 20261103175000).
+- `writeChunk` never fails because of the store's own background work; it waits. Errors carry `class: 'transient' | 'permanent'`. Idempotent by `(sessionId, seq)`. (`transaction_conflict` removed — spec 20261103175000.)
 
 ### Durable per-package logs
 

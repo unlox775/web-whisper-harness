@@ -4,6 +4,37 @@ This document describes the way we build projects with AI assistance: start from
 
 The harness is a collaboration plan. Humans provide the founder vision, make product-boundary choices, and resolve judgment calls. AI agents create planning artifacts, scaffold the selected products, run product-specific planning passes, and later build the pieces.
 
+## Non-Negotiable Rules For Every Spec Writer And Agent
+
+Every phase, every spec, every agent. Also in `AGENTS.md`.
+
+### NON-NEGOTIABLE RULE 1 — Customer-first interfaces
+
+**A package's public interface exists to serve its customers. Make it maximally reliable for them. Never make it convenient for the provider at the customer's expense.**
+
+- **Use the industry-standard patterns.** Owner-serialized single-writer queues; durable outbox / at-least-once delivery with idempotent keys; backpressure instead of dropping; retries with backoff bounded by *time*, not by a count of one; pub/sub / events for state changes; explicit **permanent vs transient** error classes; sequence numbers with gap detection.
+- **The provider's own internal or background work (cleanup, retention, compaction, indexing, logging) must NEVER cause a customer request to be rejected or customer data to be discarded.** Background work yields to customer work.
+- **The provider owns its own concurrency.** Never push coordination onto callers. "Callers must serialize with X" is a provider bug, not a contract.
+- **FORBIDDEN in any spec, contract, or code path that carries durable data:** "reject and let the caller retry once", "retry once then move on", "callers serialize", "drop it and emit an error", "no backlog". If a spec needs one of these, the spec is wrong — redesign the boundary.
+- **Durable data is saved, or held and retried until saved.** Permanent loss happens only on a truly permanent error, and is reported precisely (what, which sequence, which time range). Never silently.
+- **State durability invariants in the contract** (`customers/*.md`, README interface section) and **prove them** with concurrency tests, fault-injection tests, and long-run soak tests across real package boundaries. Isolated unit tests against fakes are not enough.
+- **Spec reviewers: reject any spec that weakens a customer guarantee to simplify the provider.**
+
+Example: an audio store that rejected chunk writes while running its own retention, plus a recorder that "retried once then moved on", silently lost 48 chunks of a 56-minute recording. Never again.
+
+### NON-NEGOTIABLE RULE 2 — Always decompose work: one concern, one spec, one worker, one PR
+
+**The human will routinely say "go fix this bunch of things" about the whole app. It is the AI agent's job — ALWAYS, 100% of the time, without being told — to decompose it.**
+
+1. **Break the request into separate units, one per package / product / concern.** Never assume one combined spec or one combined PR is wanted. It never is.
+2. **Write a separate spec for each unit** in that product's `docs/specs/` (timestamped, `Spec Status: unresolved`). Cross-package tests (integration / soak) get their own spec too.
+3. **Run a separate worker / cloud agent per spec.** One agent, one spec. Never hand several specs to one agent.
+4. **Complete, review, and merge each unit separately**, in dependency order (producers before consumers, final app last).
+5. **Update the customer-relationship documents on BOTH sides every time** — the producer's `customers/<consumer>.md`, README interface sections, and the consumer's expectations — so contracts never drift from behavior.
+6. If a fix truly spans products, write a short shared contract doc first, then the per-product specs that implement it.
+
+**If you catch yourself writing one spec or one PR that touches several packages: stop and split it.**
+
 ## Project Bootstrap Sequence
 
 Every new project should be able to identify which phase it is in.

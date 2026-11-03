@@ -4,6 +4,9 @@ Created: 2026-10-06T18:05:17Z
 Resolved: 2026-10-06T19:15:00Z
 Product: packages/datastore/session-store
 
+
+> **SUPERSEDED (2026-11-03):** §"Serialization with writers" (transaction_conflict / callers serialize) violates `docs/DURABILITY-CONTRACT.md` and `AGENTS.md` Rule 1. Do not implement or cite it. See the 20261103175000-3 specs.
+
 # Feedback: Durable per-package logging
 
 ## User Feedback
