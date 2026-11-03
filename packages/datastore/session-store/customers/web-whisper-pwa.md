@@ -22,9 +22,10 @@ The Web Whisper PWA is the primary customer of session-store. The PWA calls sess
 3. **User taps session card to open detail view**:
    - PWA calls `getSession(sessionId)` → session-store reads session metadata → returns `{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}` or null
    - PWA calls `getChunksForSession(sessionId)` → session-store queries chunks via by-sessionId-seq index ASC → returns chunk list (NO blobs, metadata only)
+   - PWA calls `getChunkCoverage(sessionId)` → `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks }` and shows elapsed vs saved vs gaps
    - PWA calls `getSnipsForSession(sessionId)` → session-store queries snips via by-sessionId index → returns snip list sorted by startTime
    - PWA calls `getTranscriptsForSession(sessionId)` → session-store queries transcripts via by-sessionId index → returns transcript list
-   - PWA displays session detail screen with: playback controls (calls playback-engine, not session-store), snip list, transcript text
+   - PWA displays session detail screen with: playback controls (calls playback-engine, not session-store), snip list, transcript text, chunk-gap summary
 
 4. **User taps "Delete" on session card**:
    - PWA shows confirm dialog ("Delete this recording?")
@@ -110,7 +111,7 @@ Session duration should be in seconds (number, float). PWA will format for displ
 
 **Orchestration flow** (PWA's role):
 
-1. User taps "Start Recording" → PWA calls createSession → PWA calls capture-engine.startCapture(sessionId) → capture-engine writes chunks → user taps "Stop" → capture-engine stops → PWA calls getStorageStats → PWA calls enforceRetentionPolicy if needed
+1. User taps "Start Recording" → PWA calls createSession → PWA calls capture-engine.startCapture(sessionId) → capture-engine writes chunks. The PWA does **not** call `enforceRetentionPolicy` per chunk. After Stop it `await`s `flushPending()` then `enforceRetentionPolicy`. During a live take it retains only if `usedBytes ≥ 90%` of cap (at most once per 60 s). Boot / idle / Settings also retain. Session-store owns writer concurrency — the PWA does not serialize callers.
 2. After recording → PWA calls volume-analyzer.analyzeChunks(sessionId) → volume-analyzer writes volume profile + snips
 3. If Groq key valid → PWA calls volume-analyzer.proposeSnips(sessionId) → PWA calls transcription-client.transcribeSnip(snipAudioBlob) for each snip → PWA calls writeTranscript(snipId, transcriptText) for each transcript
 4. User opens home screen → PWA calls listSessions → displays session cards

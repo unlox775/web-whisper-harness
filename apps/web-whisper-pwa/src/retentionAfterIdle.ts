@@ -7,7 +7,12 @@ export type RetentionPolicyResult = {
   [key: string]: unknown;
 };
 
-export type FlushPendingFn = () => Promise<void>;
+export type FlushPendingResult = {
+  savedCount?: number;
+  lostChunks?: Array<{ seq: number; startMs: number; endMs: number; reason: string }>;
+};
+
+export type FlushPendingFn = () => Promise<FlushPendingResult | void>;
 
 export type EnforceRetentionFn = (capBytes: number) => Promise<RetentionPolicyResult>;
 
@@ -18,10 +23,11 @@ export type RetentionLogFn = (
 ) => unknown;
 
 /**
- * Orchestrator half of persist/retention serialization.
- * Always await persist idle first so `enforceRetentionPolicy` never overlaps
- * a live `writeChunk` / `appendChunk` readwrite. Safe when no capture is active
- * (`flushPending` resolves immediately).
+ * After Stop the PWA awaits `flushPending()` so `{ savedCount, lostChunks }`
+ * is known, then runs retention. session-store owns writer concurrency —
+ * this is not a cross-package lock. `skipFlush` is for the rare near-cap
+ * path during a live take (do not wait on a backed-up persist queue to free
+ * space).
  */
 export async function enforceRetentionAfterPersistIdle(options: {
   capBytes: number;
@@ -29,8 +35,11 @@ export async function enforceRetentionAfterPersistIdle(options: {
   enforceRetentionPolicy: EnforceRetentionFn;
   log?: RetentionLogFn | null;
   sessionId?: string | null;
+  skipFlush?: boolean;
 }): Promise<RetentionPolicyResult> {
-  await options.flushPending();
+  if (!options.skipFlush) {
+    await options.flushPending();
+  }
   const result = await options.enforceRetentionPolicy(options.capBytes);
   if (typeof options.log === 'function' && !result?.error) {
     options.log('web-whisper-pwa', 'info', () => ({

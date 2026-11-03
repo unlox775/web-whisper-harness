@@ -72,7 +72,7 @@ export function RecordingScreen() {
           apiKey: canTranscribe ? apiKey : undefined,
           includeTrailing: false,
           transcribe: canTranscribe,
-          onTranscriptWritten: () => app.enforceCap({ force: true }),
+          onTranscriptWritten: () => app.enforceCap({ opportunity: 'recording' }),
           ...transcriptionContextFromSettings(app.settings),
         });
         applyDurableState(result.snips, result.transcripts, result.failures);
@@ -110,7 +110,7 @@ export function RecordingScreen() {
         apiKey: app.settings.groqApiKey,
         includeTrailing: false,
         transcribe: true,
-        onTranscriptWritten: () => app.enforceCap({ force: true }),
+        onTranscriptWritten: () => app.enforceCap({ opportunity: 'recording' }),
         ...transcriptionContextFromSettings(app.settings),
       });
       applyDurableState(result.snips, result.transcripts, result.failures);
@@ -151,6 +151,11 @@ export function RecordingScreen() {
         <div className="duration">{formatDuration(seconds)}</div>
         {showDeveloperHud ? (
           <p className="tiny rec-dev-line">{snipsGathered} snips gathered</p>
+        ) : null}
+        {app.savingBehind ? (
+          <p className="tiny rec-saving-behind" role="status" data-testid="saving-behind">
+            Saving is behind
+          </p>
         ) : null}
       </div>
 

@@ -12,11 +12,23 @@ import type { ChunkRecord, SessionRecord, SnipRecord, TranscriptRecord } from '.
 import { VolumeHistogram } from '../components/VolumeHistogram';
 import { buildTranscriptText, previewSnipTranscriptText } from '../transcriptText';
 import {
+  elapsedSecondsForCoverage,
+  formatCoverageSummary,
+  formatGapRangeList,
+  gapRanges,
+  hasChunkGaps,
+  isChunkCoverage,
+  sessionGapNote,
+  type ChunkCoverage,
+} from '../chunkCoverage';
+import {
+  isSessionChunkGapsScreenshot,
   isSessionDebugExportScreenshot,
   isSessionPartialCoverageScreenshot,
   isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
   readScreenshotMode,
+  sessionChunkGapsPreview,
   sessionPartialCoveragePreview,
   sessionTranscribedPreview,
 } from '../screenshotMode';
@@ -73,13 +85,15 @@ export function SessionDetailScreen() {
   const app = useApp();
   const screenshotMode = readScreenshotMode();
   const screenshotPreview =
-    isSessionPartialCoverageScreenshot(screenshotMode)
-      ? sessionPartialCoveragePreview()
-      : isSessionTranscribedScreenshot(screenshotMode) ||
-          isSessionSnipsScreenshot(screenshotMode) ||
-          isSessionDebugExportScreenshot(screenshotMode)
-        ? sessionTranscribedPreview()
-        : null;
+    isSessionChunkGapsScreenshot(screenshotMode)
+      ? sessionChunkGapsPreview()
+      : isSessionPartialCoverageScreenshot(screenshotMode)
+        ? sessionPartialCoveragePreview()
+        : isSessionTranscribedScreenshot(screenshotMode) ||
+            isSessionSnipsScreenshot(screenshotMode) ||
+            isSessionDebugExportScreenshot(screenshotMode)
+          ? sessionTranscribedPreview()
+          : null;
   const sessionId = screenshotPreview?.session.id ?? app.sessionId!;
   const [session, setSession] = useState<SessionRecord | null>(screenshotPreview?.session ?? null);
   const [chunks, setChunks] = useState<ChunkRecord[]>(
@@ -102,6 +116,11 @@ export function SessionDetailScreen() {
     screenshotPreview?.transcripts ?? []
   );
   const [volumeProfile, setVolumeProfile] = useState<any>(null);
+  const [chunkCoverage, setChunkCoverage] = useState<ChunkCoverage | null>(
+    screenshotPreview && 'chunkCoverage' in screenshotPreview
+      ? screenshotPreview.chunkCoverage
+      : null
+  );
   const demoPlayhead = readPlayheadQuery();
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(demoPlayhead ?? 0);
@@ -143,6 +162,8 @@ export function SessionDetailScreen() {
     const transcriptList = await sessionStore.getTranscriptsForSession(sessionId);
     setTranscripts((transcriptList.transcripts || []) as TranscriptRecord[]);
     setVolumeProfile(await sessionStore.getVolumeProfile(sessionId));
+    const coverage = await sessionStore.getChunkCoverage(sessionId);
+    setChunkCoverage(isChunkCoverage(coverage) ? coverage : null);
   }
 
   useEffect(() => {
@@ -478,6 +499,16 @@ export function SessionDetailScreen() {
   const txBadge = coverageBadge(coverage.status);
   const showRetryTx =
     keyReady && !transcribing && (snips.length > 0 || coverage.hasUncoveredTail);
+  const extras = coverageExtrasForSession(session.id);
+  const elapsedSeconds = elapsedSecondsForCoverage(session.duration, extras.recorderDurationMs);
+  const gapSummary =
+    chunkCoverage && hasChunkGaps(chunkCoverage)
+      ? formatCoverageSummary(chunkCoverage, elapsedSeconds)
+      : sessionGapNote(chunkCoverage, elapsedSeconds);
+  const gapRangeText =
+    chunkCoverage && hasChunkGaps(chunkCoverage)
+      ? formatGapRangeList(gapRanges(chunkCoverage, chunks))
+      : '';
 
   return (
     <>
@@ -520,6 +551,14 @@ export function SessionDetailScreen() {
             {formatCapturedRange(session.createdAt, session.duration)}
             {totalSize > 0 ? ` · ${formatBytes(totalSize)}` : ''}
           </p>
+          {gapSummary ? (
+            <div className="session-chunk-gaps" data-testid="chunk-gap-summary">
+              <p className="session-chunk-gaps-summary">{gapSummary}</p>
+              {gapRangeText ? (
+                <p className="session-chunk-gaps-ranges">Missing audio: {gapRangeText}</p>
+              ) : null}
+            </div>
+          ) : null}
 
           {hasAudio ? (
             <div className="session-detail-playback">

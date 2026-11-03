@@ -55,6 +55,7 @@ describe('sessionTilePreview', () => {
     assert.equal(preview.transcriptCount, 1);
     assert.equal(preview.snippet, 'Okay so the first thing is the grocery list.');
     assert.equal(preview.coverageNote, null);
+    assert.equal(preview.chunkGapNote, null);
   });
 
   it('refreshes to READY with concatenated text once remaining snips complete and the tail is covered', () => {
@@ -73,6 +74,7 @@ describe('sessionTilePreview', () => {
       'Okay so the first thing is the grocery list. We need milk, eggs, and sourdough.'
     );
     assert.equal(preview.coverageNote, null);
+    assert.equal(preview.chunkGapNote, null);
   });
 
   it('stays PART TX when every snip has text but audio remains past the last snip', () => {
@@ -90,6 +92,7 @@ describe('sessionTilePreview', () => {
       preview.coverageNote,
       'Transcription is incomplete. More audio exists beyond 0:45.'
     );
+    assert.equal(preview.chunkGapNote, null);
   });
 
   it('computeSessionBadge stays null until at least one transcript exists when the tail is covered', () => {

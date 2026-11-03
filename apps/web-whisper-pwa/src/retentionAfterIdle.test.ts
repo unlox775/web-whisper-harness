@@ -139,3 +139,23 @@ describe('createRetentionGate', () => {
     assert.deepEqual(events, ['first-start', 'first-end', 'second']);
   });
 });
+
+describe('skipFlush near-cap path', () => {
+  it('runs retention without waiting on flushPending', async () => {
+    let flushed = false;
+    let retained = false;
+    await enforceRetentionAfterPersistIdle({
+      capBytes: 1,
+      skipFlush: true,
+      flushPending: async () => {
+        flushed = true;
+      },
+      enforceRetentionPolicy: async () => {
+        retained = true;
+        return { deletedSessions: 0, reclaimedBytes: 0 };
+      },
+    });
+    assert.equal(flushed, false);
+    assert.equal(retained, true);
+  });
+});

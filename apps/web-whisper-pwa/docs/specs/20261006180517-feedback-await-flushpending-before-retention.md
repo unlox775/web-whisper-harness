@@ -9,6 +9,8 @@ Product: apps/web-whisper-pwa
 
 # Feedback: Await flushPending before retention
 
+**Superseded by** `20261103175002-feedback-no-retention-while-recording-and-gap-display.md` and `docs/DURABILITY-CONTRACT.md`. The PWA no longer retains after every chunk and no longer coordinates writers with retention.
+
 ## User Feedback
 
 Same ~47 minute incident as the capture-engine persist-queue spec: retention ran (or was triggered) while capture was still persisting chunks. A long session-store `readwrite` for `enforceRetentionPolicy` contended with `writeChunk` / `appendChunk`. Combined with an unhandled persist promise, **chunk writes stopped** while capture looked live — so volume / snips / transcripts froze.

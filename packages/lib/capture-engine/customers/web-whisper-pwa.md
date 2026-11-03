@@ -142,18 +142,23 @@ I also subscribe to:
 - `chunk_lost { sessionId, seq, startMs, endMs, reason }` → the only loss signal
 - `persist_backpressure { pendingCount, oldestSeq }` → pending buffer nearing capacity; I may warn. Chunks are still held.
 
-Subscribe pattern:
+Subscribe pattern (shipped PWA):
 ```javascript
 handle.on('captureError', (data) => {
   if (data.reason === 'no_audio_received') {
-    showMessage('Recording completed without playable audio');
-    navigateToSessionDetail(data.sessionId, {playbackDisabled: true});
+    showNoAudioAlert(); // do not stop
   } else if (data.reason === 'store_write_failed') {
-    showErrorBanner('Storage write failed. Recording may be incomplete.');
-  } else {
-    showErrorToast(`Capture error: ${data.reason}`);
+    logOnly(data); // transient diagnostic — no "Storage write failed" banner
+  } else if (data.reason === 'encoding_failed') {
+    showErrorToast(`Recording failed: ${data.details || data.reason}`);
     stopRecording();
   }
+});
+handle.on('chunk_lost', (data) => {
+  showErrorBanner('Storage write failed. Recording may be incomplete.');
+});
+handle.on('persist_backpressure', () => {
+  showNotice('Saving is behind');
 });
 ```
 
@@ -346,19 +351,23 @@ Reason codes I will emit:
 
 I also emit `chunk_lost { sessionId, seq, startMs, endMs, reason }` (only loss signal) and `persist_backpressure { pendingCount, oldestSeq }`.
 
-How you handle:
+How you handle (shipped PWA):
 ```javascript
 handle.on('captureError', (data) => {
   if (data.reason === 'no_audio_received') {
-    // Auto-stopped by watchdog, hasAudio=false
-    showMessage('Recording completed without playable audio');
+    showNoAudioAlert(); // keep recording
   } else if (data.reason === 'store_write_failed') {
-    showErrorBanner('Storage write failed. Recording may be incomplete.');
-    // Let user decide whether to stop or continue
+    logOnly(data); // no loss banner
   } else {
     showErrorToast(`Capture error: ${data.reason}`);
-    stopRecording(); // Call handle.stop()
+    stopRecording();
   }
+});
+handle.on('chunk_lost', () => {
+  showErrorBanner('Storage write failed. Recording may be incomplete.');
+});
+handle.on('persist_backpressure', () => {
+  showNotice('Saving is behind');
 });
 ```
 
@@ -523,3 +532,7 @@ See `docs/DURABILITY-CONTRACT.md` and `docs/specs/20261103175001-feedback-never-
 ### Structured logs
 
 I emit structured logs via session-store (`packageId: 'capture-engine'`, lazy `() => ({ message, details })`). You call `configureLogger` with levels + `activeSessionId` for the take. I may pass `{ sessionId }` on `log()`. I do not own log storage.
+
+### PWA shipped handling (2026-11-03)
+
+The PWA no longer treats `store_write_failed` as user-visible loss. It logs that event, shows "Storage write failed. Recording may be incomplete." only for `chunk_lost`, and shows "Saving is behind" for `persist_backpressure`. After Stop it `await`s `flushPending()` → `{ savedCount, lostChunks }` before `enforceRetentionPolicy`. It does not call `enforceRetentionPolicy` on every `chunkEncoded`.

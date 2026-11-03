@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-03T17:50:00Z
 Product: apps/web-whisper-pwa
@@ -42,3 +42,29 @@ The planning PR already rewrote the superseded contract lines to the new behavio
 ## Out of scope
 
 Store and engine internals; soak harness (separate spec).
+
+## Resolution
+
+**Resolved:** 2026-11-03T18:25:00Z on branch `cursor/pwa-no-retention-gap-display-a48a`.
+
+### What shipped
+
+1. **No retention during recording** unless `getStorageStats().usedBytes ≥ 90%` of the cap, and then at most once per 60 s (`src/retentionPolicy.ts`). `chunkEncoded` no longer calls `enforceCap` unconditionally. After Stop the PWA `await`s capture-engine `flushPending()` → `{ savedCount, lostChunks }`, then `enforceRetentionPolicy`. Boot / idle / Settings still retain. Near-cap-during-take skips `flushPending` so a backed-up persist queue cannot block freeing space.
+2. **Session detail / home tiles** call `getChunkCoverage(sessionId)` and show `MM:SS elapsed · MM:SS saved · N gaps` plus collapsed gap time ranges (`src/chunkCoverage.ts`). Fixture: `?screenshot=session-chunk-gaps`.
+3. A session with missing seqs may still show READY for transcription, but the gap line is mandatory — never READY-without-gap.
+4. **Banners:** `store_write_failed` → logs only. `chunk_lost` → `Storage write failed. Recording may be incomplete.` `persist_backpressure` → `Saving is behind`.
+5. Customer docs updated on both sides: `apps/web-whisper-pwa/customers/README.md`, `apps/web-whisper-pwa/README.md`, `packages/datastore/session-store/customers/web-whisper-pwa.md`, `packages/lib/capture-engine/customers/web-whisper-pwa.md`.
+
+### Tests
+
+- 100-chunk under cap → 0 retention during recording, 1 after Stop
+- ≥ 90% cap → at most once per 60 s
+- Missing middle seq → `0:04–0:08`; READY + gap line
+- `store_write_failed` alone → no banner; `chunk_lost` → banner
+- `npm test` in `apps/web-whisper-pwa`: 125 pass
+
+### Proof shots (iPhone 12 Pro, 390×844 CSS → 1170×2532)
+
+- `documentation/qa/session-chunk-gaps-iphone.png`
+- `documentation/qa/session-chunk-gaps-iphone-detail.png`
+- Notes: `documentation/qa/session-chunk-gaps.md`

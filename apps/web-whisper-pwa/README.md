@@ -37,4 +37,6 @@ Orchestration contracts:
 - Advanced Settings: per-package log levels (`debug` / `info` / `warn` / `error` / `off`) and approximate log byte sizes; `configureLogger` + `activeSessionId` for the active take
 - Debug **Export Session** (debug-include path): `exportSessionArchive` with `includeDebugArtifacts` (session-store also turns on `includeLogs` → `logs.json`) — do not invent a second zip
 - Transcription coverage: last snip end vs session/recorder duration; **PART TX / `partial`** when uncovered audio remains (do not claim READY / “all snips transcribed”)
-- Before `enforceRetentionPolicy` during or after recording: `await` capture-engine `flushPending()` / `whenPersistIdle()`
+- Retention is **not** coordinated with live writers (session-store owns concurrency). The PWA does not call `enforceRetentionPolicy` during recording unless `usedBytes ≥ 90%` of the cap (at most once per 60 s). After Stop it `await`s capture-engine `flushPending()` → `{ savedCount, lostChunks }`, then retains. Boot / idle / Settings also retain.
+- Session detail calls `getChunkCoverage(sessionId)` and shows elapsed vs saved duration and gap time ranges. Missing seqs are never hidden behind READY.
+- Persist UI: `store_write_failed` → logs only; `chunk_lost` → "Storage write failed"; `persist_backpressure` → "Saving is behind".
