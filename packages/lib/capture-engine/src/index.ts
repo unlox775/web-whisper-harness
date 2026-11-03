@@ -15,4 +15,8 @@ export type {
   AudioStalledEvent,
   AudioResumedEvent,
   StoreWriteFailedDetails,
+  LostChunk,
+  FlushPendingResult,
+  ChunkLostEvent,
+  PersistBackpressureEvent,
 } from './types';

@@ -24,10 +24,10 @@ export interface CaptureHandle {
    * stall monitor can fire without a real mic ghost. Does not call stop().
    */
   setPcmPaused: (paused: boolean) => void;
-  /** Resolves when every started writeChunk has settled. Safe when idle. */
-  flushPending: () => Promise<void>;
+  /** Resolves when every pending chunk is saved or declared lost. Safe when idle. */
+  flushPending: () => Promise<FlushPendingResult>;
   /** Alias of flushPending. */
-  whenPersistIdle: () => Promise<void>;
+  whenPersistIdle: () => Promise<FlushPendingResult>;
 }
 
 export interface CaptureStatus {
@@ -60,10 +60,36 @@ export interface ChunkEncodedEvent {
   blob?: Blob;
 }
 
+export interface LostChunk {
+  seq: number;
+  startMs: number;
+  endMs: number;
+  reason: string;
+}
+
+export interface FlushPendingResult {
+  savedCount: number;
+  lostChunks: LostChunk[];
+}
+
 export interface StoreWriteFailedDetails {
   error?: string;
+  class?: 'transient' | 'permanent';
   retried?: boolean;
   [key: string]: unknown;
+}
+
+export interface ChunkLostEvent {
+  sessionId: string;
+  seq: number;
+  startMs: number;
+  endMs: number;
+  reason: string;
+}
+
+export interface PersistBackpressureEvent {
+  pendingCount: number;
+  oldestSeq: number;
 }
 
 export interface CaptureErrorEvent {

@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-03T17:50:00Z
 Product: packages/lib/capture-engine
@@ -41,3 +41,42 @@ The planning PR already rewrote the superseded contract lines to the new behavio
 ## Out of scope
 
 Store internals; PWA UI.
+
+## Resolution Criteria
+
+Mark this spec resolved when:
+
+- [x] Bounded pending buffer holds encoded chunks (≥ 75 / 5 min); writes drain in seq order
+- [x] Transient errors retry with exponential backoff (250 ms → 4 s cap) for ≥ 30 s, and keep retrying while the session is live
+- [x] `persist_backpressure { pendingCount, oldestSeq }` emitted when the buffer nears capacity; transient-failing chunks are never dropped
+- [x] Permanent errors emit `chunk_lost { sessionId, seq, startMs, endMs, reason }` and call `sessionStore.recordChunkLost`
+- [x] `flushPending()` / `whenPersistIdle()` resolve `{ savedCount, lostChunks }` after every pending chunk is saved or declared lost
+- [x] `store_write_failed` is diagnostic only, not a loss signal
+- [x] Customer docs + README match the shipped API
+- [x] Spec tests pass: 3 s transient rejects with 4 s arrivals; 40 s transient on one chunk; permanent seq 5; `flushPending` lostChunks.length === 1
+
+## Resolution
+
+Shipped in capture-engine only (`packages/lib/capture-engine`). Builds against session-store's owner-serialized contract (`writeChunk` waits; errors classed `permanent` vs `transient` `store_busy`; `recordChunkLost`). No session-store or PWA changes.
+
+### Persist buffer
+
+- Encoded chunks stay in an ordered in-memory pending buffer sized for ≥ 75 chunks (5 min at 4 s). Drain is owner-serialized and seq-ordered; later chunks queue and are never skipped.
+- Transient `{ error, class: 'transient' }` (including `store_busy` and thrown IndexedDB errors) retry with backoff 250 ms → 4 s cap. Minimum retry window 30 s per chunk; while the session is live, retries continue past that window.
+- Near-capacity enqueue emits `persist_backpressure { pendingCount, oldestSeq }`. Chunks are still held.
+
+### Loss path
+
+- Permanent store errors (`session_not_found`, `quota_exceeded`, `database_unavailable`, or `class: 'permanent'`) or retry-window exhaustion after stop → emit `chunk_lost { sessionId, seq, startMs, endMs, reason }` and `sessionStore.recordChunkLost`. That is the only way a chunk is not saved.
+- `store_write_failed` is not emitted as a loss signal.
+
+### flushPending / whenPersistIdle
+
+- Same function under two names, on the handle and as module exports.
+- Resolves `{ savedCount, lostChunks: [{ seq, startMs, endMs, reason }] }` after every pending chunk is saved or declared lost.
+- Idle / not capturing: `{ savedCount: 0, lostChunks: [] }`.
+- `handle.stop()` still awaits persist idle before returning `chunksWritten`.
+
+### Tests
+
+Package `npm test`: previous stall/watchdog cases plus never-drop cases (3 s transient reject while chunks arrive every 4 s, 40 s transient on one chunk, permanent seq 5 → `chunk_lost` + `recordChunkLost`, `flushPending` `lostChunks.length === 1`).

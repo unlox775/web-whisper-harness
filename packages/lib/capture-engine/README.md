@@ -23,19 +23,21 @@ Microphone-to-durable-chunk pipeline. Acquires mic, captures PCM, encodes MP3 ch
   - Caller: PWA stop-recording flow
   - Store changed: session-store (flushes final chunk < 4s, marks session complete)
 
-- Events emitted: `chunkEncoded(sessionId, chunkId, duration)`, `captureError(sessionId, reason)`
+- Events emitted: `chunkEncoded(sessionId, chunkId, duration)`, `captureError(sessionId, reason)`, `chunk_lost { sessionId, seq, startMs, endMs, reason }`, `persist_backpressure { pendingCount, oldestSeq }`
 
-- `flushPending()` / `whenPersistIdle()` → `Promise<void>`
+- `flushPending()` / `whenPersistIdle()` → `Promise<{ savedCount, lostChunks }>`
   - Same function under two names; exported from the package and on the capture handle
-  - Resolves when the persist queue is empty (every started `writeChunk` settled)
+  - Resolves when every pending encoded chunk is **saved** or **declared lost** (not merely when a write attempt settled)
   - Caller: PWA **must** await this before `session-store.enforceRetentionPolicy` during or after recording
-  - Safe when not capturing (resolves immediately). `stop()` waits for persist idle before returning `chunksWritten`
-  - Persist queue: catch per-job failures, **never drops a chunk**: transient errors held + retried with time-bounded backoff; only permanent errors emit `chunk_lost` (spec 20261103175001)
-  - `captureError('store_write_failed')` details are the store `{ error }` object (plus `retried: true` after a conflict retry fails)
+  - Safe when not capturing (resolves `{ savedCount: 0, lostChunks: [] }`). `stop()` waits for persist idle before returning `chunksWritten`
+  - Persist queue: bounded pending buffer (≥ 75 chunks / 5 min). Transient store errors (`class: 'transient'`, `store_busy`) are held and retried with exponential backoff (250 ms → 4 s cap) for at least 30 s, and keep retrying while the session is live. Writes drain in seq order; later chunks are never skipped.
+  - `chunk_lost` is the only loss signal (permanent store error or retry window exhausted after stop). Also persisted via `sessionStore.recordChunkLost`.
+  - `persist_backpressure` fires when the pending buffer nears capacity; chunks are still not dropped.
+  - `store_write_failed` is a transient diagnostic only, not a loss signal.
 
 - Structured logs: emit via `session-store.log('capture-engine', level, () => payload)` (lazy; session-store owns storage)
 
-See `docs/specs/20261006180517-feedback-resilient-persist-queue-and-flushpending.md`.
+See `docs/specs/20261103175001-feedback-never-drop-encoded-chunks.md` (supersedes the single-retry / no-backlog lines of `20261006180517-feedback-resilient-persist-queue-and-flushpending.md`).
 
 ## Isolation Demo
 

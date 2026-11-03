@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import { afterEach, before, describe, it } from 'node:test';
-import type { CaptureHandle, CaptureErrorEvent, AudioStalledEvent, AudioResumedEvent } from './types.js';
-import type { StoreWriteFailedDetails } from './types.js';
+import { afterEach, before, describe, it, type TestContext } from 'node:test';
+import type {
+  CaptureHandle,
+  CaptureErrorEvent,
+  AudioStalledEvent,
+  AudioResumedEvent,
+  ChunkLostEvent,
+  FlushPendingResult,
+} from './types.js';
 
 class FakeAudioNode {
   connect(): void {}
@@ -123,6 +129,10 @@ before(async () => {
 });
 
 afterEach(async () => {
+  setSessionStoreForTests({
+    writeChunk: async (_sessionId, chunk) => ({ chunkId: `teardown-${chunk.seq}` }),
+    recordChunkLost: async () => ({ recorded: true }),
+  });
   const handles = activeHandles.splice(0);
   await Promise.all(handles.map((handle) => handle.stop().catch(() => undefined)));
   setSessionStoreForTests(null);
@@ -257,42 +267,91 @@ async function startPersistCapture(): Promise<CaptureHandle> {
   return handle;
 }
 
-function storeError(event: CaptureErrorEvent): string | undefined {
-  if (typeof event.details === 'string') return event.details;
-  return event.details?.error;
+async function flushMicrotasks(times = 10): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await Promise.resolve();
+  }
+}
+
+async function advanceFakeTime(t: TestContext, ms: number): Promise<void> {
+  const step = 50;
+  let advanced = 0;
+  while (advanced < ms) {
+    const n = Math.min(step, ms - advanced);
+    t.mock.timers.tick(n);
+    advanced += n;
+    await flushMicrotasks();
+  }
+}
+
+async function settleWithFakeTime<T>(
+  t: TestContext,
+  promise: Promise<T>,
+  maxMs = 60_000
+): Promise<T> {
+  let settled = false;
+  let value: T | undefined;
+  let error: unknown;
+  const tracked = promise.then(
+    (next) => {
+      settled = true;
+      value = next;
+    },
+    (err) => {
+      settled = true;
+      error = err;
+    }
+  );
+  let elapsed = 0;
+  while (!settled && elapsed < maxMs) {
+    t.mock.timers.tick(250);
+    elapsed += 250;
+    await flushMicrotasks();
+  }
+  if (!settled) {
+    throw new Error(`promise did not settle after ${maxMs}ms of fake time`);
+  }
+  if (error) throw error;
+  await tracked;
+  return value as T;
 }
 
 describe('resilient persist queue', () => {
-  it('keeps persisting after one failed writeChunk', async () => {
+  it('holds a permanent first-write loss and still persists later seqs', async () => {
     const persisted: number[] = [];
-    let writeCalls = 0;
+    const lostRecords: Array<{ seq: number }> = [];
     setSessionStoreForTests({
       writeChunk: async (_sessionId, chunk) => {
-        writeCalls += 1;
-        if (writeCalls === 1) {
-          return { error: 'quota_exceeded' };
+        if (chunk.seq === 0) {
+          return { error: 'quota_exceeded', class: 'permanent' };
         }
         persisted.push(chunk.seq);
         return { chunkId: `chunk-${chunk.seq}` };
       },
+      recordChunkLost: async (_sessionId, loss) => {
+        lostRecords.push({ seq: loss.seq });
+        return { recorded: true };
+      },
     });
 
     const handle = await startPersistCapture();
-    const errors: CaptureErrorEvent[] = [];
-    handle.on('captureError', (event) => errors.push(event));
+    const lost: ChunkLostEvent[] = [];
+    handle.on('chunk_lost', (event) => lost.push(event));
 
     pushPcm(1024);
     pushPcm(1024);
-    await handle.flushPending();
+    const result = await handle.flushPending();
 
-    assert.equal(writeCalls >= 2, true, 'second writeChunk must still run');
     assert.deepEqual(persisted, [1]);
-    assert.equal(errors.length, 1);
-    assert.equal(errors[0].reason, 'store_write_failed');
-    assert.equal(storeError(errors[0]), 'quota_exceeded');
+    assert.equal(lost.length, 1);
+    assert.equal(lost[0].seq, 0);
+    assert.equal(lost[0].reason, 'quota_exceeded');
+    assert.deepEqual(lostRecords, [{ seq: 0 }]);
+    assert.equal(result.savedCount, 1);
+    assert.equal(result.lostChunks.length, 1);
   });
 
-  it('continues the queue when writeChunk throws (rejected-chain hypothesis)', async () => {
+  it('retries a thrown writeChunk until it succeeds (no skip)', async () => {
     const persisted: number[] = [];
     let writeCalls = 0;
     setSessionStoreForTests({
@@ -307,27 +366,26 @@ describe('resilient persist queue', () => {
     });
 
     const handle = await startPersistCapture();
-    const errors: CaptureErrorEvent[] = [];
-    handle.on('captureError', (event) => errors.push(event));
+    const lost: ChunkLostEvent[] = [];
+    handle.on('chunk_lost', (event) => lost.push(event));
 
     pushPcm(1024);
     pushPcm(1024);
     await flushPending();
 
     assert.equal(writeCalls >= 2, true);
-    assert.deepEqual(persisted, [1]);
-    assert.equal(errors[0]?.reason, 'store_write_failed');
-    assert.equal(storeError(errors[0]), 'indexeddb died');
+    assert.deepEqual(persisted, [0, 1]);
+    assert.equal(lost.length, 0);
   });
 
-  it('retries transaction_conflict once then persists', async () => {
+  it('retries store_busy until the write succeeds', async () => {
     let writeCalls = 0;
     const persisted: number[] = [];
     setSessionStoreForTests({
       writeChunk: async (_sessionId, chunk) => {
         writeCalls += 1;
         if (writeCalls === 1) {
-          return { error: 'transaction_conflict', sessionId: 'x' };
+          return { error: 'store_busy', class: 'transient' };
         }
         persisted.push(chunk.seq);
         return { chunkId: `chunk-${chunk.seq}` };
@@ -342,43 +400,19 @@ describe('resilient persist queue', () => {
     await handle.whenPersistIdle();
 
     assert.equal(persisted[0], 0);
-    assert.equal(writeCalls, 2, 'conflict must retry once');
-    assert.equal(errors.length, 0, 'successful retry must not emit store_write_failed');
-  });
-
-  it('emits retried store_write_failed after a second conflict and continues', async () => {
-    let writeCalls = 0;
-    const persisted: number[] = [];
-    setSessionStoreForTests({
-      writeChunk: async (_sessionId, chunk) => {
-        writeCalls += 1;
-        if (chunk.seq === 0) {
-          return { error: 'transaction_conflict' };
-        }
-        persisted.push(chunk.seq);
-        return { chunkId: `chunk-${chunk.seq}` };
-      },
-    });
-
-    const handle = await startPersistCapture();
-    const errors: CaptureErrorEvent[] = [];
-    handle.on('captureError', (event) => errors.push(event));
-
-    pushPcm(1024);
-    pushPcm(1024);
-    await handle.flushPending();
-
-    assert.equal(writeCalls >= 3, true, 'seq 0 retries once (2 calls) then seq 1 writes');
-    assert.deepEqual(persisted, [1]);
-    assert.equal(errors.length, 1);
-    assert.equal(errors[0].reason, 'store_write_failed');
-    assert.equal(storeError(errors[0]), 'transaction_conflict');
-    assert.equal((errors[0].details as StoreWriteFailedDetails).retried, true);
+    assert.equal(writeCalls >= 2, true);
+    assert.equal(
+      errors.filter((event) => event.reason === 'store_write_failed').length,
+      0,
+      'successful retry must not emit store_write_failed as a loss signal'
+    );
   });
 
   it('flushPending / whenPersistIdle resolve immediately when not capturing', async () => {
-    await flushPending();
-    await whenPersistIdle();
+    const flushed = await flushPending();
+    const idle = await whenPersistIdle();
+    assert.deepEqual(flushed, { savedCount: 0, lostChunks: [] });
+    assert.deepEqual(idle, { savedCount: 0, lostChunks: [] });
   });
 
   it('stop waits for persist idle before returning', async () => {
@@ -403,5 +437,149 @@ describe('resilient persist queue', () => {
     release();
     await stopping;
     assert.equal(writesFinished >= 1, true);
+  });
+});
+
+describe('never-drop encoded chunks', () => {
+  it('stores every seq in order after 3s of transient rejects while chunks arrive every 4s', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 1_000_000 });
+    const started = Date.now();
+    const persisted: number[] = [];
+    setSessionStoreForTests({
+      writeChunk: async (_sessionId, chunk) => {
+        if (Date.now() - started < 3_000) {
+          return { error: 'store_busy', class: 'transient' };
+        }
+        persisted.push(chunk.seq);
+        return { chunkId: `chunk-${chunk.seq}` };
+      },
+    });
+
+    const handle = await startPersistCapture();
+    const lost: ChunkLostEvent[] = [];
+    const errors: CaptureErrorEvent[] = [];
+    handle.on('chunk_lost', (event) => lost.push(event));
+    handle.on('captureError', (event) => errors.push(event));
+
+    pushPcm(1024);
+    await flushMicrotasks();
+    await advanceFakeTime(t, 4_000);
+    pushPcm(1024);
+    await flushMicrotasks();
+    await advanceFakeTime(t, 4_000);
+    pushPcm(1024);
+    await flushMicrotasks();
+
+    const result = await settleWithFakeTime(t, handle.flushPending());
+    assert.deepEqual(persisted, [0, 1, 2]);
+    assert.equal(lost.length, 0);
+    assert.equal(
+      errors.filter((event) => event.reason === 'store_write_failed').length,
+      0
+    );
+    assert.equal(result.savedCount, 3);
+    assert.equal(result.lostChunks.length, 0);
+    await settleWithFakeTime(t, handle.stop());
+  });
+
+  it('saves a chunk after 40s of transient rejects and does not skip later seqs', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 2_000_000 });
+    const started = Date.now();
+    const persisted: number[] = [];
+    setSessionStoreForTests({
+      writeChunk: async (_sessionId, chunk) => {
+        if (chunk.seq === 0 && Date.now() - started < 40_000) {
+          return { error: 'store_busy', class: 'transient' };
+        }
+        persisted.push(chunk.seq);
+        return { chunkId: `chunk-${chunk.seq}` };
+      },
+    });
+
+    const handle = await startPersistCapture();
+    const lost: ChunkLostEvent[] = [];
+    handle.on('chunk_lost', (event) => lost.push(event));
+
+    pushPcm(1024);
+    await flushMicrotasks();
+    await advanceFakeTime(t, 4_000);
+    pushPcm(1024);
+    await flushMicrotasks();
+    await advanceFakeTime(t, 4_000);
+    pushPcm(1024);
+    await flushMicrotasks();
+
+    const result = await settleWithFakeTime(t, handle.flushPending(), 80_000);
+    assert.deepEqual(persisted, [0, 1, 2]);
+    assert.equal(lost.length, 0);
+    assert.equal(result.savedCount, 3);
+    await settleWithFakeTime(t, handle.stop());
+  });
+
+  it('emits chunk_lost for a permanent error on seq 5 and continues later seqs', async () => {
+    const persisted: number[] = [];
+    const times = new Map<number, { startTime: number; endTime: number }>();
+    const recorded: Array<{ seq: number; startMs: number; endMs: number; reason: string }> = [];
+    setSessionStoreForTests({
+      writeChunk: async (_sessionId, chunk) => {
+        times.set(chunk.seq, { startTime: chunk.startTime, endTime: chunk.endTime });
+        if (chunk.seq === 5) {
+          return { error: 'quota_exceeded', class: 'permanent' };
+        }
+        persisted.push(chunk.seq);
+        return { chunkId: `chunk-${chunk.seq}` };
+      },
+      recordChunkLost: async (_sessionId, loss) => {
+        recorded.push(loss);
+        return { recorded: true };
+      },
+    });
+
+    const handle = await startPersistCapture();
+    const lost: ChunkLostEvent[] = [];
+    handle.on('chunk_lost', (event) => lost.push(event));
+
+    for (let i = 0; i < 8; i++) {
+      pushPcm(1024);
+    }
+    const result: FlushPendingResult = await handle.flushPending();
+
+    assert.deepEqual(persisted, [0, 1, 2, 3, 4, 6, 7]);
+    assert.equal(lost.length, 1);
+    assert.equal(lost[0].seq, 5);
+    const expected = times.get(5);
+    assert.ok(expected);
+    assert.equal(lost[0].startMs, Math.round(expected.startTime * 1000));
+    assert.equal(lost[0].endMs, Math.round(expected.endTime * 1000));
+    assert.equal(lost[0].reason, 'quota_exceeded');
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0].seq, 5);
+    assert.equal(recorded[0].startMs, lost[0].startMs);
+    assert.equal(recorded[0].endMs, lost[0].endMs);
+    assert.equal(recorded[0].reason, 'quota_exceeded');
+    assert.equal(result.savedCount, 7);
+    assert.equal(result.lostChunks.length, 1);
+    assert.equal(result.lostChunks[0].seq, 5);
+  });
+
+  it('flushPending with one lost chunk resolves lostChunks.length === 1', async () => {
+    setSessionStoreForTests({
+      writeChunk: async (_sessionId, chunk) => {
+        if (chunk.seq === 0) {
+          return { error: 'database_unavailable', class: 'permanent' };
+        }
+        return { chunkId: `chunk-${chunk.seq}` };
+      },
+      recordChunkLost: async () => ({ recorded: true }),
+    });
+
+    const handle = await startPersistCapture();
+    pushPcm(1024);
+    pushPcm(1024);
+    const result = await handle.flushPending();
+    assert.equal(result.savedCount, 1);
+    assert.equal(result.lostChunks.length, 1);
+    assert.equal(result.lostChunks[0].seq, 0);
+    assert.equal(result.lostChunks[0].reason, 'database_unavailable');
   });
 });

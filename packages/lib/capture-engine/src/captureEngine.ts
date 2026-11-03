@@ -12,8 +12,22 @@ import type {
   AudioResumedEvent,
   EventCallback,
   ChunkMetadata,
-  StoreWriteFailedDetails,
+  FlushPendingResult,
+  LostChunk,
+  ChunkLostEvent,
+  PersistBackpressureEvent,
 } from './types';
+
+/** Minimum pending-buffer size: ≥ 5 minutes of 4 s chunks. */
+const PENDING_BUFFER_MIN_CHUNKS = 75;
+/** Emit persist_backpressure when the buffer nears that capacity. */
+const PENDING_BACKPRESSURE_CHUNKS = PENDING_BUFFER_MIN_CHUNKS - 7;
+/** Minimum per-chunk retry window. Keep retrying past this while the session is live. */
+const PERSIST_RETRY_WINDOW_MS = 30_000;
+const PERSIST_BACKOFF_START_MS = 250;
+const PERSIST_BACKOFF_CAP_MS = 4_000;
+
+const EMPTY_FLUSH: FlushPendingResult = { savedCount: 0, lostChunks: [] };
 
 type EncoderLike = {
   encode(samples: Float32Array): Uint8Array;
@@ -31,6 +45,13 @@ export function setEncoderFactoryForTests(
   createEncoder = factory ?? ((sampleRate) => new MP3Encoder(sampleRate, 128));
 }
 
+type SessionStoreWriteResult = {
+  chunkId?: string;
+  error?: string;
+  class?: 'transient' | 'permanent';
+  [key: string]: unknown;
+};
+
 type SessionStoreLike = {
   writeChunk: (
     sessionId: string,
@@ -42,7 +63,11 @@ type SessionStoreLike = {
       blob: Blob;
       sizeBytes: number;
     }
-  ) => Promise<{ chunkId?: string; error?: string; [key: string]: unknown }>;
+  ) => Promise<SessionStoreWriteResult>;
+  recordChunkLost?: (
+    sessionId: string,
+    loss: { seq: number; startMs: number; endMs: number; reason: string }
+  ) => Promise<{ recorded?: boolean; error?: string; class?: string }>;
   log?: (
     packageId: string,
     level: string,
@@ -50,6 +75,14 @@ type SessionStoreLike = {
     options?: { sessionId?: string }
   ) => unknown;
 };
+
+interface PendingPersist {
+  blob: Blob;
+  metadata: ChunkMetadata;
+  duration: number;
+  firstAttemptAt: number | null;
+  backoffMs: number;
+}
 
 let sessionStoreForTests: SessionStoreLike | null = null;
 
@@ -79,8 +112,11 @@ class CaptureSession {
   private totalSamples: number = 0;
   private chunkCount: number = 0;
   private sampleRate: number = 44100;
-  private persistQueue: Promise<void> = Promise.resolve();
-  private persistAbandoned = false;
+  private pending: PendingPersist[] = [];
+  private drainTail: Promise<void> = Promise.resolve();
+  private persistSavedCount = 0;
+  private persistLostChunks: LostChunk[] = [];
+  private sleepCancel: (() => void) | null = null;
   private stopPromise: Promise<CaptureSummary> | null = null;
   private lastSummary: CaptureSummary | null = null;
   
@@ -273,132 +309,197 @@ class CaptureSession {
   }
 
   private enqueuePersist(blob: Blob, metadata: ChunkMetadata, duration: number): void {
-    if (this.persistAbandoned) return;
-
-    this.persistQueue = this.persistQueue
-      .catch(() => undefined)
-      .then(async () => {
-        if (this.persistAbandoned) return;
-        try {
-          const written = await this.writeChunkToStore(blob, metadata);
-          if (!written) return;
-          this.emit('chunkEncoded', {
-            sessionId: this.sessionId,
-            seq: metadata.seq,
-            startTime: metadata.startTime,
-            endTime: metadata.endTime,
-            duration,
-            byteLength: blob.size,
-            blob,
-          } as ChunkEncodedEvent);
-        } catch (error: any) {
-          // Never reject the shared persist tail — one job failure must not
-          // skip later writeChunk jobs.
-          this.emitStoreWriteFailed({
-            error: error?.message || String(error),
-          });
-        }
-      });
+    this.pending.push({
+      blob,
+      metadata,
+      duration,
+      firstAttemptAt: null,
+      backoffMs: PERSIST_BACKOFF_START_MS,
+    });
+    if (this.pending.length >= PENDING_BACKPRESSURE_CHUNKS) {
+      this.emit('persist_backpressure', {
+        pendingCount: this.pending.length,
+        oldestSeq: this.pending[0].metadata.seq,
+      } as PersistBackpressureEvent);
+    }
+    this.kickDrain();
   }
 
-  private async writeChunkToStore(blob: Blob, metadata: ChunkMetadata): Promise<boolean> {
-    let retried = false;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const sessionStore = await loadSessionStore();
-        const result = await sessionStore.writeChunk(this.sessionId, {
-          seq: metadata.seq,
-          startTime: metadata.startTime,
-          endTime: metadata.endTime,
-          duration: metadata.endTime - metadata.startTime,
-          blob,
-          sizeBytes: blob.size || metadata.byteLength,
-        });
-        if (result && result.error) {
-          if (isTransientConflict(result) && attempt === 0) {
-            retried = true;
-            this.logCapture('warn', () => ({
-              message: 'chunk persist retry',
-              details: {
-                sessionId: this.sessionId,
-                seq: metadata.seq,
-                error: result.error,
-              },
-            }));
-            continue;
-          }
-          this.emitStoreWriteFailed(
-            { ...result, retried: retried || undefined },
-            result.error === 'session_not_found'
-          );
-          return false;
-        }
-        this.logCapture('debug', () => ({
-          message: 'chunk persist ok',
-          details: {
-            sessionId: this.sessionId,
-            seq: metadata.seq,
-            sizeBytes: blob.size || metadata.byteLength,
-          },
-        }));
-        return true;
-      } catch (error: any) {
-        if (isTransientConflict(error) && attempt === 0) {
-          retried = true;
-          this.logCapture('warn', () => ({
-            message: 'chunk persist retry',
-            details: {
-              sessionId: this.sessionId,
-              seq: metadata.seq,
-              error: error?.name || error?.message || String(error),
-            },
-          }));
-          continue;
-        }
-        console.error('Failed to write chunk to session-store:', error);
-        this.emitStoreWriteFailed({
-          error: error?.message || String(error),
-          retried: retried || undefined,
-        });
-        return false;
+  private kickDrain(): void {
+    this.drainTail = this.drainTail
+      .catch(() => undefined)
+      .then(() => this.drainPending());
+  }
+
+  private async drainPending(): Promise<void> {
+    while (this.pending.length > 0) {
+      const job = this.pending[0];
+      const outcome = await this.persistOne(job);
+      if (outcome === 'retry') {
+        await this.sleepPersist(job.backoffMs);
+        job.backoffMs = Math.min(job.backoffMs * 2, PERSIST_BACKOFF_CAP_MS);
+        continue;
+      }
+      this.pending.shift();
+      if (outcome === 'saved') {
+        this.persistSavedCount += 1;
+        this.emit('chunkEncoded', {
+          sessionId: this.sessionId,
+          seq: job.metadata.seq,
+          startTime: job.metadata.startTime,
+          endTime: job.metadata.endTime,
+          duration: job.duration,
+          byteLength: job.blob.size,
+          blob: job.blob,
+        } as ChunkEncodedEvent);
       }
     }
-    return false;
   }
 
-  private emitStoreWriteFailed(
-    details: StoreWriteFailedDetails,
-    abandonSession = false
-  ): void {
-    this.logCapture('error', () => ({
-      message: 'chunk persist failed',
-      details: {
-        sessionId: this.sessionId,
-        error: details.error,
-        retried: details.retried === true,
-      },
-    }));
-    this.emit('captureError', {
-      sessionId: this.sessionId,
-      reason: 'store_write_failed',
-      details,
-    } as CaptureErrorEvent);
-    if (abandonSession) {
-      this.persistAbandoned = true;
-      void this.stop();
+  private async persistOne(job: PendingPersist): Promise<'saved' | 'lost' | 'retry'> {
+    if (job.firstAttemptAt == null) {
+      job.firstAttemptAt = Date.now();
+    }
+    try {
+      const sessionStore = await loadSessionStore();
+      const result = await sessionStore.writeChunk(this.sessionId, {
+        seq: job.metadata.seq,
+        startTime: job.metadata.startTime,
+        endTime: job.metadata.endTime,
+        duration: job.metadata.endTime - job.metadata.startTime,
+        blob: job.blob,
+        sizeBytes: job.blob.size || job.metadata.byteLength,
+      });
+      if (result && result.error) {
+        if (isPermanentStoreError(result) || this.retryWindowExhausted(job)) {
+          await this.declareLost(job, String(result.error));
+          return 'lost';
+        }
+        this.logCapture('warn', () => ({
+          message: 'chunk persist retry',
+          details: {
+            sessionId: this.sessionId,
+            seq: job.metadata.seq,
+            error: result.error,
+            class: result.class || 'transient',
+          },
+        }));
+        return 'retry';
+      }
+      this.logCapture('debug', () => ({
+        message: 'chunk persist ok',
+        details: {
+          sessionId: this.sessionId,
+          seq: job.metadata.seq,
+          sizeBytes: job.blob.size || job.metadata.byteLength,
+        },
+      }));
+      return 'saved';
+    } catch (error: any) {
+      const reason = error?.message || String(error);
+      if (this.retryWindowExhausted(job)) {
+        await this.declareLost(job, reason);
+        return 'lost';
+      }
+      this.logCapture('warn', () => ({
+        message: 'chunk persist retry',
+        details: {
+          sessionId: this.sessionId,
+          seq: job.metadata.seq,
+          error: reason,
+          class: 'transient',
+        },
+      }));
+      return 'retry';
     }
   }
 
-  async flushPending(): Promise<void> {
+  private retryWindowExhausted(job: PendingPersist): boolean {
+    if (job.firstAttemptAt == null) return false;
+    if (Date.now() - job.firstAttemptAt < PERSIST_RETRY_WINDOW_MS) return false;
+    // Keep retrying past the minimum window while the session is live.
+    // After stop(), flushPending may declare lost once the window has elapsed.
+    return !this.isActive;
+  }
+
+  private async declareLost(job: PendingPersist, reason: string): Promise<void> {
+    const lost: LostChunk = {
+      seq: job.metadata.seq,
+      startMs: Math.round(job.metadata.startTime * 1000),
+      endMs: Math.round(job.metadata.endTime * 1000),
+      reason,
+    };
+    this.persistLostChunks.push(lost);
+    this.logCapture('error', () => ({
+      message: 'chunk_lost',
+      details: {
+        sessionId: this.sessionId,
+        seq: lost.seq,
+        startMs: lost.startMs,
+        endMs: lost.endMs,
+        reason: lost.reason,
+      },
+    }));
+    this.emit('chunk_lost', {
+      sessionId: this.sessionId,
+      ...lost,
+    } as ChunkLostEvent);
     try {
-      await this.persistQueue;
+      const store = await loadSessionStore();
+      if (typeof store.recordChunkLost === 'function') {
+        await store.recordChunkLost(this.sessionId, lost);
+      }
     } catch {
-      // Queue jobs isolate their own failures; idle even if a stray rejection exists.
+      // Loss is already reported; a failed record must not reject the drain.
+    }
+    if (reason === 'session_not_found') {
+      this.isActive = false;
+      this.cancelWatchdog();
+      this.stopStallMonitor();
+    }
+  }
+
+  private sleepPersist(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.sleepCancel = null;
+        resolve();
+      }, ms);
+      this.sleepCancel = () => {
+        clearTimeout(timer);
+        this.sleepCancel = null;
+        resolve();
+      };
+    });
+  }
+
+  async flushPending(): Promise<FlushPendingResult> {
+    this.kickDrain();
+    try {
+      await this.drainTail;
+    } catch {
+      // Drain isolates per-chunk outcomes; idle even if a stray rejection exists.
+    }
+    while (this.pending.length > 0) {
+      this.kickDrain();
+      try {
+        await this.drainTail;
+      } catch {
+        break;
+      }
     }
     this.logCapture('debug', () => ({
       message: 'flushPending waited',
-      details: { sessionId: this.sessionId },
+      details: {
+        sessionId: this.sessionId,
+        savedCount: this.persistSavedCount,
+        lostCount: this.persistLostChunks.length,
+      },
     }));
+    return {
+      savedCount: this.persistSavedCount,
+      lostChunks: this.persistLostChunks.slice(),
+    };
   }
 
   private logCapture(
@@ -604,6 +705,7 @@ class CaptureSession {
   }
 
   private cleanup(): void {
+    this.sleepCancel?.();
     if (this.scriptProcessor) {
       this.scriptProcessor.disconnect();
       this.scriptProcessor = null;
@@ -714,20 +816,21 @@ const activeSessions = new Map<string, CaptureSession>();
 
 let sessionStoreModule: Promise<SessionStoreLike> | null = null;
 
-function isTransientConflict(value: unknown): boolean {
+const PERMANENT_STORE_ERRORS = new Set([
+  'session_not_found',
+  'quota_exceeded',
+  'database_unavailable',
+]);
+
+function isPermanentStoreError(value: unknown): boolean {
   if (!value || typeof value !== 'object') {
     return false;
   }
-  const record = value as { error?: unknown; name?: unknown; message?: unknown };
-  if (record.error === 'transaction_conflict') {
+  const record = value as { error?: unknown; class?: unknown };
+  if (record.class === 'permanent') {
     return true;
   }
-  const name = typeof record.name === 'string' ? record.name : '';
-  const message = typeof record.message === 'string' ? record.message : '';
-  if (name === 'AbortError' || name === 'ConstraintError') {
-    return true;
-  }
-  return /transaction.+(abort|conflict)|abort.+transaction/i.test(message);
+  return typeof record.error === 'string' && PERMANENT_STORE_ERRORS.has(record.error);
 }
 
 function loadSessionStore(): Promise<SessionStoreLike> {
@@ -750,18 +853,22 @@ function loadSessionStoreIfAvailable(): Promise<SessionStoreLike | null> {
   return Promise.resolve(null);
 }
 
-/** Resolves when the persist queue is idle. No-op when no active capture. */
-export async function flushPending(): Promise<void> {
+/** Resolves when every pending chunk is saved or declared lost. No-op when idle. */
+export async function flushPending(): Promise<FlushPendingResult> {
   if (activeSessions.size === 0) {
-    return;
+    return { ...EMPTY_FLUSH };
   }
-  await Promise.all(
+  const results = await Promise.all(
     [...activeSessions.values()].map((session) => session.flushPending())
   );
+  return {
+    savedCount: results.reduce((sum, result) => sum + result.savedCount, 0),
+    lostChunks: results.flatMap((result) => result.lostChunks),
+  };
 }
 
 /** Alias of flushPending. */
-export function whenPersistIdle(): Promise<void> {
+export function whenPersistIdle(): Promise<FlushPendingResult> {
   return flushPending();
 }
 
