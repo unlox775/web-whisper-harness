@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-03T17:50:00Z
+Resolved: 2026-11-03T18:30:00Z
 Product: packages/datastore/session-store
 Contract: docs/DURABILITY-CONTRACT.md
 
@@ -43,3 +44,18 @@ The planning PR already rewrote the superseded contract lines to the new behavio
 ## Out of scope
 
 capture-engine retry/buffer behavior; PWA retention scheduling and UI (separate specs).
+
+## Resolution
+
+Implemented in `packages/datastore/session-store` only (package isolation). Owner-serialized scheduler (`src/scheduler.js`), running totals (`src/stats-cache.js`), batched retention, idempotent `writeChunk`, `getChunkCoverage` / `recordChunkLost`, and `logWriteFailures`.
+
+- [x] Owner-serialized internal queue; customer writes have priority over retention/log-pruning
+- [x] `writeChunk` waits; never fails due to our background work; `transaction_conflict` removed; permanent vs transient error classes; `store_busy` only after ≥ 5 s internal wait
+- [x] Cheap retention early exit under cap (no in-flight flag, no transaction)
+- [x] Bounded retention batches that yield to queued writes (< ~500 ms)
+- [x] Idempotent writes keyed `(sessionId, seq)`
+- [x] `getChunkCoverage` + `recordChunkLost`
+- [x] Logs age/count-bounded; log write failures increment persisted `logWriteFailures`
+- [x] Customer contracts + README match the shipped API
+- [x] Tests: 100 concurrent writes during retention over a large DB; under-cap no-txn; idempotent rewrite; gap detection; injected log-write failure; old `transaction_conflict` expectation replaced
+- [x] `npm test` in this package is green

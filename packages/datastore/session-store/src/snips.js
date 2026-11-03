@@ -4,6 +4,7 @@
 
 import { getDatabase, generateId } from './db.js';
 import { getSession } from './sessions.js';
+import { enqueueCustomer } from './scheduler.js';
 
 /**
  * Write snip for session
@@ -19,6 +20,10 @@ import { getSession } from './sessions.js';
  * @returns {Promise<{snipId: string} | {error: string}>}
  */
 export async function writeSnip(sessionId, snipData) {
+  return enqueueCustomer(() => writeSnipUnlocked(sessionId, snipData));
+}
+
+async function writeSnipUnlocked(sessionId, snipData) {
   try {
     const db = await getDatabase();
     

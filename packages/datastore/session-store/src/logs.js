@@ -10,6 +10,25 @@
  */
 
 import { getDatabase, generateId } from './db.js';
+import { enqueueCustomer } from './scheduler.js';
+import {
+  addLogRow,
+  getStatsCache,
+  incrementLogWriteFailures,
+  setOldestLogCreatedAt,
+  subtractLogRows
+} from './stats-cache.js';
+import { LOG_PRUNE_BATCH_SIZE } from './constants.js';
+
+let injectLogWriteFailure = false;
+
+/**
+ * Test hook: next persist attempts fail and increment logWriteFailures.
+ * @param {boolean} enabled
+ */
+export function setLogWriteFailureForTests(enabled) {
+  injectLogWriteFailure = Boolean(enabled);
+}
 
 export const LOGS_STORE = 'logs';
 
@@ -150,9 +169,14 @@ function mapQuotaOrUnavailable(error) {
   const name = error?.name || '';
   const message = String(error?.message || '');
   if (name === 'QuotaExceededError' || /quota/i.test(message)) {
-    return { error: 'quota_exceeded' };
+    return { error: 'quota_exceeded', class: 'permanent' };
   }
-  return { error: 'database_unavailable' };
+  return { error: 'database_unavailable', class: 'permanent' };
+}
+
+function failLogWrite(error) {
+  incrementLogWriteFailures();
+  return mapQuotaOrUnavailable(error);
 }
 
 /**
@@ -194,9 +218,9 @@ export async function log(packageId, level, payload, options = {}) {
       row.details = resolved.details;
     }
     row.sizeBytes = estimateSizeBytes(row);
-    return putLogRecord(row);
+    return enqueueCustomer(() => putLogRecordUnlocked(row));
   } catch (err) {
-    return mapQuotaOrUnavailable(err);
+    return failLogWrite(err);
   }
 }
 
@@ -206,8 +230,12 @@ export async function log(packageId, level, payload, options = {}) {
  * @param {object} row
  * @returns {Promise<{ written: true, id: string } | { error: string }>}
  */
-export async function putLogRecord(row) {
+async function putLogRecordUnlocked(row) {
   try {
+    if (injectLogWriteFailure) {
+      incrementLogWriteFailures();
+      return { error: 'database_unavailable', class: 'permanent' };
+    }
     const db = await getDatabase();
     const record = {
       ...row,
@@ -218,24 +246,78 @@ export async function putLogRecord(row) {
     }
     return new Promise((resolve) => {
       if (!db.objectStoreNames.contains(LOGS_STORE)) {
-        resolve({ error: 'database_unavailable' });
+        incrementLogWriteFailures();
+        resolve({ error: 'database_unavailable', class: 'permanent' });
         return;
       }
       const transaction = db.transaction([LOGS_STORE], 'readwrite');
       transaction.objectStore(LOGS_STORE).put(record);
       transaction.oncomplete = () => {
+        addLogRow(record.sizeBytes || 0, record.createdAt);
         resolve({ written: true, id: record.id });
       };
       transaction.onerror = () => {
-        resolve(mapQuotaOrUnavailable(transaction.error));
+        resolve(failLogWrite(transaction.error));
       };
       transaction.onabort = () => {
-        resolve(mapQuotaOrUnavailable(transaction.error));
+        resolve(failLogWrite(transaction.error));
       };
     });
   } catch (err) {
-    return mapQuotaOrUnavailable(err);
+    return failLogWrite(err);
   }
+}
+
+/**
+ * Write a fully-formed log row (import / tests). Generates id when missing.
+ *
+ * @param {object} row
+ * @returns {Promise<{ written: true, id: string } | { error: string }>}
+ */
+export async function putLogRecord(row) {
+  return enqueueCustomer(() => putLogRecordUnlocked(row));
+}
+
+/**
+ * Bulk-insert log rows (test seed). Updates the stats cache.
+ * @param {object[]} rows
+ * @returns {Promise<{written: number} | {error: string, class: string}>}
+ */
+export async function putLogRecordsBulk(rows) {
+  return enqueueCustomer(async () => {
+    try {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return { written: 0 };
+      }
+      const db = await getDatabase();
+      if (!db.objectStoreNames.contains(LOGS_STORE)) {
+        return { error: 'database_unavailable', class: 'permanent' };
+      }
+      const BATCH = 250;
+      let written = 0;
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const slice = rows.slice(i, i + BATCH);
+        await new Promise((resolve, reject) => {
+          const transaction = db.transaction([LOGS_STORE], 'readwrite');
+          const store = transaction.objectStore(LOGS_STORE);
+          for (const row of slice) {
+            const record = { ...row, id: row.id || generateId('log') };
+            if (typeof record.sizeBytes !== 'number') {
+              record.sizeBytes = estimateSizeBytes(record);
+            }
+            store.put(record);
+            addLogRow(record.sizeBytes || 0, record.createdAt);
+          }
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+        });
+        written += slice.length;
+      }
+      return { written };
+    } catch (err) {
+      return failLogWrite(err);
+    }
+  });
 }
 
 function rowMatchesFilters(row, filters) {
@@ -383,6 +465,111 @@ export async function getLogByteSizes() {
   }
 }
 
+async function pruneOldestCreatedAt() {
+  try {
+    const db = await getDatabase();
+    if (!db.objectStoreNames.contains(LOGS_STORE)) {
+      setOldestLogCreatedAt(null);
+      return null;
+    }
+    return new Promise((resolve) => {
+      const transaction = db.transaction([LOGS_STORE], 'readonly');
+      const store = transaction.objectStore(LOGS_STORE);
+      if (!store.indexNames.contains('by-createdAt')) {
+        transaction.oncomplete = () => resolve(null);
+        return;
+      }
+      const request = store.index('by-createdAt').openCursor();
+      let oldest = null;
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) oldest = cursor.value.createdAt || null;
+      };
+      transaction.oncomplete = () => {
+        setOldestLogCreatedAt(oldest);
+        resolve(oldest);
+      };
+      transaction.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function pruneLogBatch({ cutoffIso = null, maxDeletes, bytesToFree = null }) {
+  try {
+    const db = await getDatabase();
+    if (!db.objectStoreNames.contains(LOGS_STORE)) {
+      return { prunedLogCount: 0, prunedLogBytes: 0 };
+    }
+    return new Promise((resolve) => {
+      const transaction = db.transaction([LOGS_STORE], 'readwrite');
+      const store = transaction.objectStore(LOGS_STORE);
+      let prunedLogCount = 0;
+      let prunedLogBytes = 0;
+      const request = store.indexNames.contains('by-createdAt')
+        ? cutoffIso
+          ? store.index('by-createdAt').openCursor(IDBKeyRange.upperBound(cutoffIso, true))
+          : store.index('by-createdAt').openCursor()
+        : store.openCursor();
+
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (!cursor) return;
+        if (prunedLogCount >= maxDeletes) return;
+        if (bytesToFree != null && prunedLogBytes >= bytesToFree) return;
+        const row = cursor.value;
+        if (cutoffIso && row.createdAt && row.createdAt >= cutoffIso) {
+          cursor.continue();
+          return;
+        }
+        prunedLogCount += 1;
+        prunedLogBytes += row.sizeBytes || 0;
+        cursor.delete();
+        cursor.continue();
+      };
+
+      transaction.oncomplete = () => {
+        if (prunedLogCount > 0) {
+          subtractLogRows(prunedLogCount, prunedLogBytes);
+        }
+        resolve({ prunedLogCount, prunedLogBytes });
+      };
+      transaction.onerror = () => {
+        resolve({ error: 'database_unavailable', class: 'permanent' });
+      };
+    });
+  } catch {
+    return { error: 'database_unavailable', class: 'permanent' };
+  }
+}
+
+/**
+ * Age-prune in short transactions, yielding to customer writes between batches.
+ * @param {{ now?: number, maxLogAgeMs?: number }} [options]
+ * @param {() => Promise<void>} [yieldToCustomer]
+ */
+export async function pruneLogsByAgeBatched(options = {}, yieldToCustomer = async () => {}) {
+  const now = typeof options.now === 'number' ? options.now : Date.now();
+  const maxAge = typeof options.maxLogAgeMs === 'number' ? options.maxLogAgeMs : MAX_LOG_AGE_MS;
+  const cutoff = new Date(now - maxAge).toISOString();
+  let prunedLogCount = 0;
+  let prunedLogBytes = 0;
+  while (true) {
+    const batch = await pruneLogBatch({
+      cutoffIso: cutoff,
+      maxDeletes: LOG_PRUNE_BATCH_SIZE
+    });
+    if (batch.error) return batch;
+    prunedLogCount += batch.prunedLogCount;
+    prunedLogBytes += batch.prunedLogBytes;
+    if (batch.prunedLogCount < LOG_PRUNE_BATCH_SIZE) break;
+    await yieldToCustomer();
+  }
+  await pruneOldestCreatedAt();
+  return { prunedLogCount, prunedLogBytes };
+}
+
 /**
  * Delete log rows with createdAt older than now - maxLogAgeMs.
  *
@@ -390,47 +577,7 @@ export async function getLogByteSizes() {
  * @returns {Promise<{ prunedLogCount: number, prunedLogBytes: number } | { error: string }>}
  */
 export async function pruneLogsByAge(options = {}) {
-  try {
-    const db = await getDatabase();
-    if (!db.objectStoreNames.contains(LOGS_STORE)) {
-      return { prunedLogCount: 0, prunedLogBytes: 0 };
-    }
-    const now = typeof options.now === 'number' ? options.now : Date.now();
-    const maxAge = typeof options.maxLogAgeMs === 'number' ? options.maxLogAgeMs : MAX_LOG_AGE_MS;
-    const cutoff = new Date(now - maxAge).toISOString();
-
-    return new Promise((resolve) => {
-      const transaction = db.transaction([LOGS_STORE], 'readwrite');
-      const store = transaction.objectStore(LOGS_STORE);
-      let prunedLogCount = 0;
-      let prunedLogBytes = 0;
-
-      const request = store.indexNames.contains('by-createdAt')
-        ? store.index('by-createdAt').openCursor(IDBKeyRange.upperBound(cutoff, true))
-        : store.openCursor();
-
-      request.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (!cursor) return;
-        const row = cursor.value;
-        if (!row.createdAt || row.createdAt < cutoff) {
-          prunedLogCount += 1;
-          prunedLogBytes += row.sizeBytes || 0;
-          cursor.delete();
-        }
-        cursor.continue();
-      };
-
-      transaction.oncomplete = () => {
-        resolve({ prunedLogCount, prunedLogBytes });
-      };
-      transaction.onerror = () => {
-        resolve({ error: 'database_unavailable' });
-      };
-    });
-  } catch {
-    return { error: 'database_unavailable' };
-  }
+  return pruneLogsByAgeBatched(options, async () => {});
 }
 
 /**
@@ -441,45 +588,62 @@ export async function pruneLogsByAge(options = {}) {
  * @param {number} bytesToFree raw (pre-overhead) bytes to drop
  * @returns {Promise<{ prunedLogCount: number, prunedLogBytes: number } | { error: string }>}
  */
-export async function pruneOldestLogs(bytesToFree) {
-  try {
-    const need = Math.max(0, bytesToFree || 0);
-    if (need <= 0) {
-      return { prunedLogCount: 0, prunedLogBytes: 0 };
-    }
-    const db = await getDatabase();
-    if (!db.objectStoreNames.contains(LOGS_STORE)) {
-      return { prunedLogCount: 0, prunedLogBytes: 0 };
-    }
-
-    return new Promise((resolve) => {
-      const transaction = db.transaction([LOGS_STORE], 'readwrite');
-      const store = transaction.objectStore(LOGS_STORE);
-      const request = store.indexNames.contains('by-createdAt')
-        ? store.index('by-createdAt').openCursor()
-        : store.openCursor();
-      let prunedLogCount = 0;
-      let prunedLogBytes = 0;
-
-      request.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (!cursor) return;
-        if (prunedLogBytes >= need) return;
-        const row = cursor.value;
-        prunedLogCount += 1;
-        prunedLogBytes += row.sizeBytes || 0;
-        cursor.delete();
-        cursor.continue();
-      };
-
-      transaction.oncomplete = () => {
-        resolve({ prunedLogCount, prunedLogBytes });
-      };
-      transaction.onerror = () => {
-        resolve({ error: 'database_unavailable' });
-      };
-    });
-  } catch {
-    return { error: 'database_unavailable' };
+export async function pruneOldestLogsBatched(bytesToFree, yieldToCustomer = async () => {}) {
+  let remaining = Math.max(0, bytesToFree || 0);
+  if (remaining <= 0) {
+    return { prunedLogCount: 0, prunedLogBytes: 0 };
   }
+  let prunedLogCount = 0;
+  let prunedLogBytes = 0;
+  while (remaining > 0) {
+    const batch = await pruneLogBatch({
+      maxDeletes: LOG_PRUNE_BATCH_SIZE,
+      bytesToFree: remaining
+    });
+    if (batch.error) return batch;
+    if (batch.prunedLogCount === 0) break;
+    prunedLogCount += batch.prunedLogCount;
+    prunedLogBytes += batch.prunedLogBytes;
+    remaining -= batch.prunedLogBytes;
+    await yieldToCustomer();
+  }
+  await pruneOldestCreatedAt();
+  return { prunedLogCount, prunedLogBytes };
+}
+
+/**
+ * Delete oldest logs until remaining raw log bytes sit under the budget.
+ *
+ * @param {number} bytesToFree raw (pre-overhead) bytes to drop
+ * @returns {Promise<{ prunedLogCount: number, prunedLogBytes: number } | { error: string }>}
+ */
+export async function pruneOldestLogs(bytesToFree) {
+  return pruneOldestLogsBatched(bytesToFree, async () => {});
+}
+
+/**
+ * Drop oldest logs until entry count is at most maxCount.
+ * @param {number} maxCount
+ * @param {() => Promise<void>} [yieldToCustomer]
+ */
+export async function pruneLogsOverCountBatched(maxCount, yieldToCustomer = async () => {}) {
+  let extra = Math.max(0, getStatsCache().logEntryCount - maxCount);
+  if (extra <= 0) {
+    return { prunedLogCount: 0, prunedLogBytes: 0 };
+  }
+  let prunedLogCount = 0;
+  let prunedLogBytes = 0;
+  while (extra > 0) {
+    const batch = await pruneLogBatch({
+      maxDeletes: Math.min(LOG_PRUNE_BATCH_SIZE, extra)
+    });
+    if (batch.error) return batch;
+    if (batch.prunedLogCount === 0) break;
+    prunedLogCount += batch.prunedLogCount;
+    prunedLogBytes += batch.prunedLogBytes;
+    extra -= batch.prunedLogCount;
+    await yieldToCustomer();
+  }
+  await pruneOldestCreatedAt();
+  return { prunedLogCount, prunedLogBytes };
 }

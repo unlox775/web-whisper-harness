@@ -4,6 +4,9 @@
 
 import { getDatabase } from './db.js';
 import { enforceRetentionPolicy } from './retention.js';
+import { enqueueCustomer } from './scheduler.js';
+import { DEFAULT_CAP_BYTES } from './constants.js';
+import { getLogWriteFailures, rebuildStatsCache, resetCacheToEmpty } from './stats-cache.js';
 
 /**
  * Get storage statistics.
@@ -12,7 +15,7 @@ import { enforceRetentionPolicy } from './retention.js';
  * IndexedDB overhead factor already used for chunks. `logBytes` is the
  * overhead-adjusted log total so Settings size lines stay honest.
  *
- * @returns {Promise<{usedBytes: number, capBytes: number, sessionCount: number, chunkCount: number, logBytes: number, logEntryCount: number, logBytesByPackage?: object} | {error: string}>}
+ * @returns {Promise<{usedBytes: number, capBytes: number, sessionCount: number, chunkCount: number, logBytes: number, logEntryCount: number, logWriteFailures: number, logBytesByPackage?: object} | {error: string}>}
  */
 export async function getStorageStats() {
   try {
@@ -77,15 +80,14 @@ export async function getStorageStats() {
         const usedBytes = Math.round(chunkSize * 1.1) + logBytes;
         
         // Default cap: 200 MB (can be overridden by caller in enforceRetentionPolicy)
-        const capBytes = 200 * 1024 * 1024;
-        
         resolve({
           usedBytes,
-          capBytes,
+          capBytes: DEFAULT_CAP_BYTES,
           sessionCount,
           chunkCount,
           logBytes,
           logEntryCount,
+          logWriteFailures: getLogWriteFailures(),
           logBytesByPackage
         });
       };
@@ -101,7 +103,7 @@ export async function getStorageStats() {
 
 export { enforceRetentionPolicy };
 
-const ALL_STORES = ['logs', 'transcripts', 'snips', 'volume-profiles', 'chunks', 'sessions'];
+const ALL_STORES = ['meta', 'logs', 'transcripts', 'snips', 'volume-profiles', 'chunks', 'sessions'];
 
 /**
  * Dump every record from an object store (developer console).
@@ -135,6 +137,10 @@ export async function dumpStore(storeName) {
  * @returns {Promise<{cleared: boolean} | {error: string}>}
  */
 export async function clearAll() {
+  return enqueueCustomer(() => clearAllUnlocked());
+}
+
+async function clearAllUnlocked() {
   try {
     const db = await getDatabase();
     return new Promise((resolve) => {
@@ -145,6 +151,7 @@ export async function clearAll() {
         }
       }
       transaction.oncomplete = () => {
+        resetCacheToEmpty();
         resolve({ cleared: true });
       };
       transaction.onerror = () => {
@@ -161,6 +168,10 @@ export async function clearAll() {
  * @returns {Promise<{removed: number} | {error: string}>}
  */
 export async function cleanupOrphans() {
+  return enqueueCustomer(() => cleanupOrphansUnlocked());
+}
+
+async function cleanupOrphansUnlocked() {
   try {
     const sessionsDump = await dumpStore('sessions');
     if (sessionsDump.error) {
@@ -200,6 +211,7 @@ export async function cleanupOrphans() {
     await deleteOrphans('volume-profiles', (record) => record.sessionId);
     await deleteOrphans('logs', (record) => record.sessionId);
 
+    await rebuildStatsCache();
     return { removed };
   } catch (err) {
     return { error: 'database_unavailable' };

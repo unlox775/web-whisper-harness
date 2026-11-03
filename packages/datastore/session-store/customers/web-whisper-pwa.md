@@ -62,9 +62,11 @@ The Web Whisper PWA is the primary customer of session-store. The PWA calls sess
 5. **getSnipsForSession(sessionId)** → `{snips: [{id, sessionId, startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds, confidence, createdAt}]}` (sorted by startTime asc) or error `{error: "database_unavailable"}`
 6. **getTranscriptsForSession(sessionId)** → `{transcripts: [{snipId, sessionId, text, createdAt, updatedAt}]}` or error `{error: "database_unavailable"}`
 7. **deleteSession(sessionId)** → `{deleted: true}` or error `{error: "session_not_found"}` or error `{error: "database_unavailable"}`
-8. **getStorageStats()** → `{usedBytes: number, capBytes: number, sessionCount: number, chunkCount: number}` or error `{error: "database_unavailable"}`
-9. **enforceRetentionPolicy(capBytes)** → `{deletedSessions: number, reclaimedBytes: number, newUsedBytes: number}` or error `{error: "database_unavailable"}`
+8. **getStorageStats()** → `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount, logWriteFailures, logBytesByPackage}` or error `{error: "database_unavailable"}`
+9. **enforceRetentionPolicy(capBytes)** → `{deletedSessions, reclaimedBytes, newUsedBytes, purgedChunkIds, purgedSnipIds, droppedVolumeProfiles, prunedLogCount, prunedLogBytes}` or error `{error: "database_unavailable"}`. Safe to call any time; cheap no-op (no transaction, no in-flight flag) when under cap.
 10. **writeTranscript(snipId, transcriptText)** → `{written: true}` or error `{error: "snip_not_found"}` or error `{error: "database_unavailable"}`
+11. **getChunkCoverage(sessionId)** → `{expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks}` or `{error, class: 'permanent'}`
+12. **recordChunkLost(sessionId, {seq,startMs,endMs,reason})** → `{recorded: true}` or `{error, class: 'permanent'}`
 
 **Error handling expectations**:
 
@@ -388,7 +390,7 @@ Session-store MUST return error objects (NOT throw exceptions). If session-store
 **IndexedDB quota exceeded** (during write operations like `writeChunk`, `writeTranscript`):
 - Session-store returns `{error: 'quota_exceeded', attemptedBytes?: number}`
 - I show error toast "Storage full. Delete old sessions to free space."
-- **Superseded by `docs/DURABILITY-CONTRACT.md`:** on `quota_exceeded` the store has already attempted retention; the error is `class: 'permanent'`. Do not loop; the chunk is reported via `chunk_lost`.
+- On `quota_exceeded` the store has already attempted retention; the error is `class: 'permanent'`. Do not loop; persist the loss with `recordChunkLost` and show it via `getChunkCoverage`.
 
 **Null return values**:
 - `getSession(sessionId)` returns `null` if session does not exist → I treat this as "not found" error + navigate back to home
@@ -468,8 +470,10 @@ Session-store MUST update session metadata when chunks/snips/transcripts are wri
 | `getTranscriptsForSession(sessionId)` | sessionId (string) | `{transcripts: [...]}` | `{error: 'database_unavailable'}` |
 | `writeTranscript(snipId, text)` | snipId (string), text (string) | `{written: true}` | `{error: 'snip_not_found'}` or `{error: 'database_unavailable'}` |
 | `deleteSession(sessionId)` | sessionId (string) | `{deleted: true}` | `{error: 'session_not_found'}` or `{error: 'database_unavailable'}` |
-| `getStorageStats()` | None | `{usedBytes, capBytes, sessionCount, chunkCount}` | `{error: 'database_unavailable'}` |
-| `enforceRetentionPolicy(capBytes)` | capBytes (number) | `{deletedSessions, reclaimedBytes, newUsedBytes}` | `{error: 'database_unavailable'}` |
+| `getStorageStats()` | None | `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount, logWriteFailures, logBytesByPackage}` | `{error: 'database_unavailable'}` |
+| `enforceRetentionPolicy(capBytes)` | capBytes (number) | `{deletedSessions, reclaimedBytes, newUsedBytes, purgedChunkIds, prunedLogCount, …}` | `{error: 'database_unavailable'}` |
+| `getChunkCoverage(sessionId)` | sessionId (string) | `{expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks}` | `{error: 'session_not_found', class: 'permanent'}` |
+| `recordChunkLost(sessionId, loss)` | `{seq, startMs, endMs, reason}` | `{recorded: true}` | `{error: 'session_not_found' \| 'database_unavailable', class: 'permanent'}` |
 
 All pre-operation errors returned as structured objects (NOT thrown exceptions). Runtime errors during IndexedDB operations should be caught and returned as `{error: 'database_unavailable', reason: string}` with specific reason.
 
@@ -657,9 +661,9 @@ Spec Status: unresolved (Phase 06 implementation not yet built)
 
 Phase 06 will implement these interfaces, build PWA integration, validate session management workflows, and mark spec resolved.
 
-## Phase 07 addendum — durable logs, archive logs, retention serialization
+## Shipped contract — retention, coverage, logs (spec 20261103175000)
 
-Planning only (feedback specs unresolved). Session-store extends this customer contract; the PWA implementation lives in the PWA specs.
+Session-store extends this customer contract; PWA scheduling/UI lives in the PWA specs.
 
 ### Logger (PWA configures; all packages emit)
 
@@ -669,26 +673,19 @@ You call:
 - `getLoggerConfig()` if you need to read back
 - `log('web-whisper-pwa', level, payload, options?)` for PWA-owned events (lazy `() => ({ message, details })` or string)
 - `queryLogs({ sessionId, … })` when Debug needs a log list without a full zip
-- `getLogByteSizes()` (or extended `getStorageStats().logBytes` / `logEntryCount` / `logBytesByPackage`) for Advanced Settings size lines
+- `getLogByteSizes()` or `getStorageStats()` for Advanced Settings size lines (`logBytes`, `logEntryCount`, `logBytesByPackage`, **`logWriteFailures`**)
 
-`log()` **must not** invoke a function payload unless (1) the package level allows the entry and (2) there is an active log session id or `options.sessionId`. Gated calls return `{ skipped: true, reason }` and do zero payload work.
+`log()` **must not** invoke a function payload unless (1) the package level allows the entry and (2) there is an active log session id or `options.sessionId`. Gated calls return `{ skipped: true, reason }` and do zero payload work. Failed persists increment `getStorageStats().logWriteFailures` and return `{ error, class }`; they are never swallowed.
 
 Default per-package level is `info`. Levels you persist in Settings localStorage: `debug` | `info` | `warn` | `error` | `off` for `session-store`, `capture-engine`, `volume-analyzer`, `transcription-client`, `playback-engine`, `web-whisper-pwa`.
 
 ### Storage stats + retention
 
-`getStorageStats()` includes log bytes in the cap story (`logBytes`, `logEntryCount`). `usedBytes` counts logs.
+`getStorageStats()` includes log bytes in the cap story (`logBytes`, `logEntryCount`, `logWriteFailures`). `usedBytes` counts logs.
 
-`enforceRetentionPolicy(capBytes)` also **age-prunes** log rows (default 14 days) and may drop oldest logs under cap pressure. `deleteSession` cascades that session’s logs.
+`enforceRetentionPolicy(capBytes)` is **safe to call any time** and is **cheap when under cap** (returns immediately; no in-flight flag; no IndexedDB transaction). You do **not** await capture-engine `flushPending()` / serialize writers first. When over cap it runs in the store's owner-serialized queue, in small batches that yield to live `writeChunk` calls. It also age-prunes log rows (default 14 days) and count-bounds them (`MAX_LOG_COUNT`), and may drop oldest logs under cap pressure. `deleteSession` cascades that session’s logs. Call after Stop / idle / Settings, not per chunk.
 
-**Superseded by `docs/DURABILITY-CONTRACT.md`:** you no longer coordinate writers with retention. `enforceRetentionPolicy` is safe to call any time and is cheap under cap; run it after Stop / idle / Settings, not per chunk. Use `getChunkCoverage(sessionId)` for gaps and saved duration. Spec: `docs/specs/20261103175000-feedback-owner-serialized-writes-never-reject.md`.
-
-~~**You must not overlap retention with live chunk writers.** Before `enforceRetentionPolicy` during or after recording:~~
-
-1. `await` capture-engine `flushPending()` / `whenPersistIdle()`
-2. Then call `enforceRetentionPolicy`
-
-See `apps/web-whisper-pwa/docs/specs/20261006180517-feedback-await-flushpending-before-retention.md`. This package documents the rule; it does not take a cross-package lock.
+Use `getChunkCoverage(sessionId)` for gaps and saved duration (`missingSeqs`, `savedDurationMs`, `lostChunks`). Persist permanent losses with `recordChunkLost(sessionId, {seq,startMs,endMs,reason})`.
 
 ### Session archive
 
@@ -696,4 +693,4 @@ See `apps/web-whisper-pwa/docs/specs/20261006180517-feedback-await-flushpending-
 
 `parseSessionArchive` / `importSessionArchive` attach/import `logs?` when present.
 
-Specs: `packages/datastore/session-store/docs/specs/20261006180517-feedback-durable-per-package-logging.md`, `apps/web-whisper-pwa/docs/specs/20261006180517-feedback-settings-log-levels-and-debug-dump-logs.md`.
+Specs: `packages/datastore/session-store/docs/specs/20261103175000-feedback-owner-serialized-writes-never-reject.md`, `packages/datastore/session-store/docs/specs/20261006180517-feedback-durable-per-package-logging.md`, `apps/web-whisper-pwa/docs/specs/20261006180517-feedback-settings-log-levels-and-debug-dump-logs.md`.

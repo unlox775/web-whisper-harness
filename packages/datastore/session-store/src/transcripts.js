@@ -5,6 +5,7 @@
 import { getDatabase } from './db.js';
 import { getSnip } from './snips.js';
 import { getSession } from './sessions.js';
+import { enqueueCustomer } from './scheduler.js';
 
 /**
  * Write transcript for snip
@@ -13,6 +14,10 @@ import { getSession } from './sessions.js';
  * @returns {Promise<{written: boolean} | {error: string}>}
  */
 export async function writeTranscript(snipId, transcriptText) {
+  return enqueueCustomer(() => writeTranscriptUnlocked(snipId, transcriptText));
+}
+
+async function writeTranscriptUnlocked(snipId, transcriptText) {
   try {
     const db = await getDatabase();
     

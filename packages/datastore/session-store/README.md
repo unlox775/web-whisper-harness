@@ -20,9 +20,11 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 
 ### Chunk Operations
 
-- `writeChunk(sessionId, chunkData)` → writes chunk (called by capture-engine during recording)
+- `writeChunk(sessionId, chunkData)` → writes chunk (called by capture-engine during recording). Concurrent-safe, owner-serialized, idempotent by `(sessionId, seq)`.
 - `getChunk(chunkId)` → returns chunk blob + metadata
 - `getChunksForSession(sessionId)` → returns chunk list for session (ordered by seq)
+- `getChunkCoverage(sessionId)` → `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks }`
+- `recordChunkLost(sessionId, {seq,startMs,endMs,reason})` → persists a permanent loss record on the session
 
 ### Volume Profile Operations
 
@@ -43,9 +45,15 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 
 ### Storage Management
 
-- `getStorageStats()` → returns `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount}` (`usedBytes` includes log bytes; the existing **1.1 IndexedDB overhead** applies to logs the same way as chunks)
-- `enforceRetentionPolicy(capBytes)` → purges audio (and volume/waveform data) for snips that already have a successful transcript when over/approaching the cap; keeps sessions and transcript text. Oldest fully-transcribed audio first. Untranscribed audio is never deleted. Also **age-prunes log rows** (default 14 days) and may drop oldest logs under cap pressure. Safe to call any time: runs in the store's own serialized queue, in small batches that yield to writes, and exits cheaply under cap (per `docs/DURABILITY-CONTRACT.md`; implementation pending spec 20261103175000).
-- `writeChunk` never fails because of the store's own background work; it waits. Errors carry `class: 'transient' | 'permanent'`. Idempotent by `(sessionId, seq)`. (`transaction_conflict` removed — spec 20261103175000.)
+- `getStorageStats()` → `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount, logWriteFailures, logBytesByPackage}` (`usedBytes` includes log bytes; the existing **1.1 IndexedDB overhead** applies to logs the same way as chunks). `logWriteFailures` is a persisted counter; log persist failures are never swallowed.
+- `enforceRetentionPolicy(capBytes, options?)` → purges audio (and volume/waveform data) for snips that already have a successful transcript when over/approaching the cap; keeps sessions and transcript text. Oldest fully-transcribed audio first. Untranscribed audio is never deleted. Also **age-prunes and count-bounds log rows** (default 14 days / `MAX_LOG_COUNT` 100_000) independently of the cap. Safe to call any time: owner-serialized, customer writes have priority, deletes run in small batches that yield to `writeChunk` (< ~500 ms wait), and **returns immediately under cap** with no in-flight flag and no transaction.
+- `writeChunk(sessionId, chunkData)` never fails because of the store's own background work; it waits on the owner-serialized queue. Concurrent calls are safe. Idempotent by `(sessionId, seq)`: a rewrite of an existing seq is a success no-op (same `chunkId`, one row). Errors are structured objects with `class: 'transient' | 'permanent'`:
+  - `{ error: 'session_not_found', sessionId, class: 'permanent' }`
+  - `{ error: 'quota_exceeded', class: 'permanent', usedBytes?, capBytes? }` — only after an internal retention attempt
+  - `{ error: 'database_unavailable', class: 'permanent' }`
+  - `{ error: 'store_busy', class: 'transient' }` — only after ≥ 5 s internal retry of aborted/busy IndexedDB (`WRITE_WAIT_BUDGET_MS`). `transaction_conflict` is not a customer-facing error.
+- `getChunkCoverage(sessionId)` → `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks: [{seq,startMs,endMs,reason}] }` or `{ error, class: 'permanent' }`. `savedDurationMs` sums only saved chunks.
+- `recordChunkLost(sessionId, {seq,startMs,endMs,reason})` → `{ recorded: true }` or `{ error: 'session_not_found' | 'database_unavailable', class: 'permanent' }`. Persists a loss record on the session (idempotent by seq).
 
 ### Durable per-package logs
 
