@@ -30,7 +30,7 @@ Microphone-to-durable-chunk pipeline. Acquires mic, captures PCM, encodes MP3 ch
   - Resolves when the persist queue is empty (every started `writeChunk` settled)
   - Caller: PWA **must** await this before `session-store.enforceRetentionPolicy` during or after recording
   - Safe when not capturing (resolves immediately). `stop()` waits for persist idle before returning `chunksWritten`
-  - Persist queue: catch per-job failures, one retry on `transaction_conflict`, **continue** — one failure must not kill later writes
+  - Persist queue: catch per-job failures, **never drops a chunk**: transient errors held + retried with time-bounded backoff; only permanent errors emit `chunk_lost` (spec 20261103175001)
   - `captureError('store_write_failed')` details are the store `{ error }` object (plus `retried: true` after a conflict retry fails)
 
 - Structured logs: emit via `session-store.log('capture-engine', level, () => payload)` (lazy; session-store owns storage)

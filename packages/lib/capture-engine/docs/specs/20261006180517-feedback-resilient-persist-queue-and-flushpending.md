@@ -3,6 +3,9 @@ Spec Type: feedback
 Created: 2026-10-06T18:05:17Z
 Product: packages/lib/capture-engine
 
+
+> **SUPERSEDED (2026-11-03):** §1 items 4–5 (single retry, move on, no backlog) violates `docs/DURABILITY-CONTRACT.md` and `AGENTS.md` Rule 1. Do not implement or cite it. See the 20261103175000-3 specs.
+
 # Feedback: Resilient persist queue and flushPending
 
 ## User Feedback

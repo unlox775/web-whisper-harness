@@ -74,7 +74,7 @@ Capture-engine relies on these metadata updates to emit accurate `chunkEncoded(s
 
 WriteChunk must be fast enough to not block audio capture. Typical target: < 50ms per writeChunk call. Capture-engine calls writeChunk from a Web Worker (not main thread), so IndexedDB write latency is acceptable as long as it does not cause PCM buffer overflow.
 
-If writeChunk takes > 500ms (e.g., slow IndexedDB on constrained device), capture-engine may accumulate multiple encoded chunks in memory before calling writeChunk sequentially. Session-store does not need to handle concurrent writeChunk calls for the same sessionId (capture-engine serializes writes).
+If writeChunk takes > 500ms (e.g., slow IndexedDB on constrained device), capture-engine may accumulate multiple encoded chunks in memory before calling writeChunk sequentially. **Superseded by `docs/DURABILITY-CONTRACT.md`:** session-store owns its write concurrency; concurrent `writeChunk` calls are safe and idempotent by `(sessionId, seq)`.
 
 **What capture-engine does NOT need from session-store**:
 
@@ -199,7 +199,7 @@ I write chunks sequentially (one at a time, NOT concurrent):
 - Third chunk: seq=2, startTime=~8.24s, endTime=~12.36s
 - ...
 
-Session-store does NOT need to handle concurrent `writeChunk` calls for the same sessionId. I serialize writes (wait for previous `writeChunk` to return before calling next).
+**Superseded by `docs/DURABILITY-CONTRACT.md`:** session-store serializes writes internally; concurrent `writeChunk` calls are safe.
 
 However, seq numbers may have gaps if encoding fails internally (e.g., seq=0, seq=1, seq=3 if seq=2 encoding was skipped due to PCM buffer corruption). Session-store MUST NOT enforce strict sequential seq (gaps are allowed).
 
@@ -341,7 +341,7 @@ What I do: Wrap IndexedDB write in try-catch. If exception → catch, return `{e
 
 ### Sequential Write Behavior (NOT Concurrent)
 
-You write chunks sequentially (one at a time). I do NOT need to handle concurrent `writeChunk` calls for the same sessionId. You serialize writes (await previous `writeChunk` return before calling next).
+**Superseded by `docs/DURABILITY-CONTRACT.md`:** I (session-store) serialize all writes and housekeeping internally. You may call `writeChunk` concurrently; it is idempotent by `(sessionId, seq)`.
 
 Chunk `seq` numbers may have gaps (e.g., 0, 1, 3 if seq 2 encoding failed). I do NOT enforce strict sequential seq. Gaps are allowed.
 
@@ -385,15 +385,15 @@ Planning only (feedback specs unresolved).
 
 `writeChunk` remains: validate session → quota check → one IndexedDB transaction (chunk row + session metadata). It does **not** call `enforceRetentionPolicy`.
 
-Retention opens a long `readwrite` on chunks/sessions. **Callers serialize:** the PWA awaits capture-engine `flushPending()` before `enforceRetentionPolicy`. You (capture-engine) serialize your own `writeChunk` calls. You do not overlap a write with PWA retention.
+**Superseded by `docs/DURABILITY-CONTRACT.md`:** Retention runs inside my own owner-serialized queue in small batches, yields to writes (< ~500 ms wait), and exits cheaply under cap. You never coordinate with retention.
 
-If a write is aborted because another long `readwrite` is in flight, `writeChunk` returns `{ error: 'transaction_conflict', sessionId }` (structured object, not a throw). You may retry **once**. After that, emit `store_write_failed` and continue the persist queue (see capture-engine spec). Do not let an unhandled rejection kill the chain.
+**Superseded by `docs/DURABILITY-CONTRACT.md`:** `writeChunk` waits; it never fails because of my background work. `transaction_conflict` is removed. Errors carry `class: 'transient' | 'permanent'`. On transient errors you hold the chunk and retry with time-bounded backoff (≥ 30 s); only permanent errors end in `chunk_lost` + `recordChunkLost`. Never retry-once-then-move-on. Spec: `docs/specs/20261103175000-feedback-owner-serialized-writes-never-reject.md`.
 
 New failure row:
 
 | Function | Additional failure |
 |----------|-------------------|
-| `writeChunk` | `{ error: 'transaction_conflict', sessionId }` |
+| `writeChunk` | ~~`transaction_conflict`~~ removed; `{ error: 'store_busy', class: 'transient' }` only after ≥ 5 s internal wait |
 
 ### Structured logs (you emit; we store)
 

@@ -4,6 +4,9 @@ Created: 2026-10-06T18:05:17Z
 Resolved: 2026-10-06T19:45:00Z
 Product: apps/web-whisper-pwa
 
+
+> **SUPERSEDED (2026-11-03):** retention-after-every-chunk / caller serialization violates `docs/DURABILITY-CONTRACT.md` and `AGENTS.md` Rule 1. Do not implement or cite it. See the 20261103175000-3 specs.
+
 # Feedback: Await flushPending before retention
 
 ## User Feedback
