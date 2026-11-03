@@ -3,12 +3,18 @@
  */
 
 import { getDatabase, generateId } from './db.js';
+import { enqueueCustomer } from './scheduler.js';
+import { addSessionCount, rebuildStatsCache, subtractSessionCount } from './stats-cache.js';
 
 /**
  * Create new session
  * @returns {Promise<{id: string} | {error: string}>}
  */
 export async function createSession() {
+  return enqueueCustomer(() => createSessionUnlocked());
+}
+
+async function createSessionUnlocked() {
   try {
     const db = await getDatabase();
     const sessionId = generateId('ses');
@@ -33,6 +39,7 @@ export async function createSession() {
       const request = store.add(session);
       
       request.onsuccess = () => {
+        addSessionCount(1);
         resolve({ id: sessionId });
       };
       
@@ -134,6 +141,10 @@ export async function listSessions(options = {}) {
  * @returns {Promise<{deleted: boolean} | {error: string}>}
  */
 export async function deleteSession(sessionId) {
+  return enqueueCustomer(() => deleteSessionUnlocked(sessionId));
+}
+
+async function deleteSessionUnlocked(sessionId) {
   try {
     const db = await getDatabase();
     
@@ -212,7 +223,10 @@ export async function deleteSession(sessionId) {
       sessionsStore.delete(sessionId);
       
       transaction.oncomplete = () => {
-        resolve({ deleted: true });
+        subtractSessionCount(1);
+        rebuildStatsCache()
+          .catch(() => {})
+          .then(() => resolve({ deleted: true }));
       };
       
       transaction.onerror = () => {
@@ -231,6 +245,10 @@ export async function deleteSession(sessionId) {
  * @returns {Promise<{session: Object} | {error: string}>}
  */
 export async function finalizeSession(sessionId) {
+  return enqueueCustomer(() => finalizeSessionUnlocked(sessionId));
+}
+
+async function finalizeSessionUnlocked(sessionId) {
   try {
     const db = await getDatabase();
     const session = await getSession(sessionId);

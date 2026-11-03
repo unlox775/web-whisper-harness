@@ -4,6 +4,7 @@
 
 import { getDatabase } from './db.js';
 import { getSession } from './sessions.js';
+import { enqueueCustomer } from './scheduler.js';
 
 /**
  * Write volume profile for session
@@ -13,6 +14,10 @@ import { getSession } from './sessions.js';
  * @returns {Promise<{written: boolean} | {error: string}>}
  */
 export async function writeVolumeProfile(sessionId, volumeProfile) {
+  return enqueueCustomer(() => writeVolumeProfileUnlocked(sessionId, volumeProfile));
+}
+
+async function writeVolumeProfileUnlocked(sessionId, volumeProfile) {
   try {
     const db = await getDatabase();
     

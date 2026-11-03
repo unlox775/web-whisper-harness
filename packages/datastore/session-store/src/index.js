@@ -7,7 +7,9 @@
  * age-prune logs).
  */
 
-import { initDatabase, closeDatabase } from './db.js';
+import { initDatabase, closeDatabase as closeDatabaseRaw } from './db.js';
+import { resetScheduler } from './scheduler.js';
+import { rebuildStatsCache, resetStatsCache } from './stats-cache.js';
 import {
   createSession,
   getSession,
@@ -19,7 +21,10 @@ import {
 import {
   writeChunk,
   getChunk,
-  getChunksForSession
+  getChunksForSession,
+  getChunkCoverage,
+  recordChunkLost,
+  putChunkRecordsBulk
 } from './chunks.js';
 import {
   writeVolumeProfile,
@@ -68,12 +73,21 @@ import {
   queryLogs,
   getLogByteSizes,
   putLogRecord,
+  putLogRecordsBulk,
+  setLogWriteFailureForTests,
   PACKAGE_IDS,
   LOG_LEVELS,
   LEVEL_RANK,
   MAX_LOG_AGE_MS,
   resetLoggerConfig
 } from './logs.js';
+import {
+  DEFAULT_CAP_BYTES,
+  WRITE_WAIT_BUDGET_MS,
+  RETENTION_YIELD_BUDGET_MS,
+  RETENTION_BATCH_SIZE,
+  MAX_LOG_COUNT
+} from './constants.js';
 
 /**
  * Initialize session-store with database name
@@ -82,9 +96,23 @@ import {
  * @returns {Promise<{initialized: boolean}>}
  */
 export async function init(config = {}) {
+  resetScheduler();
+  resetStatsCache();
+  setLogWriteFailureForTests(false);
   const databaseName = config.databaseName || 'web-whisper-db';
   await initDatabase(databaseName);
+  await rebuildStatsCache();
   return { initialized: true };
+}
+
+/**
+ * Close the current database and drop in-memory scheduler / stats.
+ */
+export function closeDatabase() {
+  resetScheduler();
+  resetStatsCache();
+  setLogWriteFailureForTests(false);
+  closeDatabaseRaw();
 }
 
 // Session Operations
@@ -101,7 +129,10 @@ export {
 export {
   writeChunk,
   getChunk,
-  getChunksForSession
+  getChunksForSession,
+  getChunkCoverage,
+  recordChunkLost,
+  putChunkRecordsBulk
 };
 
 // Volume Profile Operations
@@ -131,7 +162,6 @@ export {
   dumpStore,
   clearAll,
   cleanupOrphans,
-  closeDatabase,
   isChunkAudioPurged,
   hasValidTranscriptText,
   RETENTION_APPROACH_RATIO,
@@ -146,11 +176,18 @@ export {
   queryLogs,
   getLogByteSizes,
   putLogRecord,
+  putLogRecordsBulk,
+  setLogWriteFailureForTests,
   PACKAGE_IDS,
   LOG_LEVELS,
   LEVEL_RANK,
   MAX_LOG_AGE_MS,
-  resetLoggerConfig
+  resetLoggerConfig,
+  DEFAULT_CAP_BYTES,
+  WRITE_WAIT_BUDGET_MS,
+  RETENTION_YIELD_BUDGET_MS,
+  RETENTION_BATCH_SIZE,
+  MAX_LOG_COUNT
 };
 
 // Session audio archive (zip export / parse / import)

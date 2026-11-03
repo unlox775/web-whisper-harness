@@ -222,12 +222,15 @@ describe('enforceRetentionPolicy — purge transcribed audio', () => {
     }
   });
 
-  it('writeChunk returns transaction_conflict while retention is in flight', async () => {
-    const session = await sessionStore.createSession();
+  it('writeChunk waits and stores while retention is in flight (no transaction_conflict)', async () => {
+    const older = await sessionStore.createSession();
+    const olderChunk = await writeAudioChunk(older.id, 0, 20_000);
+    await addSnipWithOptionalTranscript(older.id, [olderChunk], 'Keep the text.');
+
+    const live = await sessionStore.createSession();
     const blob = new Blob([new Uint8Array(64)], { type: 'audio/mpeg' });
     const retentionP = sessionStore.enforceRetentionPolicy(1000);
-    assert.equal(sessionStore.isRetentionWriteInFlight(), true);
-    const write = await sessionStore.writeChunk(session.id, {
+    const write = await sessionStore.writeChunk(live.id, {
       seq: 0,
       startTime: 0,
       endTime: 4,
@@ -235,9 +238,34 @@ describe('enforceRetentionPolicy — purge transcribed audio', () => {
       blob,
       sizeBytes: 64
     });
-    assert.equal(write.error, 'transaction_conflict');
-    assert.equal(write.sessionId, session.id);
+    assert.equal(write.error, undefined, write.error);
+    assert.ok(write.chunkId);
+    const stored = await sessionStore.getChunksForSession(live.id);
+    assert.equal(stored.chunks.length, 1);
     await retentionP;
     assert.equal(sessionStore.isRetentionWriteInFlight(), false);
+  });
+
+  it('returns without opening a readwrite transaction or setting the in-flight flag when under cap', async () => {
+    const session = await sessionStore.createSession();
+    await writeAudioChunk(session.id, 0, 1000);
+
+    let readwriteOpened = 0;
+    const proto = IDBDatabase.prototype;
+    const original = proto.transaction;
+    proto.transaction = function transactionOverride(storeNames, mode) {
+      if (mode === 'readwrite') readwriteOpened += 1;
+      return original.call(this, storeNames, mode);
+    };
+    try {
+      assert.equal(sessionStore.isRetentionWriteInFlight(), false);
+      const result = await sessionStore.enforceRetentionPolicy(200 * 1024 * 1024);
+      assert.equal(result.error, undefined);
+      assert.equal(result.purgedChunkIds.length, 0);
+      assert.equal(sessionStore.isRetentionWriteInFlight(), false);
+      assert.equal(readwriteOpened, 0);
+    } finally {
+      proto.transaction = original;
+    }
   });
 });

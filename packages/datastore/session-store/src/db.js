@@ -5,8 +5,8 @@
 let dbInstance = null;
 let dbName = 'web-whisper-db';
 
-/** v2 adds the `logs` object store (durable per-package logging). */
-const DB_VERSION = 2;
+/** v2 adds `logs`. v3 adds `meta` (logWriteFailures + cheap retention stats). */
+const DB_VERSION = 3;
 
 /**
  * Close the current database connection (tests / switching DB names).
@@ -84,6 +84,11 @@ export async function initDatabase(databaseName) {
         logsStore.createIndex('by-packageId', 'packageId', { unique: false });
         logsStore.createIndex('by-createdAt', 'createdAt', { unique: false });
         logsStore.createIndex('by-sessionId-createdAt', ['sessionId', 'createdAt'], { unique: false });
+      }
+
+      // meta object store (v3) — persisted logWriteFailures
+      if (!db.objectStoreNames.contains('meta')) {
+        db.createObjectStore('meta', { keyPath: 'id' });
       }
     };
   });
