@@ -33,7 +33,14 @@ import {
   readScreenshotMode,
 } from './screenshotMode';
 import { ensureSessionDetailScreenshotSession } from './sessionDetailScreenshot';
-import { actionForCaptureError } from './captureErrorPolicy';
+import {
+  actionForCaptureError,
+  bannerForPersistEvent,
+} from './captureErrorPolicy';
+import {
+  shouldRunRetention,
+  type RetentionOpportunity,
+} from './retentionPolicy';
 import {
   closeAlertAudio,
   pcmHeartbeatFromStatus,
@@ -100,7 +107,8 @@ type AppContextValue = {
   openSession: (id: string, autoPlay?: boolean) => void;
   goHome: () => void;
   deleteSessionById: (id: string) => Promise<void>;
-  enforceCap: (opts?: { force?: boolean }) => Promise<void>;
+  enforceCap: (opts?: { force?: boolean; opportunity?: RetentionOpportunity }) => Promise<void>;
+  savingBehind: boolean;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -123,6 +131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [chunkCount, setChunkCount] = useState(0);
   const [noAudioAlert, setNoAudioAlert] = useState(false);
   const [noAudioAlertStartedAt, setNoAudioAlertStartedAt] = useState<number | null>(null);
+  const [savingBehind, setSavingBehind] = useState(false);
   const toastId = useRef(0);
   const handleRef = useRef<CaptureHandle | null>(null);
   const recordingSessionIdRef = useRef<string | null>(null);
@@ -175,17 +184,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const lastEnforceAt = useRef(0);
+  const lastRecordingRetentionAt = useRef<number | null>(null);
+  const lastBackpressureToastAt = useRef(0);
   const enqueueRetention = useMemo(() => createRetentionGate(), []);
 
-  const enforceCap = useCallback(async (opts?: { force?: boolean }) => {
-    if (!opts?.force && Date.now() - lastEnforceAt.current < 4000) return;
-    lastEnforceAt.current = Date.now();
-    // Always flush persist first (no-op when idle). Sequential await only —
-    // never Promise.all retention with live writeChunk.
+  const enforceCap = useCallback(async (opts?: {
+    force?: boolean;
+    opportunity?: RetentionOpportunity;
+  }) => {
+    const recording = Boolean(recordingSessionIdRef.current);
+    const opportunity: RetentionOpportunity =
+      opts?.opportunity ?? (recording ? 'recording' : 'idle');
+
+    if (recording && opportunity === 'recording') {
+      const stats = await sessionStore.getStorageStats();
+      const used = stats.error ? 0 : stats.usedBytes || 0;
+      if (!stats.error) setUsedBytes(used);
+      const run = shouldRunRetention({
+        opportunity: 'recording',
+        recording: true,
+        usedBytes: used,
+        capBytes,
+        lastRecordingRetentionAtMs: lastRecordingRetentionAt.current,
+        nowMs: Date.now(),
+      });
+      if (!run) return;
+      lastRecordingRetentionAt.current = Date.now();
+    } else if (!opts?.force && Date.now() - lastEnforceAt.current < 4000) {
+      return;
+    }
+
+    if (opportunity !== 'recording') {
+      lastEnforceAt.current = Date.now();
+    }
+
+    // After Stop / idle / Settings: await flushPending so lostChunks are
+    // known, then retain. During a live near-cap take, skip flush so a
+    // backed-up persist queue cannot block freeing space.
     const result = await enqueueRetention(() =>
       enforceRetentionAfterPersistIdle({
         capBytes,
         flushPending,
+        skipFlush: recording && opportunity === 'recording',
         enforceRetentionPolicy: (bytes) => sessionStore.enforceRetentionPolicy(bytes),
         sessionId: recordingSessionIdRef.current ?? logSessionRef.current,
         log: sessionStore.log,
@@ -243,7 +283,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!ready) return;
-    void enforceCap({ force: true });
+    void enforceCap({ force: true, opportunity: 'boot' });
   }, [ready, capBytes, enforceCap]);
 
   useEffect(() => {
@@ -371,7 +411,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const startRecording = useCallback(async () => {
     prepareAlertAudioFromUserGesture();
-    await enforceCap({ force: true });
+    await enforceCap({ force: true, opportunity: 'start' });
     const created = await sessionStore.createSession();
     if (created.error || !created.id) {
       showToast('Storage unavailable. Check browser storage permissions.', 'error');
@@ -382,6 +422,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const handle = await startCapture(created.id, captureStartOptions());
       handleRef.current = handle;
       recordingSessionIdRef.current = created.id;
+      lastRecordingRetentionAt.current = null;
+      setSavingBehind(false);
       setCaptureHandle(handle);
       setRecordingSessionId(created.id);
       setChunkCount(0);
@@ -390,7 +432,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       void setRecordingWakeLockActive(true, 'start-recording');
       handle.on('chunkEncoded', (event: { seq?: number }) => {
         setChunkCount((event.seq ?? 0) + 1);
-        void enforceCap();
+        setSavingBehind(false);
+        void enforceCap({ opportunity: 'recording' });
       });
       handle.on('audioStalled', (event: { stalledFor?: number }) => {
         const stalledForMs = Math.max(0, (event.stalledFor ?? 5) * 1000);
@@ -399,18 +442,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
       handle.on('audioResumed', () => {
         clearNoAudioAlert();
       });
+      handle.on('chunk_lost', (event: {
+        sessionId?: string;
+        seq?: number;
+        startMs?: number;
+        endMs?: number;
+        reason?: string;
+      }) => {
+        void sessionStore.log('web-whisper-pwa', 'error', () => ({
+          message: 'chunk_lost',
+          details: {
+            sessionId: event.sessionId ?? created.id,
+            seq: event.seq,
+            startMs: event.startMs,
+            endMs: event.endMs,
+            reason: event.reason,
+          },
+        }));
+        const banner = bannerForPersistEvent({ type: 'chunk_lost', reason: event.reason });
+        if (banner) showToast(banner, 'warning');
+      });
+      handle.on('persist_backpressure', (event: { pendingCount?: number; oldestSeq?: number }) => {
+        setSavingBehind(true);
+        void sessionStore.log('web-whisper-pwa', 'warn', () => ({
+          message: 'persist_backpressure',
+          details: {
+            sessionId: created.id,
+            pendingCount: event.pendingCount,
+            oldestSeq: event.oldestSeq,
+          },
+        }));
+        const notice = bannerForPersistEvent({ type: 'persist_backpressure' });
+        if (notice && Date.now() - lastBackpressureToastAt.current > 15_000) {
+          lastBackpressureToastAt.current = Date.now();
+          showToast(notice, 'warning');
+        }
+      });
       handle.on('captureError', (event: { reason?: string; details?: string }) => {
         const action = actionForCaptureError(event.reason);
         if (action === 'alert') {
           enterNoAudioAlert(Date.now() - 10_000);
           return;
         }
-        if (event.reason === 'store_write_failed') {
-          // Quota / store-full while recording: flush-then-retain, keep capture
-          // live. Next writeChunk waits until retention finishes instead of
-          // overlapping IndexedDB readwrite locks (not stop-then-retain).
-          void enforceCap({ force: true });
-          showToast('Storage write failed. Recording may be incomplete.', 'warning');
+        if (action === 'log' || event.reason === 'store_write_failed') {
+          void sessionStore.log('web-whisper-pwa', 'warn', () => ({
+            message: 'store_write_failed',
+            details: { reason: event.reason, details: event.details },
+          }));
+          void enforceCap({ opportunity: 'recording' });
           return;
         }
         if (action === 'stop') {
@@ -476,7 +555,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       recordingSessionIdRef.current = null;
       setCaptureHandle(null);
       setRecordingSessionId(null);
+      setSavingBehind(false);
       if (id) {
+        const flushed = await flushPending();
+        if (flushed?.lostChunks?.length) {
+          const banner = bannerForPersistEvent({ type: 'chunk_lost' });
+          if (banner) showToast(banner, 'warning');
+        }
         await sessionStore.finalizeSession(id);
         if (navigate !== 'none') {
           const apiKey = settings.groqApiKey;
@@ -493,7 +578,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           if (canTranscribe && apiKey) {
             void transcribeSession(id, apiKey, () => {}, {
-              onTranscriptWritten: () => enforceCap({ force: true }),
+              onTranscriptWritten: () => enforceCap({ force: true, opportunity: 'idle' }),
               ...transcriptionContextFromSettings(settings),
             })
               .then(() => refresh())
@@ -504,7 +589,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } else {
             settleLoggerIfIdle(id);
           }
-          await enforceCap({ force: true });
+          await enforceCap({ force: true, opportunity: 'stop' });
         } else {
           settleLoggerIfIdle(id);
         }
@@ -623,6 +708,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       chunkCount,
       noAudioAlert,
       noAudioAlertStartedAt,
+      savingBehind,
       setSettingsOpen,
       setDeveloperOpen,
       setPermissionError,
@@ -647,6 +733,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       confirm,
       noAudioAlert,
       noAudioAlertStartedAt,
+      savingBehind,
       developerOpen,
       permissionError,
       ready,

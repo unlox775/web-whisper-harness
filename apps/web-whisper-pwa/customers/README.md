@@ -20,4 +20,10 @@ Since no other packages depend on the PWA (dependency flow is PWA → lib packag
 
 ## Durability (2026-11-03)
 
-The PWA does **not** coordinate chunk writers with retention; session-store owns its concurrency and capture-engine never drops chunks. Binding rules: `docs/DURABILITY-CONTRACT.md`. Implementing specs: `apps/web-whisper-pwa/docs/specs/20261103175002-*`, `20261103175003-*`.
+The PWA does **not** coordinate chunk writers with retention. session-store owns its concurrency; capture-engine never drops encoded chunks. Binding rules: `docs/DURABILITY-CONTRACT.md`.
+
+Shipped PWA behavior (`docs/specs/20261103175002-feedback-no-retention-while-recording-and-gap-display.md`):
+
+- **Retention:** not during recording unless `getStorageStats().usedBytes ≥ 90%` of the cap, and then at most once per 60 s. Otherwise after Stop (`await flushPending()` → `{ savedCount, lostChunks }`, then `enforceRetentionPolicy`), on app start/idle, or from Settings.
+- **Coverage:** session detail (and home tiles) call `getChunkCoverage(sessionId)` and show `MM:SS elapsed · MM:SS saved · N gaps` plus each gap's time range. A session with missing seqs is never shown as READY/done without that gap indicator.
+- **Banners:** `store_write_failed` is logs only. `chunk_lost` shows "Storage write failed. Recording may be incomplete." `persist_backpressure` shows "Saving is behind".

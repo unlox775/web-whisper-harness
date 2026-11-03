@@ -8,6 +8,7 @@ import {
   isHomeTileScreenshot,
   isRecordScreenshot,
   isSessionDebugExportScreenshot,
+  isSessionChunkGapsScreenshot,
   isSessionPartialCoverageScreenshot,
   isSessionSnipsScreenshot,
   isSessionTranscribedScreenshot,
@@ -23,6 +24,7 @@ function Shell() {
     isSessionTranscribedScreenshot(screenshot) ||
     isSessionSnipsScreenshot(screenshot) ||
     isSessionPartialCoverageScreenshot(screenshot) ||
+    isSessionChunkGapsScreenshot(screenshot) ||
     isSessionDebugExportScreenshot(screenshot);
 
   if (!app.ready) {

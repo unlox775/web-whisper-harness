@@ -335,6 +335,34 @@ p {
   color: #f97316;
 }
 
+.session-chunk-gaps {
+  margin: 0 0 14px;
+}
+
+.session-chunk-gaps-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 600;
+  color: #f97316;
+}
+
+.session-chunk-gaps-ranges {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #fdba74;
+}
+
+.session-card-gaps {
+  margin-top: 8px;
+}
+
+.rec-saving-behind {
+  margin: 6px 0 0;
+  color: #fdba74;
+}
+
 .session-actions {
   display: flex;
   justify-content: space-between;

@@ -4,6 +4,7 @@ import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { useApp } from '../context';
 import { transcribeSession } from '../orchestration';
 import { transcriptionContextFromSettings } from '../settings';
+import { isChunkCoverage, type ChunkCoverage } from '../chunkCoverage';
 import { sessionTilePreview, type SessionTilePreview } from '../sessionTile';
 import { emitTranscriptionEvent, subscribeSessionTranscription } from '../transcriptionEvents';
 import { sessionTranscriptionCoverage, uncoveredTailCopy } from '../transcriptionCoverage';
@@ -44,6 +45,7 @@ function SessionCard({
           badge: null,
           coverage: sessionTranscriptionCoverage(session, [], []),
           coverageNote: null,
+          chunkGapNote: null,
         }
   );
 
@@ -57,13 +59,18 @@ function SessionCard({
     async function loadTile() {
       const snipsResult = await sessionStore.getSnipsForSession(session.id);
       const transcriptsResult = await sessionStore.getTranscriptsForSession(session.id);
+      const coverageResult = await sessionStore.getChunkCoverage(session.id);
       if (cancelled) return;
+      const chunkCoverage: ChunkCoverage | null = isChunkCoverage(coverageResult)
+        ? coverageResult
+        : null;
       setTile(
         sessionTilePreview(
           session,
           (snipsResult.snips || []) as SnipRecord[],
           (transcriptsResult.transcripts || []) as TranscriptRecord[],
-          coverageExtrasForSession(session.id)
+          coverageExtrasForSession(session.id),
+          chunkCoverage
         )
       );
     }
@@ -74,7 +81,7 @@ function SessionCard({
     });
   }, [preview, session]);
 
-  const { snippet, badge, coverageNote } = tile;
+  const { snippet, badge, coverageNote, chunkGapNote } = tile;
   const showRetry = badge === 'part-tx';
 
   return (
@@ -98,6 +105,9 @@ function SessionCard({
         {session.chunkCount === 0 ? ' · no playable audio' : ''}
       </div>
       {snippet ? <div className="session-snippet">{snippet}</div> : null}
+      {chunkGapNote ? (
+        <p className="session-chunk-gaps-summary session-card-gaps">{chunkGapNote}</p>
+      ) : null}
       {coverageNote ? <p className="session-coverage-note">{coverageNote}</p> : null}
       <div className="session-actions" onClick={(event) => event.stopPropagation()}>
         <button className="linkish" onClick={() => app.openSession(session.id, true)}>

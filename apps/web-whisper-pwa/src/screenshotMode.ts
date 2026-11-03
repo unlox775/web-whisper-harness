@@ -98,6 +98,10 @@ export function isSessionPartialCoverageScreenshot(mode: string | null): boolean
   return mode === 'session-partial-coverage';
 }
 
+export function isSessionChunkGapsScreenshot(mode: string | null): boolean {
+  return mode === 'session-chunk-gaps';
+}
+
 export function isHomeAfterStopStaleScreenshot(mode: string | null): boolean {
   return mode === 'home-after-stop-stale';
 }
@@ -483,5 +487,64 @@ export function sessionPartialCoveragePreview(): {
     snips,
     transcripts,
     transcriptText: SESSION_TRANSCRIPT,
+  };
+}
+
+export function sessionChunkGapsPreview(): {
+  session: SessionRecord;
+  snips: SnipRecord[];
+  transcripts: TranscriptRecord[];
+  transcriptText: string;
+  chunkCoverage: {
+    expectedFirstSeq: number;
+    lastSeq: number;
+    savedCount: number;
+    missingSeqs: number[];
+    savedDurationMs: number;
+    lostChunks: Array<{ seq: number; startMs: number; endMs: number; reason: string }>;
+  };
+} {
+  const createdAt = new Date();
+  createdAt.setMinutes(createdAt.getMinutes() - 56);
+  const iso = createdAt.toISOString();
+  const sessionId = 'ses-screenshot-chunk-gaps';
+  const missingSeqs = Array.from({ length: 48 }, (_, i) => 300 + i);
+  const holeStartMs = 20 * 60 * 1000;
+  const lostChunks = missingSeqs.map((seq, index) => ({
+    seq,
+    startMs: holeStartMs + index * 4000,
+    endMs: holeStartMs + (index + 1) * 4000,
+    reason: 'quota_exceeded',
+  }));
+  const transcribed = sessionTranscribedPreview();
+  const snips = transcribed.snips.map((snip, index) =>
+    index === transcribed.snips.length - 1
+      ? { ...snip, sessionId, endTime: 3368, duration: 3368 - snip.startTime }
+      : { ...snip, sessionId }
+  );
+  return {
+    session: {
+      id: sessionId,
+      createdAt: iso,
+      updatedAt: iso,
+      duration: 3368,
+      chunkCount: 794,
+      sizeBytes: 12_582_912,
+      hasVolumeProfile: true,
+      hasSnips: true,
+      hasTranscript: true,
+      status: 'ready',
+    },
+    snips,
+    transcripts: transcribed.transcripts.map((row) => ({ ...row, sessionId })),
+    transcriptText: transcribed.transcriptText,
+    chunkCoverage: {
+      expectedFirstSeq: 0,
+      lastSeq: 841,
+      savedCount: 794,
+      missingSeqs,
+      savedDurationMs: 3_176_000,
+      lostChunks,
+    },
   };
 }
