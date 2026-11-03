@@ -36,11 +36,7 @@ The Web Whisper PWA is the primary production customer of capture-engine. The PW
 
 7. **Microphone permission re-prompts (iOS PWA behavior)**: iOS Safari re-prompts for microphone permission after PWA cold start (even if previously granted). This is a platform fact, not a product failure. Capture-engine should call `getUserMedia({audio: true})` on every `startCapture`. If the promise resolves, capture proceeds. If rejected with `NotAllowedError`, capture-engine throws `CaptureError("permission_denied")` and the PWA shows a permission prompt reminder. The PWA does NOT treat this as a capture failure; it is expected iOS behavior.
 
-8. **Error handling and recovery**: If `session-store.writeChunk()` throws an exception (IndexedDB quota exceeded, corruption), capture-engine should:
-   - Log the error internally
-   - Emit `captureError` event with reason "store_write_failed" and details
-   - Continue capturing (next chunk tries to write again; failure is non-fatal unless repeated)
-   - PWA subscribes to `captureError` and can display a warning (e.g., "Storage write failed, recording may be incomplete") or auto-stop if multiple consecutive failures
+8. **Error handling and recovery**: Encoded chunks are held in a pending buffer and retried. Transient store errors never drop audio. Permanent errors emit `chunk_lost { sessionId, seq, startMs, endMs, reason }` (and persist via `recordChunkLost`). `store_write_failed` is diagnostic only, not a loss signal. PWA should subscribe to `chunk_lost` and `persist_backpressure`.
 
 9. **No pause/resume (Phase 06 scope)**: The PWA does not require pause/resume in Phase 06. User taps Start → recording begins. User taps Stop → recording ends. If the user wants to pause, they stop the current session and start a new session later. Pause/resume is backlog.
 
@@ -139,8 +135,12 @@ Payload: `{sessionId, reason: string, details?: string}`
 
 Reason codes I need to handle:
 - `"no_audio_received"` → Auto-stop scenario (watchdog timeout). I show "Recording completed without playable audio" and offer Delete.
-- `"store_write_failed"` → I show error banner "Storage write failed. Recording may be incomplete." and let user decide whether to stop.
+- `"store_write_failed"` → Transient diagnostic only (store busy / retrying). Not a loss signal. I may warn; audio is still held.
 - `"encoding_failed"` → I show error toast "Encoding failed: [details]" and auto-stop capture.
+
+I also subscribe to:
+- `chunk_lost { sessionId, seq, startMs, endMs, reason }` → the only loss signal
+- `persist_backpressure { pendingCount, oldestSeq }` → pending buffer nearing capacity; I may warn. Chunks are still held.
 
 Subscribe pattern:
 ```javascript
@@ -193,8 +193,9 @@ I will NOT treat this as a transcription failure. The recording failed to captur
 Capture-engine MUST write chunks to session-store as they encode (every ~4s). I expect:
 - Capture-engine calls `session-store.writeChunk(sessionId, chunkBlob, metadata)` immediately after encoding each chunk
 - Metadata includes: `{seq: number, startTime: number, endTime: number, byteLength: number, sampleRate: number}`
-- If `writeChunk` throws (quota exceeded, corruption), capture-engine emits `captureError("store_write_failed")` but continues capturing (next chunk tries again)
-- I subscribe to `captureError("store_write_failed")` and decide whether to stop or let recording continue
+- Transient `writeChunk` errors (`store_busy`) are held and retried; I do not lose that seq
+- Permanent errors emit `chunk_lost` and call `recordChunkLost`; later seqs continue
+- I subscribe to `chunk_lost` (loss) and may treat `store_write_failed` as a diagnostic only
 
 I do NOT call `session-store.writeChunk` myself. Capture-engine owns all chunk writes during active recording.
 
@@ -214,9 +215,9 @@ I do NOT cache permission state or try to detect permission before calling `star
 ### Error Recovery Patterns
 
 **Quota exceeded during recording:**
-- Capture-engine emits `captureError("store_write_failed", {reason: "quota_exceeded"})`
+- Capture-engine emits `chunk_lost { seq, startMs, endMs, reason: 'quota_exceeded' }` and persists it via `recordChunkLost`
 - I show error banner "Storage full. Stop recording and delete old sessions to free space."
-- User taps "Stop" → I call `handle.stop()` → Navigate to session detail
+- User taps "Stop" → I `await handle.flushPending()` then `handle.stop()` → Navigate to session detail
 - User can delete old sessions, then record again
 
 **Mic ghost (no audio received):**
@@ -340,8 +341,10 @@ Payload: `{sessionId: string, reason: string, details?: any}`
 
 Reason codes I will emit:
 - `"no_audio_received"` → Watchdog timeout expired (mic ghost). I auto-stop, you receive `captureStopped` with `hasAudio: false`
-- `"store_write_failed"` → session-store.writeChunk failed (quota exceeded, database unavailable). You show error banner "Storage write failed. Recording may be incomplete."
+- `"store_write_failed"` → Transient diagnostic only (not a loss signal). Audio is still held and retried.
 - `"encoding_failed"` → MP3 encoding failed (lamejs error). You show error toast "Encoding failed: [details]", auto-stop capture
+
+I also emit `chunk_lost { sessionId, seq, startMs, endMs, reason }` (only loss signal) and `persist_backpressure { pendingCount, oldestSeq }`.
 
 How you handle:
 ```javascript
@@ -380,11 +383,11 @@ Chunk data I provide to session-store:
 - `sizeBytes`: `blob.size` in bytes
 
 **If writeChunk fails**:
-- session-store returns `{error: 'quota_exceeded'}` → I emit `captureError('store_write_failed', {reason: 'quota_exceeded'})` and continue capturing (next chunk tries again)
-- session-store returns `{error: 'session_not_found'}` → I emit `captureError('store_write_failed', {reason: 'session_not_found'})` and auto-stop capture
-- session-store returns `{error: 'database_unavailable'}` → I emit `captureError('store_write_failed', {reason: 'database_unavailable'})` and continue capturing
+- `{ error: 'store_busy', class: 'transient' }` → hold the chunk, retry with time-bounded backoff, later seqs queue in order
+- `{ error: 'quota_exceeded' | 'session_not_found' | 'database_unavailable', class: 'permanent' }` → emit `chunk_lost { sessionId, seq, startMs, endMs, reason }`, call `recordChunkLost`, continue later seqs
+- `session_not_found` also stops new encoding (session is gone)
 
-You subscribe to `captureError` and decide whether to stop or let recording continue.
+You subscribe to `chunk_lost` for loss and `persist_backpressure` for buffer pressure. `flushPending()` resolves `{ savedCount, lostChunks }`.
 
 ### Duration Counter (PCM Sample-Based, Load-Bearing)
 
@@ -443,7 +446,9 @@ Final chunk may have duration < 4s. Session-store and playback-engine handle thi
 
 **During-capture errors** (emitted as events):
 - `captureError('no_audio_received')` → Watchdog timeout, auto-stop
-- `captureError('store_write_failed')` → session-store write failed, continue capturing (you decide whether to stop)
+- `chunk_lost { sessionId, seq, startMs, endMs, reason }` → only loss signal (permanent store error)
+- `persist_backpressure { pendingCount, oldestSeq }` → pending buffer nearing capacity; chunks still held
+- `captureError('store_write_failed')` → transient diagnostic only, not a loss signal
 - `captureError('encoding_failed')` → MP3 encoding failed, auto-stop
 
 You catch thrown exceptions from `startCapture`. You subscribe to `captureError` events during capture.
@@ -461,9 +466,9 @@ If `getStatus()` is slow (> 50ms), duration counter stutters when polled every 1
 
 **Pause/resume**: Out of scope for Phase 06. User taps Start → recording begins. User taps Stop → recording ends. Pause is backlog (Phase 07 feedback spec if needed).
 
-**Automatic retry on store write failure**: If `session-store.writeChunk` returns quota_exceeded, I emit error event and continue capturing. I do NOT automatically call `session-store.enforceRetentionPolicy` to free space. That is your orchestration responsibility (you call retention policy, then optionally resume recording with new session).
+**Automatic `enforceRetentionPolicy` from this package**: I do NOT call session-store retention. Permanent `quota_exceeded` is reported as `chunk_lost` after the store has already attempted retention. You decide whether to free space and start a new session.
 
-**Chunk buffering in memory during store failure**: If writeChunk fails, I emit error and continue capturing. Next chunk tries writeChunk again. I do NOT buffer failed chunks in memory (too complex, risk of memory overflow). Some chunks may be lost if store writes fail repeatedly. This is acceptable—you show "Recording may be incomplete" warning.
+**Dropping encoded chunks on transient failure**: I do NOT drop an encoded chunk because the store is busy. Chunks stay in a pending buffer (≥ 5 minutes / 75 chunks) and are retried with time-bounded backoff. `chunk_lost` is the only loss path.
 
 ### Developer Mode Telemetry
 
@@ -486,7 +491,7 @@ Shipped. Persist queue + `flushPending()` / `whenPersistIdle()` are live on this
 
 ### Persist queue must not die silently
 
-**Superseded by `docs/DURABILITY-CONTRACT.md`:** I never drop an encoded chunk. Transient store errors: I hold the chunk in a bounded pending buffer (≥ 5 min of audio) and retry with backoff bounded by time (≥ 30 s); later chunks queue in seq order. `store_write_failed` is diagnostic only. If the buffer nears capacity I emit `persist_backpressure`. Only a permanent error ends in `chunk_lost { sessionId, seq, startMs, endMs, reason }` (also persisted via `recordChunkLost`). `flushPending()` resolves `{ savedCount, lostChunks }`. I do not call `enforceRetentionPolicy`. Spec: `docs/specs/20261103175001-feedback-never-drop-encoded-chunks.md`.
+Shipped (spec `20261103175001`). I never drop an encoded chunk. Transient store errors (`class: 'transient'`, `store_busy`): I hold the chunk in a bounded pending buffer (≥ 5 min / ≥ 75 chunks at 4 s) and retry with exponential backoff (250 ms → 4 s cap) for at least 30 s per chunk, and keep retrying while the session is live. Later chunks queue in seq order and are never skipped. `store_write_failed` is a transient diagnostic only, not a loss signal. If the buffer nears capacity I emit `persist_backpressure { pendingCount, oldestSeq }`. Only a permanent error (`class: 'permanent'`, or retry window exhausted after stop) ends in `chunk_lost { sessionId, seq, startMs, endMs, reason }` (also persisted via `sessionStore.recordChunkLost(sessionId, { seq, startMs, endMs, reason })`). I do not call `enforceRetentionPolicy`.
 
 ### `flushPending()` / `whenPersistIdle()`
 
@@ -494,12 +499,26 @@ You must `await` this before `session-store.enforceRetentionPolicy` during or af
 
 | Interface | Input | Output | Failure |
 |-----------|--------|--------|---------|
-| `flushPending()` | none (handle or module, active capture) | `Promise<void>` when the persist queue is empty | Resolves even if some jobs failed; does not throw |
+| `flushPending()` | none (handle or module, active capture) | `Promise<{ savedCount: number, lostChunks: Array<{ seq, startMs, endMs, reason }> }>` after every pending chunk is saved or declared lost | Does not throw |
 | `whenPersistIdle()` | none | Same promise as `flushPending` (alias) | Same |
 
-Safe when not capturing: resolves immediately. `handle.stop()` waits for persist idle before returning `chunksWritten`.
+Safe when not capturing: resolves `{ savedCount: 0, lostChunks: [] }`. `handle.stop()` waits for persist idle before returning `chunksWritten`.
 
-See `apps/web-whisper-pwa/docs/specs/20261006180517-feedback-await-flushpending-before-retention.md` and `packages/lib/capture-engine/docs/specs/20261006180517-feedback-resilient-persist-queue-and-flushpending.md`.
+### Events (persist)
+
+| Event | Payload | Meaning |
+|-------|---------|---------|
+| `chunkEncoded` | `{ sessionId, seq, startTime, endTime, duration, byteLength }` | Chunk durably saved |
+| `chunk_lost` | `{ sessionId, seq, startMs, endMs, reason }` | Only loss signal. Permanent store error or retry window exhausted after stop |
+| `persist_backpressure` | `{ pendingCount, oldestSeq }` | Pending buffer nearing capacity (≥ 68 of 75). Chunks are still held |
+| `captureError` / `store_write_failed` | store `{ error }` | Transient diagnostic only. Not a loss signal |
+
+Store error classes I honor (from `packages/datastore/session-store/customers/capture-engine.md`):
+
+- `{ error: 'store_busy', class: 'transient' }` → hold + retry
+- `{ error: 'session_not_found' \| 'quota_exceeded' \| 'database_unavailable', class: 'permanent' }` → `chunk_lost` + `recordChunkLost`
+
+See `docs/DURABILITY-CONTRACT.md` and `docs/specs/20261103175001-feedback-never-drop-encoded-chunks.md`.
 
 ### Structured logs
 
