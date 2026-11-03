@@ -529,6 +529,8 @@ Store error classes I honor (from `packages/datastore/session-store/customers/ca
 
 See `docs/DURABILITY-CONTRACT.md` and `docs/specs/20261103175001-feedback-never-drop-encoded-chunks.md`.
 
+**Proven by:** `apps/web-whisper-pwa/tests/soak/no-chunk-loss.test.ts` — 60-minute accelerated recording (900 × 4 s chunks) through this persist queue onto real session-store. Transient `store_busy` (~5% plus three 3–10 s all-fail windows) must not drop chunks; `flushPending()` resolves `{ savedCount: 900, lostChunks: [] }`. Permanent error on one seq emits `chunk_lost { sessionId, seq, startMs, endMs, reason }` and coverage shows that one gap.
+
 ### Structured logs
 
 I emit structured logs via session-store (`packageId: 'capture-engine'`, lazy `() => ({ message, details })`). You call `configureLogger` with levels + `activeSessionId` for the take. I may pass `{ sessionId }` on `log()`. I do not own log storage.

@@ -3,7 +3,7 @@ include Makefile.harness
 
 .DEFAULT_GOAL := start
 
-.PHONY: start build install
+.PHONY: start build install soak
 
 PWA_DIR := apps/web-whisper-pwa
 
@@ -20,3 +20,7 @@ build: install
 	npm --prefix $(PWA_DIR) run build
 	node scripts/deploy-docs.mjs
 	node scripts/deploy-isolation-demos.mjs
+
+# Cross-package 60-minute accelerated soak (real store + persist queue).
+soak:
+	npm --prefix $(PWA_DIR) run test:soak

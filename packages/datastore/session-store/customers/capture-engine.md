@@ -387,6 +387,8 @@ Phase 06 will implement `writeChunk`, validate with capture-engine integration t
 - Errors carry `class: 'transient' | 'permanent'`. On `store_busy` (transient, only after ≥ 5 s internal wait) you hold the chunk and retry with time-bounded backoff (≥ 30 s). Only permanent errors (`session_not_found`, `quota_exceeded` after an internal retention attempt, `database_unavailable`) end in `chunk_lost` + `recordChunkLost(sessionId, {seq,startMs,endMs,reason})`. Never retry-once-then-move-on.
 - Call `getChunkCoverage(sessionId)` for `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks }`.
 
+**Proven by:** `apps/web-whisper-pwa/tests/soak/no-chunk-loss.test.ts` — 900 real `writeChunk` calls through capture-engine's persist queue onto this store (fake-indexeddb), with injected `store_busy` and concurrent `enforceRetentionPolicy`. Every seq 0..899 saved; `getChunkCoverage.missingSeqs` empty; `savedDurationMs === elapsedMs`. Negative control: one permanent `quota_exceeded` → one `recordChunkLost` + one coverage gap.
+
 | Function | Failure |
 |----------|---------|
 | `writeChunk` | `{ error: 'store_busy', class: 'transient' }` after ≥ 5 s internal wait; permanent errors as above. `transaction_conflict` removed. |

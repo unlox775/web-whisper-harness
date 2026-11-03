@@ -28,6 +28,7 @@ Status: **binding**. Every package spec, customer contract (`customers/*.md`), R
 - Concurrency tests at each producer boundary (writes during retention).
 - Fault-injection tests at each consumer boundary (store rejects for N seconds).
 - Cross-package soak test: 60-minute simulated recording with injected transient failures and retention; every seq saved; saved duration == elapsed. See `apps/web-whisper-pwa/docs/specs/20261103175003-feedback-e2e-soak-60min-no-chunk-loss.md`.
+  **Proven by:** `apps/web-whisper-pwa/tests/soak/no-chunk-loss.test.ts` (`npm run test:soak` / `make soak`).
 
 ## Implementing specs (one per package, one agent each, build in this order)
 
