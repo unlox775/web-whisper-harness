@@ -50,6 +50,7 @@ import {
 import {
   initializeRecordingWakeLock,
   setRecordingWakeLockActive,
+  setWakeLockLogger,
 } from './wakeLock';
 import { rememberRecorderDurationSeconds } from './recorderDuration';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
@@ -287,9 +288,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [ready, capBytes, enforceCap]);
 
   useEffect(() => {
+    setWakeLockLogger((level, payload) => {
+      void sessionStore.log('web-whisper-pwa', level, payload);
+    });
     initializeRecordingWakeLock();
     return () => {
       void setRecordingWakeLockActive(false, 'unmount');
+      setWakeLockLogger(null);
       closeAlertAudio();
     };
   }, []);
@@ -411,9 +416,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const startRecording = useCallback(async () => {
     prepareAlertAudioFromUserGesture();
+    // Same turn as the Record tap so iOS video.play() / wakeLock.request() keep the gesture.
+    void setRecordingWakeLockActive(true, 'start-recording');
     await enforceCap({ force: true, opportunity: 'start' });
     const created = await sessionStore.createSession();
     if (created.error || !created.id) {
+      void setRecordingWakeLockActive(false, 'start-failed');
       showToast('Storage unavailable. Check browser storage permissions.', 'error');
       return;
     }
@@ -429,7 +437,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setChunkCount(0);
       setScreen('recording');
       recordingStartedAtRef.current = Date.now();
-      void setRecordingWakeLockActive(true, 'start-recording');
+      void setRecordingWakeLockActive(true, 'recording-active');
       handle.on('chunkEncoded', (event: { seq?: number }) => {
         setChunkCount((event.seq ?? 0) + 1);
         setSavingBehind(false);
@@ -501,6 +509,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     } catch (error) {
       // Capture never started — no encoded audio to keep.
+      void setRecordingWakeLockActive(false, 'start-failed');
       syncLogger({ activeSessionId: null });
       await sessionStore.deleteSession(created.id);
       if (error instanceof CaptureError && error.code === 'permission_denied') {

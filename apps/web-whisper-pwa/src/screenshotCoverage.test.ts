@@ -10,10 +10,12 @@ import {
 import {
   homeAfterStopPreview,
   homePartialCoveragePreview,
+  isRecordScreenshot,
   isSessionChunkGapsScreenshot,
   isSessionDebugExportScreenshot,
   isSettingsContextScreenshot,
   isSettingsLogLevelsScreenshot,
+  recordScreenshotPreview,
   sessionChunkGapsPreview,
   sessionPartialCoveragePreview,
   sessionTranscribedPreview,
@@ -98,5 +100,12 @@ describe('screenshot coverage fixtures', () => {
     );
     assert.equal(tile.badge, 'ready');
     assert.equal(tile.chunkGapNote, '56:08 elapsed · 52:56 saved · 48 gaps');
+  });
+
+  it('record-wake-lock fixture shows the screen-awake status line', () => {
+    assert.equal(isRecordScreenshot('record-wake-lock'), true);
+    const preview = recordScreenshotPreview('record-wake-lock');
+    assert.equal(preview.wakeLockStatus, 'Screen awake · video');
+    assert.equal(preview.noAudioAlert, false);
   });
 });

@@ -13,6 +13,7 @@ import {
   recordScreenshotPreview,
 } from '../screenshotMode';
 import type { SnipRecord, TranscriptRecord } from '../types';
+import { formatWakeLockStatus, getWakeLockDebugState } from '../wakeLock';
 
 export function RecordingScreen() {
   const app = useApp();
@@ -25,6 +26,10 @@ export function RecordingScreen() {
   const [showPending, setShowPending] = useState(preview?.pending ?? true);
   const [failedSnips, setFailedSnips] = useState<string[]>([]);
   const [retrying, setRetrying] = useState(false);
+  const [wakeLockLine, setWakeLockLine] = useState(
+    preview?.wakeLockStatus ??
+      (preview ? 'Screen awake · wake lock' : formatWakeLockStatus(getWakeLockDebugState()))
+  );
   const transcriptBoxRef = useRef<HTMLDivElement>(null);
 
   function applyDurableState(
@@ -53,6 +58,7 @@ export function RecordingScreen() {
       if (status) {
         setSeconds(status.currentDuration);
       }
+      setWakeLockLine(formatWakeLockStatus(getWakeLockDebugState()));
     }, 100);
     return () => window.clearInterval(timer);
   }, [app.captureHandle, preview]);
@@ -149,6 +155,9 @@ export function RecordingScreen() {
           <span>Recording</span>
         </div>
         <div className="duration">{formatDuration(seconds)}</div>
+        <p className="tiny rec-wake-lock" role="status" data-testid="wake-lock-status">
+          {wakeLockLine}
+        </p>
         {showDeveloperHud ? (
           <p className="tiny rec-dev-line">{snipsGathered} snips gathered</p>
         ) : null}
