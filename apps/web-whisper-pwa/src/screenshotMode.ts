@@ -6,7 +6,8 @@ export type RecordScreenshotMode =
   | 'record-dev'
   | 'record-durable'
   | 'record-no-audio'
-  | 'record-start-pcm';
+  | 'record-start-pcm'
+  | 'record-wake-lock';
 export type IsolationScreenshotMode = 'isolation-settings';
 
 const RECORD_MODES = new Set<string>([
@@ -16,6 +17,7 @@ const RECORD_MODES = new Set<string>([
   'record-durable',
   'record-no-audio',
   'record-start-pcm',
+  'record-wake-lock',
 ]);
 
 const TALL_LIVE_TRANSCRIPT = [
@@ -134,7 +136,19 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
   showDeveloperHud: boolean;
   snipsGathered: number;
   noAudioAlert: boolean;
+  wakeLockStatus?: string;
 } {
+  if (mode === 'record-wake-lock') {
+    return {
+      seconds: 12,
+      transcript: '',
+      pending: true,
+      showDeveloperHud: false,
+      snipsGathered: 0,
+      noAudioAlert: false,
+      wakeLockStatus: 'Screen awake · video',
+    };
+  }
   if (mode === 'record-no-audio') {
     return {
       seconds: 8,
