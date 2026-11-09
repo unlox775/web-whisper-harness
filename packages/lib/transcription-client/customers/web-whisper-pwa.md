@@ -408,3 +408,7 @@ Planning only. No deep behavior change. Transcription-client **emits structured 
 Spec: `docs/specs/20261015141100-feedback-context-aware-snip-prompt.md`. Downstream PWA request: `apps/web-whisper-pwa/docs/specs/20261015141101-downstream-request-context-aware-snip-prompt.md`.
 
 The PWA now passes Settings (`contextAwareTranscription` default on, `transcriptionVocabulary`) into the snip chain. `transcribeAudio` accepts `prompt` and returns `verbose_json` quality (`avgLogprob`, `noSpeechProb`) so the next snip can apply the poisoning guard. `createContextChain` / `transcribeSequence` serialize Groq calls: snip N starts when N−1 resolves. Per-snip retry rebuilds the prompt from snips before the retried one. We still do not write transcripts or store the prompt. Serial transcription is slower than a parallel fan-out for a long post-stop batch; that is the spelling-continuity tradeoff.
+
+## Phase 07 addendum — PWA Stop UI wait (2026-11-09)
+
+No new transcription-client API. After Stop the PWA still transcribes remaining snips (trailing snip committed with `includeTrailing: true`, then `transcribeSession` / `transcribeAudio`). The recording screen waits up to **5 seconds** for that last transcription before navigating Home. If Groq is slower, the PWA leaves anyway and the list’s PART TX / coverage status updates when this package returns. The PWA does **not** abort in-flight `transcribeAudio` calls when that UI cap fires.

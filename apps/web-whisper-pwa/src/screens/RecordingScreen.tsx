@@ -12,6 +12,7 @@ import {
   readScreenshotMode,
   recordScreenshotPreview,
 } from '../screenshotMode';
+import { busyUiOnStopTap, isStopTapIgnored } from '../stopFlow';
 import type { SnipRecord, TranscriptRecord } from '../types';
 import { formatWakeLockStatus, getWakeLockDebugState } from '../wakeLock';
 
@@ -19,6 +20,9 @@ export function RecordingScreen() {
   const app = useApp();
   const screenshot = readScreenshotMode();
   const preview = isRecordScreenshot(screenshot) ? recordScreenshotPreview(screenshot) : null;
+  const [localFinishing, setLocalFinishing] = useState(false);
+  const finishing = Boolean(preview?.finishing) || app.stopFinishing || localFinishing;
+  const busy = finishing ? busyUiOnStopTap('finishing') : null;
 
   const [seconds, setSeconds] = useState(preview?.seconds ?? 0);
   const [liveTranscript, setLiveTranscript] = useState(preview?.transcript ?? '');
@@ -129,7 +133,15 @@ export function RecordingScreen() {
   const hasTranscript = liveTranscript.trim().length > 0;
   const showOverlay = Boolean(preview) || Boolean(app.settings.groqApiKey && app.settings.keyValid);
   const showDeveloperHud = preview ? preview.showDeveloperHud : app.settings.developerModeEnabled;
-  const showNoAudio = Boolean(preview?.noAudioAlert) || (!preview && app.noAudioAlert);
+  const showNoAudio =
+    !finishing && (Boolean(preview?.noAudioAlert) || (!preview && app.noAudioAlert));
+
+  function handleStopTap() {
+    if (preview) return;
+    if (isStopTapIgnored(finishing ? 'finishing' : 'recording')) return;
+    setLocalFinishing(true);
+    void app.stopRecording();
+  }
 
   useEffect(() => {
     if (preview) return undefined;
@@ -143,7 +155,10 @@ export function RecordingScreen() {
   }, [app.noAudioAlertStartedAt, preview, showNoAudio]);
 
   return (
-    <main className={`recording${showNoAudio ? ' no-audio' : ''}`}>
+    <main
+      className={`recording${showNoAudio ? ' no-audio' : ''}${finishing ? ' finishing' : ''}`}
+      aria-busy={finishing}
+    >
       {showNoAudio ? (
         <div className="no-audio-banner" role="status" data-testid="no-audio-banner">
           No audio
@@ -151,8 +166,13 @@ export function RecordingScreen() {
       ) : null}
       <div className="rec-hud">
         <div className="rec-indicator">
-          <span className={`pulse${showNoAudio ? ' no-audio' : ''}`} aria-hidden="true" />
-          <span>Recording</span>
+          <span
+            className={`pulse${showNoAudio ? ' no-audio' : ''}${finishing ? ' finishing' : ''}`}
+            aria-hidden="true"
+          />
+          <span data-testid="recording-hud-label">
+            {busy ? busy.hudLabel : 'Recording'}
+          </span>
         </div>
         <div className="duration">{formatDuration(seconds)}</div>
         <p className="tiny rec-wake-lock" role="status" data-testid="wake-lock-status">
@@ -196,11 +216,14 @@ export function RecordingScreen() {
       <div className="rec-stop-slot">
         <button
           type="button"
-          className="stop-btn"
+          className={`stop-btn${finishing ? ' finishing' : ''}`}
           data-testid="stop-recording"
-          onClick={() => void app.stopRecording()}
+          data-stop-phase={finishing ? 'finishing' : 'recording'}
+          disabled={busy?.buttonDisabled ?? false}
+          aria-busy={finishing}
+          onClick={handleStopTap}
         >
-          Stop Recording
+          {busy ? busy.buttonLabel : 'Stop Recording'}
         </button>
       </div>
     </main>

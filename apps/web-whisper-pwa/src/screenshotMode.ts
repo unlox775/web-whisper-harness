@@ -7,7 +7,8 @@ export type RecordScreenshotMode =
   | 'record-durable'
   | 'record-no-audio'
   | 'record-start-pcm'
-  | 'record-wake-lock';
+  | 'record-wake-lock'
+  | 'record-finishing';
 export type IsolationScreenshotMode = 'isolation-settings';
 
 const RECORD_MODES = new Set<string>([
@@ -18,6 +19,7 @@ const RECORD_MODES = new Set<string>([
   'record-no-audio',
   'record-start-pcm',
   'record-wake-lock',
+  'record-finishing',
 ]);
 
 const TALL_LIVE_TRANSCRIPT = [
@@ -137,6 +139,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
   snipsGathered: number;
   noAudioAlert: boolean;
   wakeLockStatus?: string;
+  finishing: boolean;
 } {
   if (mode === 'record-wake-lock') {
     return {
@@ -147,6 +150,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       snipsGathered: 0,
       noAudioAlert: false,
       wakeLockStatus: 'Screen awake · video',
+      finishing: false,
     };
   }
   if (mode === 'record-no-audio') {
@@ -157,6 +161,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       showDeveloperHud: false,
       snipsGathered: 0,
       noAudioAlert: true,
+      finishing: false,
     };
   }
   if (mode === 'record-start-pcm') {
@@ -167,6 +172,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       showDeveloperHud: false,
       snipsGathered: 0,
       noAudioAlert: false,
+      finishing: false,
     };
   }
   if (mode === 'record-hud') {
@@ -177,6 +183,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       showDeveloperHud: false,
       snipsGathered: 0,
       noAudioAlert: false,
+      finishing: false,
     };
   }
   if (mode === 'record-durable') {
@@ -187,6 +194,18 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       showDeveloperHud: true,
       snipsGathered: 2,
       noAudioAlert: false,
+      finishing: false,
+    };
+  }
+  if (mode === 'record-finishing') {
+    return {
+      seconds: 47,
+      transcript: DURABLE_SNIP_TRANSCRIPT,
+      pending: false,
+      showDeveloperHud: false,
+      snipsGathered: 2,
+      noAudioAlert: false,
+      finishing: true,
     };
   }
   if (mode === 'record-dev') {
@@ -197,6 +216,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
       showDeveloperHud: true,
       snipsGathered: 16,
       noAudioAlert: false,
+      finishing: false,
     };
   }
   return {
@@ -206,6 +226,7 @@ export function recordScreenshotPreview(mode: RecordScreenshotMode): {
     showDeveloperHud: false,
     snipsGathered: 16,
     noAudioAlert: false,
+    finishing: false,
   };
 }
 

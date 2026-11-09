@@ -523,6 +523,23 @@ p {
   font-weight: 700;
 }
 
+.stop-btn:disabled,
+.stop-btn.finishing {
+  opacity: 0.88;
+  background: #7f1d1d;
+  cursor: default;
+}
+
+.recording.finishing .pulse.finishing {
+  background: var(--accent-primary);
+  animation: pulse-finishing 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-finishing {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.9); }
+}
+
 .live-transcript-overlay {
   position: relative;
   z-index: 1;
