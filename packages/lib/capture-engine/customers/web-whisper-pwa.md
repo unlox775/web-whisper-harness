@@ -538,3 +538,7 @@ I emit structured logs via session-store (`packageId: 'capture-engine'`, lazy `(
 ### PWA shipped handling (2026-11-03)
 
 The PWA no longer treats `store_write_failed` as user-visible loss. It logs that event, shows "Storage write failed. Recording may be incomplete." only for `chunk_lost`, and shows "Saving is behind" for `persist_backpressure`. After Stop it `await`s `flushPending()` → `{ savedCount, lostChunks }` before `enforceRetentionPolicy`. It does not call `enforceRetentionPolicy` on every `chunkEncoded`.
+
+### PWA Stop UI wait (2026-11-09)
+
+No new capture-engine API. After Stop the PWA still calls `handle.stop()` then `flushPending()`. The recording screen stays up (busy copy **Finishing recording…** / **Saving recording…**) until that persist plus last-snip transcription finish, capped at **5 seconds** (`STOP_FINISH_WAIT_MS`). If the cap fires, the PWA navigates Home anyway. **The wait is UI only** — `flushPending` / the persist queue is never cancelled or abandoned. Existing partial / coverage status covers a still-saving take.

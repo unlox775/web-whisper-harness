@@ -53,6 +53,7 @@ import {
   setWakeLockLogger,
 } from './wakeLock';
 import { rememberRecorderDurationSeconds } from './recorderDuration';
+import { waitForStopReady } from './stopFlow';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
 
 function captureStartOptions() {
@@ -105,6 +106,7 @@ type AppContextValue = {
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   abortRecording: () => Promise<void>;
+  stopFinishing: boolean;
   openSession: (id: string, autoPlay?: boolean) => void;
   goHome: () => void;
   deleteSessionById: (id: string) => Promise<void>;
@@ -133,6 +135,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [noAudioAlert, setNoAudioAlert] = useState(false);
   const [noAudioAlertStartedAt, setNoAudioAlertStartedAt] = useState<number | null>(null);
   const [savingBehind, setSavingBehind] = useState(false);
+  const [stopFinishing, setStopFinishing] = useState(false);
   const toastId = useRef(0);
   const handleRef = useRef<CaptureHandle | null>(null);
   const recordingSessionIdRef = useRef<string | null>(null);
@@ -415,6 +418,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [goHome, refresh, sessionId, showToast]);
 
   const startRecording = useCallback(async () => {
+    if (handleRef.current) return;
     prepareAlertAudioFromUserGesture();
     // Same turn as the Record tap so iOS video.play() / wakeLock.request() keep the gesture.
     void setRecordingWakeLockActive(true, 'start-recording');
@@ -548,61 +552,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
         hasAudio: false,
         sessionId: id,
       };
-      try {
-        if (handle) {
-          const liveDuration = handle.getStatus()?.currentDuration;
-          if (id && liveDuration) rememberRecorderDurationSeconds(id, liveDuration);
-          summary = await handle.stop();
+
+      // Durability work is never cancelled. The UI wait below may time out;
+      // flushPending / trailing ingest / transcription keep running.
+      const persistAndTranscribe = (async () => {
+        try {
+          if (handle) {
+            const liveDuration = handle.getStatus()?.currentDuration;
+            if (id && liveDuration) rememberRecorderDurationSeconds(id, liveDuration);
+            summary = await handle.stop();
+          }
+        } catch {
+          // Abort/stop must never drop audio that already landed in IndexedDB.
         }
-      } catch {
-        // Abort/stop must never drop audio that already landed in IndexedDB.
-      }
-      if (id && typeof summary.totalDuration === 'number') {
-        rememberRecorderDurationSeconds(id, summary.totalDuration);
-      }
-      handleRef.current = null;
-      recordingSessionIdRef.current = null;
-      setCaptureHandle(null);
-      setRecordingSessionId(null);
-      setSavingBehind(false);
-      if (id) {
+        if (id && typeof summary.totalDuration === 'number') {
+          rememberRecorderDurationSeconds(id, summary.totalDuration);
+        }
+        handleRef.current = null;
+        recordingSessionIdRef.current = null;
+        setCaptureHandle(null);
+        setRecordingSessionId(null);
+        setSavingBehind(false);
+        if (!id) return;
         const flushed = await flushPending();
         if (flushed?.lostChunks?.length) {
           const banner = bannerForPersistEvent({ type: 'chunk_lost' });
           if (banner) showToast(banner, 'warning');
         }
         await sessionStore.finalizeSession(id);
-        if (navigate !== 'none') {
-          const apiKey = settings.groqApiKey;
-          const canTranscribe = Boolean(apiKey && settings.keyValid);
+        if (navigate === 'none') {
+          settleLoggerIfIdle(id);
+          return;
+        }
+        // Retention after persist idle — not part of the UI wait, never cancelled.
+        void enforceCap({ force: true, opportunity: 'stop' });
+        const apiKey = settings.groqApiKey;
+        const canTranscribe = Boolean(apiKey && settings.keyValid);
+        try {
+          await ingestGrowingSession(id, {
+            apiKey: canTranscribe ? apiKey : undefined,
+            includeTrailing: true,
+            transcribe: false,
+            ...transcriptionContextFromSettings(settings),
+          });
+        } catch (error) {
+          console.warn('Post-recording snip commit failed', error);
+        }
+        if (canTranscribe && apiKey) {
           try {
-            await ingestGrowingSession(id, {
-              apiKey: canTranscribe ? apiKey : undefined,
-              includeTrailing: true,
-              transcribe: false,
+            await transcribeSession(id, apiKey, () => {}, {
+              onTranscriptWritten: () => enforceCap({ force: true, opportunity: 'idle' }),
               ...transcriptionContextFromSettings(settings),
             });
           } catch (error) {
-            console.warn('Post-recording snip commit failed', error);
-          }
-          if (canTranscribe && apiKey) {
-            void transcribeSession(id, apiKey, () => {}, {
-              onTranscriptWritten: () => enforceCap({ force: true, opportunity: 'idle' }),
-              ...transcriptionContextFromSettings(settings),
-            })
-              .then(() => refresh())
-              .catch((error) => {
-                console.warn('Post-recording transcription failed', error);
-              })
-              .finally(() => settleLoggerIfIdle(id));
-          } else {
+            console.warn('Post-recording transcription failed', error);
+          } finally {
             settleLoggerIfIdle(id);
           }
-          await enforceCap({ force: true, opportunity: 'stop' });
         } else {
           settleLoggerIfIdle(id);
         }
+      })();
+
+      if (navigate === 'none') {
+        await persistAndTranscribe;
+        finishingRef.current = false;
+        setStopFinishing(false);
+        return;
       }
+
+      await waitForStopReady(persistAndTranscribe);
+      setStopFinishing(false);
+      // UI wait is over. Leftover persist/transcription may still run; a later
+      // take must be able to Stop. handle.stop() is idempotent if pagehide races.
       finishingRef.current = false;
       if (navigate === 'session' && id) {
         openSession(id);
@@ -615,6 +637,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setAutoPlay(false);
         await refresh();
       }
+      void persistAndTranscribe.finally(() => {
+        void refresh();
+      });
     },
     [
       clearNoAudioAlert,
@@ -660,6 +685,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   finishCaptureRef.current = finishCapture;
 
   const stopRecording = useCallback(async () => {
+    // Same-frame busy state: schedule before the first await in finishCapture.
+    setStopFinishing(true);
     await finishCapture('home');
   }, [finishCapture]);
 
@@ -729,6 +756,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       startRecording,
       stopRecording,
       abortRecording,
+      stopFinishing,
       openSession,
       goHome,
       deleteSessionById,
@@ -755,6 +783,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       startRecording,
       stopRecording,
       abortRecording,
+      stopFinishing,
       usedBytes,
       showToast,
       updateSetting,

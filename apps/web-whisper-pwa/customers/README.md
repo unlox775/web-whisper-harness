@@ -24,6 +24,7 @@ The PWA does **not** coordinate chunk writers with retention. session-store owns
 
 Shipped PWA behavior (`docs/specs/20261103175002-feedback-no-retention-while-recording-and-gap-display.md`):
 
+- **Stop UI (2026-11-09):** On Stop tap the recording screen switches **same frame** to **Finishing recording…** / **Saving recording…** (button disabled). It stays there until the final chunk is persisted (`flushPending`) and that last snip’s transcription finishes, or `STOP_FINISH_WAIT_MS` (5 s), then Home. Timeout still leaves persist + transcription running — the wait is UI only. Partial / coverage status on the list is the fallback.
 - **Retention:** not during recording unless `getStorageStats().usedBytes ≥ 90%` of the cap, and then at most once per 60 s. Otherwise after Stop (`await flushPending()` → `{ savedCount, lostChunks }`, then `enforceRetentionPolicy`), on app start/idle, or from Settings.
 - **Coverage:** session detail (and home tiles) call `getChunkCoverage(sessionId)` and show `MM:SS elapsed · MM:SS saved · N gaps` plus each gap's time range. A session with missing seqs is never shown as READY/done without that gap indicator.
 - **Banners:** `store_write_failed` is logs only. `chunk_lost` shows "Storage write failed. Recording may be incomplete." `persist_backpressure` shows "Saving is behind".

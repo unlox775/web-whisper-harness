@@ -20,6 +20,7 @@ import {
   sessionPartialCoveragePreview,
   sessionTranscribedPreview,
 } from './screenshotMode.ts';
+import { STOP_FINISHING_BUTTON_LABEL, STOP_FINISHING_HUD_LABEL } from './stopFlow.ts';
 import { sessionTranscriptionCoverage, uncoveredTailCopy } from './transcriptionCoverage.ts';
 
 describe('screenshot coverage fixtures', () => {
@@ -29,6 +30,15 @@ describe('screenshot coverage fixtures', () => {
     assert.equal(isSessionDebugExportScreenshot('session-debug-export'), true);
     assert.equal(isSessionChunkGapsScreenshot('session-chunk-gaps'), true);
     assert.equal(isSettingsLogLevelsScreenshot('isolation-settings'), false);
+  });
+
+  it('record-finishing fixture is the instant Stop busy state', () => {
+    assert.equal(isRecordScreenshot('record-finishing'), true);
+    const preview = recordScreenshotPreview('record-finishing');
+    assert.equal(preview.finishing, true);
+    assert.equal(preview.noAudioAlert, false);
+    assert.equal(STOP_FINISHING_HUD_LABEL, 'Finishing recording…');
+    assert.equal(STOP_FINISHING_BUTTON_LABEL, 'Saving recording…');
   });
 
   it('keeps the after-stop READY fixture covered through the last snip', () => {
