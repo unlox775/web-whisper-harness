@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-09T18:24:00Z
+Resolved: 2026-11-09T18:32:00Z
 Product: apps/web-whisper-pwa
 
 # Feedback: Stop flow — instant busy state, wait for persist + last transcription, 5s UI cap
@@ -102,13 +103,35 @@ QA helpers: `?screenshot=record-finishing`, existing `?screenshot=home-after-sto
 
 Mark this spec resolved when:
 
-- [ ] Stop tap paints busy copy and disables the button before any flush/await
-- [ ] Recording screen stays up until persist + last transcription, or `STOP_FINISH_WAIT_MS`
-- [ ] Timeout navigates Home without cancelling `flushPending` / transcription
-- [ ] Unit tests cover state transitions and timeout (including “work continues after timeout”)
-- [ ] Customer docs updated on both sides of any usage-contract change
-- [ ] iPhone DevTools screenshots in `documentation/qa/` and the PR body
-- [ ] PR kept draft until those shots are in the body
-- [ ] `make build` published `docs/` PWA artifacts
-- [ ] `src/wakeLock.ts` untouched
-- [ ] Spec updated with a Resolution section
+- [x] Stop tap paints busy copy and disables the button before any flush/await
+- [x] Recording screen stays up until persist + last transcription, or `STOP_FINISH_WAIT_MS`
+- [x] Timeout navigates Home without cancelling `flushPending` / transcription
+- [x] Unit tests cover state transitions and timeout (including “work continues after timeout”)
+- [x] Customer docs updated on both sides of any usage-contract change
+- [x] iPhone DevTools screenshots in `documentation/qa/` and the PR body
+- [x] PR kept draft until those shots are in the body
+- [x] `make build` published `docs/` PWA artifacts
+- [x] `src/wakeLock.ts` untouched
+- [x] Spec updated with a Resolution section
+
+## Resolution
+
+**Resolved:** 2026-11-09T18:32:00Z on branch `cursor/stop-flow-busy-state-b56b` (draft PR).
+
+### What shipped (PWA only)
+
+1. **Same-frame busy UI** — Stop tap sets `stopFinishing` / local finishing before any `await`. HUD **Finishing recording…**, button **Saving recording…**, `disabled`. Named copy + `STOP_FINISH_WAIT_MS = 5000` in `src/stopFlow.ts`.
+2. **UI wait** — `finishCapture('home')` races persist (`handle.stop()` + existing `flushPending()`) and trailing ingest + `transcribeSession` against the 5s cap, then navigates Home. `navigate === 'none'` is unchanged (durability only).
+3. **Timeout does not cancel work** — `waitForStopReady` never aborts the persist/transcription promise. Coverage / PART TX remains the fallback. Retention still runs after persist idle and is not part of the UI wait.
+4. **Tests** — `src/stopFlow.test.ts`: tap → finishing/disabled, second tap ignored, settled before cap, timed_out at cap, persist still completes after timeout.
+5. **Contracts** — PWA README + `customers/README.md`; capture-engine and transcription-client `customers/web-whisper-pwa.md` (usage only; no new APIs).
+6. **QA helper** — `?screenshot=record-finishing`. Home READY fixture remains `?screenshot=home-after-stop`.
+7. `make build` published `docs/` PWA artifacts. `src/wakeLock.ts` not edited.
+
+### Proof (iPhone device mode, 1170×2532)
+
+![Instant Finishing recording… / Saving recording… state](../../../../documentation/qa/stop-flow-finishing-iphone.png)
+
+![Home after Stop, session fully transcribed READY](../../../../documentation/qa/stop-flow-home-transcribed-iphone.png)
+
+Notes: `documentation/qa/stop-flow-finishing.md`
