@@ -10,7 +10,7 @@
  * a stale-low total.
  */
 
-import { getDatabase } from './db.js';
+import { getDatabase, CHUNK_BLOBS_STORE } from './db.js';
 import { enqueueHousekeeping } from './scheduler.js';
 import {
   DEFAULT_CAP_BYTES,
@@ -40,7 +40,61 @@ let mutationSeq = 0;
 let persistChain = Promise.resolve();
 let persistDirty = false;
 let rebuildScheduled = false;
+let rebuildInFlight = false;
 let generation = 0;
+let statsReadyWaiters = [];
+
+function notifyStatsReady() {
+  if (!cache.valid) return;
+  const waiters = statsReadyWaiters;
+  statsReadyWaiters = [];
+  for (const fn of waiters) {
+    try {
+      fn();
+    } catch {
+      // listener errors must not break rebuild
+    }
+  }
+}
+
+export function isStatsRebuildActive() {
+  return rebuildScheduled || rebuildInFlight;
+}
+
+/**
+ * Resolves when the stats cache becomes valid (or times out). Does not block
+ * customer writes; only waits on a background rebuild.
+ * @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+export function waitForStatsCacheValid(timeoutMs = 120_000) {
+  if (cache.valid) return Promise.resolve(true);
+  scheduleStatsRebuild();
+  return new Promise((resolve) => {
+    const deadline = Date.now() + timeoutMs;
+    const tryDone = () => {
+      if (cache.valid) {
+        resolve(true);
+        return true;
+      }
+      if (Date.now() >= deadline) {
+        resolve(false);
+        return true;
+      }
+      return false;
+    };
+    if (tryDone()) return;
+    const onReady = () => {
+      if (tryDone()) return;
+    };
+    statsReadyWaiters.push(onReady);
+    const poll = () => {
+      if (tryDone()) return;
+      setTimeout(poll, 32);
+    };
+    poll();
+  });
+}
 
 export function resetStatsCache() {
   generation += 1;
@@ -347,6 +401,7 @@ export async function hydrateStatsCache() {
       if (typeof runtime?.logWriteFailures === 'number') {
         cache.logWriteFailures = Math.max(cache.logWriteFailures, runtime.logWriteFailures);
       }
+      notifyStatsReady();
       return cache;
     }
     const [sessionCount, logEntryCount] = await Promise.all([
@@ -356,6 +411,7 @@ export async function hydrateStatsCache() {
     if (sessionCount === 0 && logEntryCount === 0) {
       resetCacheToEmpty();
       await persistStatsCache();
+      notifyStatsReady();
       return cache;
     }
     cache.valid = false;
@@ -416,6 +472,77 @@ async function scanLogsBatched(yieldToCustomer) {
   return { logBytes, logEntryCount, oldestLogCreatedAt, logBytesByPackage };
 }
 
+function sessionNeedsSizeRepair(session) {
+  const chunkCount = session?.chunkCount || 0;
+  if (chunkCount <= 0) return false;
+  const sizeBytes = session?.sizeBytes;
+  return typeof sizeBytes !== 'number' || sizeBytes <= 0;
+}
+
+async function readBlobSizeForChunk(db, chunkId) {
+  if (!db.objectStoreNames.contains(CHUNK_BLOBS_STORE)) return 0;
+  return new Promise((resolve) => {
+    const tx = db.transaction([CHUNK_BLOBS_STORE], 'readonly');
+    const req = tx.objectStore(CHUNK_BLOBS_STORE).get(chunkId);
+    let size = 0;
+    req.onsuccess = () => {
+      const row = req.result;
+      if (row?.blob && typeof row.blob.size === 'number') size = row.blob.size;
+    };
+    tx.oncomplete = () => resolve(size);
+    tx.onerror = () => resolve(0);
+    tx.onabort = () => resolve(0);
+  });
+}
+
+async function sumChunkBytesForSession(db, sessionId, yieldToCustomer) {
+  if (!db.objectStoreNames.contains('chunks')) {
+    return { chunkBytes: 0, chunkCount: 0 };
+  }
+  const metas = await new Promise((resolve, reject) => {
+    const tx = db.transaction(['chunks'], 'readonly');
+    const req = tx.objectStore('chunks').index('by-sessionId').getAll(sessionId);
+    let rows = [];
+    req.onsuccess = () => {
+      rows = req.result || [];
+    };
+    tx.oncomplete = () => resolve(rows);
+    tx.onerror = () => reject(tx.error);
+  });
+  let chunkBytes = 0;
+  for (const meta of metas) {
+    const sz = meta.sizeBytes;
+    if (typeof sz === 'number' && sz > 0) {
+      chunkBytes += sz;
+      continue;
+    }
+    if (meta.blob && typeof meta.blob.size === 'number') {
+      chunkBytes += meta.blob.size;
+      continue;
+    }
+    if (meta.id) {
+      chunkBytes += await readBlobSizeForChunk(db, meta.id);
+    }
+    if (yieldToCustomer) await yieldToCustomer();
+  }
+  return { chunkBytes, chunkCount: metas.length };
+}
+
+async function persistRepairedSession(db, session, measured) {
+  const next = {
+    ...session,
+    sizeBytes: measured.chunkBytes,
+    chunkCount: measured.chunkCount,
+    updatedAt: new Date().toISOString()
+  };
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(['sessions'], 'readwrite');
+    tx.objectStore('sessions').put(next);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 async function scanSessionsTotals(yieldToCustomer) {
   const db = await getDatabase();
   if (!db.objectStoreNames.contains('sessions')) {
@@ -443,9 +570,17 @@ async function scanSessionsTotals(yieldToCustomer) {
     });
     for (const row of rows) {
       afterKey = row.key;
+      const session = row.value;
       sessionCount += 1;
-      chunkBytes += row.value.sizeBytes || 0;
-      chunkCount += row.value.chunkCount || 0;
+      if (sessionNeedsSizeRepair(session)) {
+        const measured = await sumChunkBytesForSession(db, session.id, yieldToCustomer);
+        await persistRepairedSession(db, session, measured);
+        chunkBytes += measured.chunkBytes;
+        chunkCount += measured.chunkCount;
+      } else {
+        chunkBytes += session.sizeBytes || 0;
+        chunkCount += session.chunkCount || 0;
+      }
     }
     if (done) break;
     if (yieldToCustomer) await yieldToCustomer();
@@ -510,6 +645,7 @@ export async function rebuildStatsCache(yieldToCustomer = async () => {}) {
       capBytes
     };
     await persistStatsCache();
+    notifyStatsReady();
     return cache;
   }
   cache.valid = false;
@@ -528,10 +664,12 @@ export function scheduleStatsRebuild() {
   if (cache.valid || rebuildScheduled) return;
   rebuildScheduled = true;
   enqueueHousekeeping(async (yieldToCustomer) => {
+    rebuildInFlight = true;
     try {
       if (cache.valid) return;
       await rebuildStatsCache(yieldToCustomer);
     } finally {
+      rebuildInFlight = false;
       rebuildScheduled = false;
     }
   });
@@ -553,9 +691,12 @@ export function resetCacheToEmpty() {
 
 export function statsToPublic(capBytes = DEFAULT_CAP_BYTES) {
   const logBytesByPackage = cloneByPackage(cache.logBytesByPackage);
+  const rebuilding = isStatsRebuildActive();
   if (!cache.valid) {
     return {
-      usedBytes: UNKNOWN_USED_BYTES,
+      usedBytesKnown: false,
+      usedBytesStatus: rebuilding ? 'rebuilding' : 'unknown',
+      usedBytes: null,
       capBytes,
       sessionCount: cache.sessionCount,
       chunkCount: cache.chunkCount,
@@ -567,6 +708,8 @@ export function statsToPublic(capBytes = DEFAULT_CAP_BYTES) {
   }
   const logBytes = Math.round((cache.logBytes || 0) * IDB_OVERHEAD);
   return {
+    usedBytesKnown: true,
+    usedBytesStatus: 'known',
     usedBytes: usedBytesFromSizes(cache.chunkBytes, cache.logBytes),
     capBytes,
     sessionCount: cache.sessionCount,

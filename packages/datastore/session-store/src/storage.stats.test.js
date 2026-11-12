@@ -211,7 +211,7 @@ describe('getStorageStats — O(1) running totals, no blob cursor', () => {
     }
   });
 
-  it('returns unknown/high usedBytes without a chunks cursor when the cache is invalid', async () => {
+  it('never exposes the retention sentinel in getStorageStats when the cache is invalid', async () => {
     const session = await sessionStore.createSession();
     await writeAudioChunk(session.id, 0, 5000);
 
@@ -227,14 +227,62 @@ describe('getStorageStats — O(1) running totals, no blob cursor', () => {
       assert.equal(cursorSpy.chunks(), 0);
       assert.equal(cursorSpy.chunkBlobs(), 0);
       if (!getStatsCache().valid) {
-        assert.equal(stats.usedBytes, UNKNOWN_USED_BYTES);
+        assert.equal(stats.usedBytesKnown, false);
+        assert.equal(stats.usedBytes, null);
+        assert.notEqual(stats.usedBytes, UNKNOWN_USED_BYTES);
+        assert.ok(['unknown', 'rebuilding'].includes(stats.usedBytesStatus));
       } else {
+        assert.equal(stats.usedBytesKnown, true);
         assert.equal(stats.chunkCount, 1);
         assert.ok(stats.usedBytes >= Math.round(5000 * 1.1));
       }
     } finally {
       cursorSpy.restore();
     }
+  });
+
+  it('rebuilds real totals for upgraded rows missing session sizeBytes', async () => {
+    const session = await sessionStore.createSession();
+    await writeAudioChunk(session.id, 0, 12_000);
+    await writeAudioChunk(session.id, 1, 8000);
+
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open(currentDbName);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['sessions', 'meta'], 'readwrite');
+        tx.objectStore('meta').delete(META_STATS_ID);
+        const getReq = tx.objectStore('sessions').get(session.id);
+        getReq.onsuccess = () => {
+          const row = getReq.result;
+          if (row) {
+            row.sizeBytes = 0;
+            row.chunkCount = 2;
+            tx.objectStore('sessions').put(row);
+          }
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    sessionStore.closeDatabase();
+    resetStatsCache();
+    await sessionStore.init({ databaseName: currentDbName });
+
+    const ready = await sessionStore.waitForStatsCacheValid(30_000);
+    assert.equal(ready, true);
+    const stats = await sessionStore.getStorageStats();
+    assert.equal(stats.usedBytesKnown, true);
+    assert.ok(stats.usedBytes >= Math.round(20_000 * 1.1));
+    assert.notEqual(stats.usedBytes, UNKNOWN_USED_BYTES);
+
+    const reopened = await sessionStore.getSession(session.id);
+    assert.ok(reopened.sizeBytes >= 20_000);
   });
 
   it('does not purge untranscribed audio when the stats cache is invalid', async () => {

@@ -12,7 +12,9 @@ import {
   hydrateStatsCache,
   rebuildStatsCache,
   resetCacheToEmpty,
-  statsToPublic
+  scheduleStatsRebuild,
+  statsToPublic,
+  waitForStatsCacheValid
 } from './stats-cache.js';
 
 /**
@@ -20,8 +22,9 @@ import {
  *
  * O(1) when the stats cache is valid: running totals, same 1.1 overhead as
  * before. Does not openCursor `chunk-blobs` (or `chunks`); blob bytes come
- * from the cache / metadata `sizeBytes`. If the cache is invalid, usedBytes
- * is unknown/high rather than a stale-low 0.
+ * from the cache / metadata `sizeBytes`. If the cache is invalid, the public
+ * payload reports `usedBytesKnown: false` and `usedBytes: null` (never the
+ * internal retention sentinel).
  *
  * `usedBytes` includes chunk bytes **and** log bytes, each with the same 1.1
  * IndexedDB overhead factor already used for chunks. `logBytes` is the
@@ -34,12 +37,17 @@ export async function getStorageStats() {
     if (!getStatsCache().valid) {
       await flushStatsPersist();
       await hydrateStatsCache();
+      if (!getStatsCache().valid) {
+        scheduleStatsRebuild();
+      }
     }
     return statsToPublic(DEFAULT_CAP_BYTES);
   } catch (err) {
     return { error: 'database_unavailable' };
   }
 }
+
+export { waitForStatsCacheValid };
 
 export { enforceRetentionPolicy };
 

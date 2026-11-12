@@ -9,7 +9,7 @@ const baseURL = process.env.PERF_BASE_URL || `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: here,
-  testMatch: 'scale.spec.ts',
+  testMatch: /.*\.spec\.ts$/,
   fullyParallel: false,
   workers: 1,
   retries: 0,
