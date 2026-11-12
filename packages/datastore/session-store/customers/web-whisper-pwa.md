@@ -16,8 +16,8 @@ The Web Whisper PWA is the primary customer of session-store. The PWA calls sess
    - Capture-engine writes chunks via `writeChunk` (NOT called by PWA directly)
 
 2. **Home screen loads or refreshes**:
-   - PWA calls `listSessions({limit: 100, offset: 0})` → session-store queries sessions via by-createdAt index DESC → returns session list sorted by most recent first. Each row includes coverage (`lastSeq`, `savedCount`, `missingSeqs`, `savedDurationMs`, `lostChunks`) so Home tiles can show gap honesty **without** calling `getChunkCoverage` per card.
-   - PWA displays session cards with: createdAt timestamp, duration, size, chunk count, volume/snips/transcripts indicators, and optional gap summary from the session row
+   - PWA calls `listSessions({limit: 100, offset: 0})` → session-store queries sessions via by-createdAt index DESC → returns session list sorted by most recent first. Each row includes coverage (`lastSeq`, `savedCount`, `missingSeqs`, `savedDurationMs`, `lostChunks`) so Home tiles can show gap honesty **without** walking chunks. `getChunkCoverage` is the same O(1) session-row read and is used on detail (and as a fallback if a row lacks persisted coverage).
+   - PWA paints session cards from those rows (timestamp, duration, size, coverage). Visible tiles may lazy-load `getSnipsForSession` + `getTranscriptsForSession` for READY / PART TX. `hasTranscript` is not READY. `getStorageStats` updates the DATA chip in the background and must not block the list.
 
 3. **User taps session card to open detail view**:
    - PWA calls `getSession(sessionId)` → session-store reads session metadata → returns `{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}` or null
@@ -692,7 +692,7 @@ Default per-package level is `info`. Levels you persist in Settings localStorage
 
 `enforceRetentionPolicy(capBytes)` is **safe to call any time** and is **cheap when under cap** (returns immediately; no in-flight flag; no IndexedDB transaction). You do **not** await capture-engine `flushPending()` / serialize writers first. When over cap it runs in the store's owner-serialized queue, in small batches that yield to live `writeChunk` calls. It also age-prunes log rows (default 14 days) and count-bounds them (`MAX_LOG_COUNT`), and may drop oldest logs under cap pressure. `deleteSession` cascades that session’s logs. Call after Stop / idle / Settings, not per chunk.
 
-Use `getChunkCoverage(sessionId)` for gaps and saved duration (`missingSeqs`, `savedDurationMs`, `lostChunks`). Persist permanent losses with `recordChunkLost(sessionId, {seq,startMs,endMs,reason})`.
+Use `getChunkCoverage(sessionId)` for gaps and saved duration (`missingSeqs`, `savedDurationMs`, `lostChunks`). It is an O(1) session-row read. Persist permanent losses with `recordChunkLost(sessionId, {seq,startMs,endMs,reason})`. Home tiles read the same coverage fields from the `listSessions` row (no per-card chunk cursor). `hasTranscript` means at least one transcript exists — it is **not** READY. A session with missing seqs must not look like READY-without-gap.
 
 ### Session archive
 

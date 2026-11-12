@@ -44,6 +44,46 @@ export function isChunkCoverage(value: unknown): value is ChunkCoverage {
   return Array.isArray(row.missingSeqs) && typeof row.savedDurationMs === 'number';
 }
 
+/**
+ * Coverage persisted on the session row (`listSessions` / `getSession` /
+ * `getChunkCoverage`). Same fields the store maintains on writeChunk.
+ */
+export function sessionRowHasPersistedCoverage(session: {
+  lastSeq?: number;
+  savedCount?: number;
+  missingSeqs?: number[];
+  savedDurationMs?: number;
+} | null | undefined): boolean {
+  return Boolean(
+    session &&
+      typeof session.lastSeq === 'number' &&
+      Number.isFinite(session.lastSeq) &&
+      typeof session.savedCount === 'number' &&
+      Number.isFinite(session.savedCount) &&
+      Array.isArray(session.missingSeqs) &&
+      typeof session.savedDurationMs === 'number' &&
+      Number.isFinite(session.savedDurationMs)
+  );
+}
+
+export function chunkCoverageFromSessionRow(session: {
+  lastSeq?: number;
+  savedCount?: number;
+  missingSeqs?: number[];
+  savedDurationMs?: number;
+  lostChunks?: LostChunkRecord[];
+} | null | undefined): ChunkCoverage | null {
+  if (!sessionRowHasPersistedCoverage(session) || !session) return null;
+  return {
+    expectedFirstSeq: 0,
+    lastSeq: session.lastSeq as number,
+    savedCount: session.savedCount as number,
+    missingSeqs: (session.missingSeqs || []).slice(),
+    savedDurationMs: session.savedDurationMs as number,
+    lostChunks: Array.isArray(session.lostChunks) ? session.lostChunks.slice() : [],
+  };
+}
+
 export function gapSeqs(coverage: ChunkCoverage): number[] {
   const seqs = new Set<number>(coverage.missingSeqs);
   for (const lost of coverage.lostChunks || []) {

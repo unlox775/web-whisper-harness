@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { computeSessionBadge, sessionTilePreview } from './sessionTile.ts';
+import { computeSessionBadge, sessionTilePreview, sessionTilePreviewFromRow } from './sessionTile.ts';
 import type { SessionRecord, SnipRecord, TranscriptRecord } from './types.ts';
 
 function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -100,5 +100,76 @@ describe('sessionTilePreview', () => {
       computeSessionBadge(session(), [snip('a', 0, 20), snip('b', 20, 46)], []),
       null
     );
+  });
+
+  it('READY plus gap line from persisted session-row coverage (getChunkCoverage shape)', () => {
+    const preview = sessionTilePreview(
+      session({
+        duration: 3368,
+        lastSeq: 841,
+        savedCount: 794,
+        missingSeqs: [5],
+        savedDurationMs: 3176_000,
+        lostChunks: [{ seq: 5, startMs: 20_000, endMs: 24_000, reason: 'quota_exceeded' }],
+      }),
+      [snip('a', 0, 1600), snip('b', 1600, 3368)],
+      [tx('a', 'First half.'), tx('b', 'Second half.')]
+    );
+    assert.equal(preview.badge, 'ready');
+    assert.equal(preview.chunkGapNote, '56:08 elapsed · 52:56 saved · 1 gap');
+  });
+});
+
+describe('sessionTilePreviewFromRow', () => {
+  it('never shows READY from hasTranscript / status alone (false all-transcribed)', () => {
+    const preview = sessionTilePreviewFromRow(session({ hasTranscript: true, status: 'ready' }));
+    assert.equal(preview.badge, 'part-tx');
+    assert.equal(preview.snippet, '');
+  });
+
+  it('stays null when snips exist but no transcript has been written yet', () => {
+    const preview = sessionTilePreviewFromRow(
+      session({ hasTranscript: false, hasSnips: true, status: 'ready' })
+    );
+    assert.equal(preview.badge, null);
+  });
+
+  it('marks a long take with no snips PART TX so uncovered audio is not hidden', () => {
+    const preview = sessionTilePreviewFromRow(
+      session({ duration: 180, hasSnips: false, hasTranscript: false })
+    );
+    assert.equal(preview.badge, 'part-tx');
+    assert.equal(
+      preview.coverageNote,
+      'Transcription is incomplete. More audio exists beyond 0:00.'
+    );
+  });
+
+  it('shows the persisted session-row coverage gap line without scanning chunks', () => {
+    const preview = sessionTilePreviewFromRow(
+      session({
+        duration: 3368,
+        lastSeq: 841,
+        savedCount: 794,
+        missingSeqs: [5],
+        savedDurationMs: 3176_000,
+        lostChunks: [{ seq: 5, startMs: 20_000, endMs: 24_000, reason: 'quota_exceeded' }],
+      })
+    );
+    assert.equal(preview.badge, 'part-tx');
+    assert.equal(preview.chunkGapNote, '56:08 elapsed · 52:56 saved · 1 gap');
+  });
+
+  it('does not invent a gap line when persisted coverage is complete', () => {
+    const preview = sessionTilePreviewFromRow(
+      session({
+        lastSeq: 10,
+        savedCount: 11,
+        missingSeqs: [],
+        savedDurationMs: 40_000,
+        lostChunks: [],
+      })
+    );
+    assert.equal(preview.chunkGapNote, null);
   });
 });

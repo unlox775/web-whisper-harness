@@ -179,11 +179,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, tone === 'success' ? 2000 : 5000);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshSessions = useCallback(async () => {
     const listed = await sessionStore.listSessions({ limit: 100, offset: 0 });
     if (!listed.error) {
       setSessions((listed.sessions || []) as SessionRecord[]);
     }
+  }, []);
+
+  const refreshStats = useCallback(async () => {
     const stats = await sessionStore.getStorageStats();
     if (!stats.error) {
       usedBytesKnownRef.current = true;
@@ -191,6 +194,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setUsedBytes(usedBytesRef.current);
     }
   }, []);
+
+  const refresh = useCallback(async () => {
+    await refreshSessions();
+    // Storage chip is not on the list critical path. Stats may still scan today
+    // (store spec); do not block Home chrome or goHome on that work.
+    void refreshStats();
+  }, [refreshSessions, refreshStats]);
 
   const lastEnforceAt = useRef(0);
   const lastRecordingRetentionAt = useRef<number | null>(null);
@@ -272,7 +282,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }));
         sessionStore.configureLogger({ activeSessionId: null });
       }
-      await refresh();
+      await refreshSessions();
+      void refreshStats();
+      if (!cancelled) setReady(true);
       if (loaded.groqApiKey) {
         const result = await validateKey(loaded.groqApiKey);
         if (!cancelled) {
@@ -283,7 +295,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }));
         }
       }
-      if (!cancelled) setReady(true);
     })().catch((error) => {
       console.error(error);
       showToast('Storage unavailable. Check browser storage permissions.', 'error');
@@ -292,7 +303,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [refresh, showToast, syncLogger]);
+  }, [refreshSessions, refreshStats, showToast, syncLogger]);
 
   useEffect(() => {
     if (!ready) return;
@@ -389,8 +400,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setScreen('home');
     setSessionId(null);
     setAutoPlay(false);
-    void refresh();
-  }, [refresh]);
+    void refreshSessions();
+  }, [refreshSessions]);
 
   const openSession = useCallback((id: string, shouldAutoPlay = false) => {
     setSessionId(id);

@@ -2,6 +2,13 @@ import type { PackageLogLevels } from './logSettings';
 
 export type { LogLevel, LogPackageId, PackageLogLevels } from './logSettings';
 
+export type SessionLostChunk = {
+  seq: number;
+  startMs: number;
+  endMs: number;
+  reason: string;
+};
+
 export type SessionRecord = {
   id: string;
   createdAt: string;
@@ -13,6 +20,12 @@ export type SessionRecord = {
   hasSnips: boolean;
   hasTranscript: boolean;
   status?: 'recording' | 'ready' | 'error';
+  /** Persisted on the session row; same shape `getChunkCoverage` returns. */
+  lastSeq?: number;
+  savedCount?: number;
+  missingSeqs?: number[];
+  savedDurationMs?: number;
+  lostChunks?: SessionLostChunk[];
 };
 
 export type ChunkRecord = {

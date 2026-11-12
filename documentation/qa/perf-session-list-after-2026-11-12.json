@@ -1,0 +1,2079 @@
+{
+  "generatedAt": "2026-11-12T18:45:31.514Z",
+  "fixture": {
+    "zipPath": "/agent/repos/web-whisper-harness/apps/web-whisper-pwa/tests/perf/.cache/synthetic-session-357x4s.zip",
+    "mp3Path": "/agent/repos/web-whisper-harness/apps/web-whisper-pwa/tests/perf/.cache/chunk-4s-128k.mp3",
+    "chunkCount": 357,
+    "chunkSeconds": 4,
+    "durationSeconds": 1428,
+    "chunkBytes": 65245,
+    "zipBytes": 23741262,
+    "snipCount": 59,
+    "transcriptCount": 59,
+    "samplesPerChunk": 40,
+    "hasVolumeProfile": true,
+    "hasSnips": true,
+    "hasTranscript": true,
+    "status": "ready",
+    "kind": "web-whisper-session-archive",
+    "formatVersion": 1,
+    "bitrate": "128k",
+    "mime": "audio/mpeg",
+    "note": "Synthetic ffmpeg tone+noise. Not real dictation. Matches owner archive shape."
+  },
+  "cpuThrottle": 4,
+  "device": "iPhone 13 (Playwright Chromium)",
+  "recordSeconds": 12,
+  "notes": [
+    "Chromium with iPhone 13 device metrics + Emulation.setCPUThrottlingRate. Not WebKit/Safari.",
+    "Sessions seeded through session-store importSessionArchive (same path as PWA zip import).",
+    "Storage cap raised to 16384 MB so retention does not purge transcribed audio during the run."
+  ],
+  "ns": [
+    {
+      "n": 10,
+      "seeded": 10,
+      "storage": {
+        "usage": 239398912,
+        "quota": 10976817152
+      },
+      "quotaCapped": null,
+      "storeMicrobench": {
+        "n": 10,
+        "listedCount": 10,
+        "listSessions": {
+          "ms": 1.7000000001862645,
+          "minMs": 0.6000000000931323,
+          "medianMs": 0.7000000001862645,
+          "maxMs": 0.8999999999068677
+        },
+        "getStorageStats": {
+          "minMs": 121.29999999981374,
+          "medianMs": 126.5,
+          "maxMs": 128.89999999990687
+        },
+        "getSession": {
+          "minMs": 0.10000000009313226,
+          "medianMs": 0.39999999990686774,
+          "maxMs": 0.5
+        },
+        "getChunkCoverage": {
+          "minMs": 0.5,
+          "medianMs": 0.6000000000931323,
+          "maxMs": 0.7999999998137355
+        },
+        "getChunksForSession": {
+          "minMs": 9.100000000093132,
+          "medianMs": 9.299999999813735,
+          "maxMs": 10.100000000093132
+        },
+        "getSnipsForSession": {
+          "minMs": 2.6000000000931323,
+          "medianMs": 3.599999999627471,
+          "maxMs": 4.300000000279397
+        },
+        "getTranscriptsForSession": {
+          "minMs": 2.2000000001862645,
+          "medianMs": 2.2999999998137355,
+          "maxMs": 2.3000000002793968
+        },
+        "getVolumeProfile": {
+          "minMs": 0.6999999997206032,
+          "medianMs": 0.900000000372529,
+          "maxMs": 1
+        },
+        "listLikeGetChunkCoverageParallelMs": 0.7000000001862645,
+        "listLikeGetChunkCoverageSerialMs": 0.8999999999068677,
+        "listLikeTileFanoutMs": 31.100000000093132
+      },
+      "phases": [
+        {
+          "name": "coldLoadToInteractiveList",
+          "wallMs": 423,
+          "extra": {
+            "cardsVisibleMs": 432,
+            "idleMs": 1092,
+            "idle": {
+              "idleWaitMs": 654.8999999999069,
+              "ops": 7636,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 1,
+              "over50": 1,
+              "over200": 0,
+              "maxMs": 52,
+              "sumMs": 52
+            }
+          },
+          "idb": {
+            "startedAt": 67.09999999962747,
+            "now": 1089.1999999997206,
+            "byStore": {
+              "chunks": {
+                "reads": 7140,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 7140,
+                "estimatedReadBytes": 465849300,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "logs": {
+                "reads": 0,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "sessions": {
+                "reads": 22,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 20,
+                "estimatedReadBytes": 465849300,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "meta": {
+                "reads": 2,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 76,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "snips": {
+                "reads": 236,
+                "writes": 0,
+                "cursors": 4,
+                "cursorContinues": 236,
+                "estimatedReadBytes": 106440,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 236,
+                "writes": 0,
+                "cursors": 4,
+                "cursorContinues": 236,
+                "estimatedReadBytes": 178368,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 7636
+          }
+        },
+        {
+          "name": "openSessionDetail",
+          "wallMs": 585,
+          "extra": {
+            "headingMs": 119,
+            "idle": {
+              "idleWaitMs": 459.6999999997206,
+              "ops": 121,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 1,
+              "over50": 1,
+              "over200": 0,
+              "maxMs": 65,
+              "sumMs": 65
+            }
+          },
+          "idb": {
+            "startedAt": 67.09999999962747,
+            "now": 1792.5,
+            "byStore": {
+              "snips": {
+                "reads": 59,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 59,
+                "estimatedReadBytes": 26610,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 59,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 59,
+                "estimatedReadBytes": 44592,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "sessions": {
+                "reads": 2,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 46584930,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "volume-profiles": {
+                "reads": 1,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 125664,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 121
+          }
+        },
+        {
+          "name": "backToList",
+          "wallMs": 599,
+          "extra": {
+            "cardsVisibleMs": 88,
+            "idle": {
+              "idleWaitMs": 507.6999999997206,
+              "ops": 954,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 0,
+              "over50": 0,
+              "over200": 0,
+              "maxMs": 0,
+              "sumMs": 0
+            }
+          },
+          "idb": {
+            "startedAt": 67.09999999962747,
+            "now": 2401.1999999997206,
+            "byStore": {
+              "sessions": {
+                "reads": 10,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 10,
+                "estimatedReadBytes": 232924650,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "snips": {
+                "reads": 472,
+                "writes": 0,
+                "cursors": 8,
+                "cursorContinues": 472,
+                "estimatedReadBytes": 212880,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 472,
+                "writes": 0,
+                "cursors": 8,
+                "cursorContinues": 472,
+                "estimatedReadBytes": 356736,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 954
+          }
+        },
+        {
+          "name": "tapRecordToActive",
+          "wallMs": 160,
+          "idb": {
+            "startedAt": 67.09999999962747,
+            "now": 2566,
+            "byStore": {
+              "sessions": {
+                "reads": 0,
+                "writes": 1,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 321,
+                "writeMsTotal": 17,
+                "writeMsMax": 17,
+                "writeMsSamples": [
+                  17
+                ]
+              },
+              "logs": {
+                "reads": 0,
+                "writes": 1,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 363,
+                "writeMsTotal": 12.5,
+                "writeMsMax": 12.5,
+                "writeMsSamples": [
+                  12.5
+                ]
+              }
+            },
+            "ops": 2
+          }
+        },
+        {
+          "name": "recordWindow",
+          "wallMs": 12000,
+          "extra": {
+            "samples": [
+              {
+                "at": 4572.5999999996275,
+                "chunksEncoded": 0,
+                "currentDuration": 1.9504761904761905,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 0,
+                "chunkWriteMsMax": 0,
+                "chunkWriteMsTotal": 0,
+                "chunkCursors": 0,
+                "chunkCursorContinues": 0,
+                "chunkReadBytes": 0
+              },
+              {
+                "at": 6579.699999999721,
+                "chunksEncoded": 0,
+                "currentDuration": 3.9938321995464854,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 0,
+                "chunkWriteMsMax": 0,
+                "chunkWriteMsTotal": 0,
+                "chunkCursors": 0,
+                "chunkCursorContinues": 0,
+                "chunkReadBytes": 0
+              },
+              {
+                "at": 8584.19999999972,
+                "chunksEncoded": 1,
+                "currentDuration": 6.03718820861678,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 1,
+                "chunkWriteMsMax": 0.900000000372529,
+                "chunkWriteMsTotal": 0.900000000372529,
+                "chunkCursors": 1,
+                "chunkCursorContinues": 3571,
+                "chunkReadBytes": 233051708
+              },
+              {
+                "at": 10588.599999999627,
+                "chunksEncoded": 1,
+                "currentDuration": 7.987664399092971,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 1,
+                "chunkWriteMsMax": 0.900000000372529,
+                "chunkWriteMsTotal": 0.900000000372529,
+                "chunkCursors": 1,
+                "chunkCursorContinues": 3571,
+                "chunkReadBytes": 233051708
+              },
+              {
+                "at": 12593.299999999814,
+                "chunksEncoded": 2,
+                "currentDuration": 10.031020408163265,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 2,
+                "chunkWriteMsMax": 1.1000000000931323,
+                "chunkWriteMsTotal": 2.0000000004656613,
+                "chunkCursors": 2,
+                "chunkCursorContinues": 7143,
+                "chunkReadBytes": 466168619
+              },
+              {
+                "at": 14599.099999999627,
+                "chunksEncoded": 2,
+                "currentDuration": 11.981496598639456,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 2,
+                "chunkWriteMsMax": 1.1000000000931323,
+                "chunkWriteMsTotal": 2.0000000004656613,
+                "chunkCursors": 2,
+                "chunkCursorContinues": 7143,
+                "chunkReadBytes": 466168619
+              }
+            ],
+            "longTasks": {
+              "count": 5,
+              "over50": 5,
+              "over200": 3,
+              "maxMs": 405,
+              "sumMs": 1163
+            },
+            "capture": {
+              "persistEvents": [],
+              "encodedCount": 4,
+              "status": {
+                "isActive": false,
+                "chunksEncoded": 4,
+                "currentDuration": 12.353015873015874,
+                "watchdogActive": false,
+                "watchdogRemaining": 0,
+                "bufferSamples": 0,
+                "stalled": false,
+                "stalledFor": 0
+              }
+            }
+          },
+          "idb": {
+            "startedAt": 67.09999999962747,
+            "now": 16563.799999999814,
+            "byStore": {
+              "sessions": {
+                "reads": 53,
+                "writes": 11,
+                "cursors": 2,
+                "cursorContinues": 22,
+                "estimatedReadBytes": 469963995,
+                "estimatedWriteBytes": 1565572,
+                "writeMsTotal": 25.299999999813735,
+                "writeMsMax": 17,
+                "writeMsSamples": [
+                  17,
+                  0.2,
+                  0.7,
+                  1.1,
+                  1.6,
+                  1.4,
+                  0.6,
+                  0.8,
+                  1,
+                  0.1,
+                  0.8
+                ]
+              },
+              "logs": {
+                "reads": 23,
+                "writes": 5,
+                "cursors": 6,
+                "cursorContinues": 23,
+                "estimatedReadBytes": 7453,
+                "estimatedWriteBytes": 1592,
+                "writeMsTotal": 244.99999999953434,
+                "writeMsMax": 231,
+                "writeMsSamples": [
+                  12.5,
+                  0.5,
+                  0.2,
+                  231,
+                  0.8
+                ]
+              },
+              "chunks": {
+                "reads": 21446,
+                "writes": 4,
+                "cursors": 7,
+                "cursorContinues": 21442,
+                "estimatedReadBytes": 1398921727,
+                "estimatedWriteBytes": 198112,
+                "writeMsTotal": 4.1000000005587935,
+                "writeMsMax": 1.3000000002793968,
+                "writeMsSamples": [
+                  0.9,
+                  1.1,
+                  1.3,
+                  0.8
+                ]
+              },
+              "chunk-blobs": {
+                "reads": 4,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 198112,
+                "estimatedWriteBytes": 198112,
+                "writeMsTotal": 4.200000000651926,
+                "writeMsMax": 1.3000000002793968,
+                "writeMsSamples": [
+                  1.1,
+                  1.1,
+                  1.3,
+                  0.7
+                ]
+              },
+              "volume-profiles": {
+                "reads": 10,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 7640,
+                "estimatedWriteBytes": 3256,
+                "writeMsTotal": 560.0000000004657,
+                "writeMsMax": 196.5,
+                "writeMsSamples": [
+                  185.6,
+                  177.3,
+                  196.5,
+                  0.6
+                ]
+              },
+              "snips": {
+                "reads": 594,
+                "writes": 1,
+                "cursors": 27,
+                "cursorContinues": 594,
+                "estimatedReadBytes": 267616,
+                "estimatedWriteBytes": 379,
+                "writeMsTotal": 0.5,
+                "writeMsMax": 0.5,
+                "writeMsSamples": [
+                  0.5
+                ]
+              },
+              "transcripts": {
+                "reads": 590,
+                "writes": 0,
+                "cursors": 17,
+                "cursorContinues": 590,
+                "estimatedReadBytes": 445920,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 22749
+          }
+        },
+        {
+          "name": "stopToFinished",
+          "wallMs": 1957,
+          "extra": {
+            "interactiveMs": 1249,
+            "longTasks": {
+              "count": 5,
+              "over50": 5,
+              "over200": 3,
+              "maxMs": 405,
+              "sumMs": 1163
+            }
+          },
+          "idb": {
+            "startedAt": 67.09999999962747,
+            "now": 16570.69999999972,
+            "byStore": {
+              "sessions": {
+                "reads": 53,
+                "writes": 11,
+                "cursors": 2,
+                "cursorContinues": 22,
+                "estimatedReadBytes": 469963995,
+                "estimatedWriteBytes": 1565572,
+                "writeMsTotal": 25.299999999813735,
+                "writeMsMax": 17,
+                "writeMsSamples": [
+                  17,
+                  0.2,
+                  0.7,
+                  1.1,
+                  1.6,
+                  1.4,
+                  0.6,
+                  0.8,
+                  1,
+                  0.1,
+                  0.8
+                ]
+              },
+              "logs": {
+                "reads": 23,
+                "writes": 5,
+                "cursors": 6,
+                "cursorContinues": 23,
+                "estimatedReadBytes": 7453,
+                "estimatedWriteBytes": 1592,
+                "writeMsTotal": 244.99999999953434,
+                "writeMsMax": 231,
+                "writeMsSamples": [
+                  12.5,
+                  0.5,
+                  0.2,
+                  231,
+                  0.8
+                ]
+              },
+              "chunks": {
+                "reads": 21446,
+                "writes": 4,
+                "cursors": 7,
+                "cursorContinues": 21442,
+                "estimatedReadBytes": 1398921727,
+                "estimatedWriteBytes": 198112,
+                "writeMsTotal": 4.1000000005587935,
+                "writeMsMax": 1.3000000002793968,
+                "writeMsSamples": [
+                  0.9,
+                  1.1,
+                  1.3,
+                  0.8
+                ]
+              },
+              "chunk-blobs": {
+                "reads": 4,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 198112,
+                "estimatedWriteBytes": 198112,
+                "writeMsTotal": 4.200000000651926,
+                "writeMsMax": 1.3000000002793968,
+                "writeMsSamples": [
+                  1.1,
+                  1.1,
+                  1.3,
+                  0.7
+                ]
+              },
+              "volume-profiles": {
+                "reads": 10,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 7640,
+                "estimatedWriteBytes": 3256,
+                "writeMsTotal": 560.0000000004657,
+                "writeMsMax": 196.5,
+                "writeMsSamples": [
+                  185.6,
+                  177.3,
+                  196.5,
+                  0.6
+                ]
+              },
+              "snips": {
+                "reads": 594,
+                "writes": 1,
+                "cursors": 27,
+                "cursorContinues": 594,
+                "estimatedReadBytes": 267616,
+                "estimatedWriteBytes": 379,
+                "writeMsTotal": 0.5,
+                "writeMsMax": 0.5,
+                "writeMsSamples": [
+                  0.5
+                ]
+              },
+              "transcripts": {
+                "reads": 590,
+                "writes": 0,
+                "cursors": 17,
+                "cursorContinues": 590,
+                "estimatedReadBytes": 445920,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 22749
+          }
+        }
+      ]
+    },
+    {
+      "n": 50,
+      "seeded": 50,
+      "storage": {
+        "usage": 1196871680,
+        "quota": 11934289920
+      },
+      "quotaCapped": null,
+      "storeMicrobench": {
+        "n": 50,
+        "listedCount": 50,
+        "listSessions": {
+          "ms": 5.199999999720603,
+          "minMs": 1.8000000002793968,
+          "medianMs": 2.1999999997206032,
+          "maxMs": 3.3999999999068677
+        },
+        "getStorageStats": {
+          "minMs": 578.5,
+          "medianMs": 613.3999999999069,
+          "maxMs": 617.5
+        },
+        "getSession": {
+          "minMs": 0,
+          "medianMs": 0.20000000018626451,
+          "maxMs": 0.5
+        },
+        "getChunkCoverage": {
+          "minMs": 0.10000000009313226,
+          "medianMs": 0.10000000009313226,
+          "maxMs": 0.19999999972060323
+        },
+        "getChunksForSession": {
+          "minMs": 8.899999999906868,
+          "medianMs": 9.100000000093132,
+          "maxMs": 9.5
+        },
+        "getSnipsForSession": {
+          "minMs": 2.2999999998137355,
+          "medianMs": 2.7000000001862645,
+          "maxMs": 3.7999999998137355
+        },
+        "getTranscriptsForSession": {
+          "minMs": 2.1000000000931323,
+          "medianMs": 2.3000000002793968,
+          "maxMs": 3.099999999627471
+        },
+        "getVolumeProfile": {
+          "minMs": 0.8000000002793968,
+          "medianMs": 1,
+          "maxMs": 1.3999999999068677
+        },
+        "listLikeGetChunkCoverageParallelMs": 2.6000000000931323,
+        "listLikeGetChunkCoverageSerialMs": 5.099999999627471,
+        "listLikeTileFanoutMs": 164.5
+      },
+      "phases": [
+        {
+          "name": "coldLoadToInteractiveList",
+          "wallMs": 1477,
+          "extra": {
+            "cardsVisibleMs": 1490,
+            "idleMs": 2730,
+            "idle": {
+              "idleWaitMs": 1228.3999999999069,
+              "ops": 36276,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 0,
+              "over50": 0,
+              "over200": 0,
+              "maxMs": 0,
+              "sumMs": 0
+            }
+          },
+          "idb": {
+            "startedAt": 81.60000000009313,
+            "now": 2728.100000000093,
+            "byStore": {
+              "chunks": {
+                "reads": 35700,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 35700,
+                "estimatedReadBytes": 2329246500,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "logs": {
+                "reads": 0,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "sessions": {
+                "reads": 102,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 100,
+                "estimatedReadBytes": 2329246500,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "meta": {
+                "reads": 2,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 76,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "snips": {
+                "reads": 236,
+                "writes": 0,
+                "cursors": 4,
+                "cursorContinues": 236,
+                "estimatedReadBytes": 106440,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 236,
+                "writes": 0,
+                "cursors": 4,
+                "cursorContinues": 236,
+                "estimatedReadBytes": 178368,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 36276
+          }
+        },
+        {
+          "name": "openSessionDetail",
+          "wallMs": 527,
+          "extra": {
+            "headingMs": 69,
+            "idle": {
+              "idleWaitMs": 452.90000000037253,
+              "ops": 121,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 0,
+              "over50": 0,
+              "over200": 0,
+              "maxMs": 0,
+              "sumMs": 0
+            }
+          },
+          "idb": {
+            "startedAt": 81.60000000009313,
+            "now": 3267.3000000002794,
+            "byStore": {
+              "snips": {
+                "reads": 59,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 59,
+                "estimatedReadBytes": 26610,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 59,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 59,
+                "estimatedReadBytes": 44592,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "sessions": {
+                "reads": 2,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 46584930,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "volume-profiles": {
+                "reads": 1,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 125664,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 121
+          }
+        },
+        {
+          "name": "backToList",
+          "wallMs": 664,
+          "extra": {
+            "cardsVisibleMs": 126,
+            "idle": {
+              "idleWaitMs": 535,
+              "ops": 994,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 0,
+              "over50": 0,
+              "over200": 0,
+              "maxMs": 0,
+              "sumMs": 0
+            }
+          },
+          "idb": {
+            "startedAt": 81.60000000009313,
+            "now": 3939.7000000001863,
+            "byStore": {
+              "sessions": {
+                "reads": 50,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 50,
+                "estimatedReadBytes": 1164623250,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "snips": {
+                "reads": 472,
+                "writes": 0,
+                "cursors": 8,
+                "cursorContinues": 472,
+                "estimatedReadBytes": 212880,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 472,
+                "writes": 0,
+                "cursors": 8,
+                "cursorContinues": 472,
+                "estimatedReadBytes": 356736,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 994
+          }
+        },
+        {
+          "name": "tapRecordToActive",
+          "wallMs": 115,
+          "idb": {
+            "startedAt": 81.60000000009313,
+            "now": 4062.5,
+            "byStore": {
+              "sessions": {
+                "reads": 0,
+                "writes": 1,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 321,
+                "writeMsTotal": 9.700000000186265,
+                "writeMsMax": 9.700000000186265,
+                "writeMsSamples": [
+                  9.7
+                ]
+              },
+              "logs": {
+                "reads": 0,
+                "writes": 1,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 363,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 2
+          }
+        },
+        {
+          "name": "recordWindow",
+          "wallMs": 12000,
+          "extra": {
+            "samples": [
+              {
+                "at": 6069.5,
+                "chunksEncoded": 0,
+                "currentDuration": 1.9504761904761905,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 0,
+                "chunkWriteMsMax": 0,
+                "chunkWriteMsTotal": 0,
+                "chunkCursors": 0,
+                "chunkCursorContinues": 0,
+                "chunkReadBytes": 0
+              },
+              {
+                "at": 8076.200000000186,
+                "chunksEncoded": 0,
+                "currentDuration": 3.9938321995464854,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 0,
+                "chunkWriteMsMax": 0,
+                "chunkWriteMsTotal": 0,
+                "chunkCursors": 0,
+                "chunkCursorContinues": 0,
+                "chunkReadBytes": 0
+              },
+              {
+                "at": 10082.5,
+                "chunksEncoded": 1,
+                "currentDuration": 6.03718820861678,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 1,
+                "chunkWriteMsMax": 2.6000000000931323,
+                "chunkWriteMsTotal": 2.6000000000931323,
+                "chunkCursors": 1,
+                "chunkCursorContinues": 17851,
+                "chunkReadBytes": 1164750308
+              },
+              {
+                "at": 12087.80000000028,
+                "chunksEncoded": 1,
+                "currentDuration": 7.987664399092971,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 1,
+                "chunkWriteMsMax": 2.6000000000931323,
+                "chunkWriteMsTotal": 2.6000000000931323,
+                "chunkCursors": 1,
+                "chunkCursorContinues": 17851,
+                "chunkReadBytes": 1164750308
+              },
+              {
+                "at": 14093.30000000028,
+                "chunksEncoded": 2,
+                "currentDuration": 10.031020408163265,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 2,
+                "chunkWriteMsMax": 2.6000000000931323,
+                "chunkWriteMsTotal": 2.8000000002793968,
+                "chunkCursors": 2,
+                "chunkCursorContinues": 35703,
+                "chunkReadBytes": 2329565819
+              },
+              {
+                "at": 16100.700000000186,
+                "chunksEncoded": 2,
+                "currentDuration": 11.981496598639456,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 2,
+                "chunkWriteMsMax": 2.6000000000931323,
+                "chunkWriteMsTotal": 2.8000000002793968,
+                "chunkCursors": 2,
+                "chunkCursorContinues": 35703,
+                "chunkReadBytes": 2329565819
+              }
+            ],
+            "longTasks": {
+              "count": 3,
+              "over50": 3,
+              "over200": 3,
+              "maxMs": 454,
+              "sumMs": 1073
+            },
+            "capture": {
+              "persistEvents": [],
+              "encodedCount": 4,
+              "status": {
+                "isActive": false,
+                "chunksEncoded": 4,
+                "currentDuration": 12.353015873015874,
+                "watchdogActive": false,
+                "watchdogRemaining": 0,
+                "bufferSamples": 0,
+                "stalled": false,
+                "stalledFor": 0
+              }
+            }
+          },
+          "idb": {
+            "startedAt": 81.60000000009313,
+            "now": 20661.30000000028,
+            "byStore": {
+              "sessions": {
+                "reads": 133,
+                "writes": 11,
+                "cursors": 2,
+                "cursorContinues": 102,
+                "estimatedReadBytes": 2333361195,
+                "estimatedWriteBytes": 1565572,
+                "writeMsTotal": 26.899999999906868,
+                "writeMsMax": 9.700000000186265,
+                "writeMsSamples": [
+                  9.7,
+                  2.6,
+                  1.1,
+                  9.7,
+                  0.8,
+                  1.2,
+                  0.7,
+                  0.4,
+                  0.5,
+                  0.1,
+                  0.1
+                ]
+              },
+              "logs": {
+                "reads": 24,
+                "writes": 5,
+                "cursors": 6,
+                "cursorContinues": 24,
+                "estimatedReadBytes": 7762,
+                "estimatedWriteBytes": 1592,
+                "writeMsTotal": 61.10000000009313,
+                "writeMsMax": 56.8000000002794,
+                "writeMsSamples": [
+                  56.8,
+                  0.7,
+                  0.3,
+                  2.6,
+                  0.7
+                ]
+              },
+              "chunks": {
+                "reads": 107126,
+                "writes": 4,
+                "cursors": 7,
+                "cursorContinues": 107122,
+                "estimatedReadBytes": 6989113327,
+                "estimatedWriteBytes": 198112,
+                "writeMsTotal": 4.399999999906868,
+                "writeMsMax": 2.6000000000931323,
+                "writeMsSamples": [
+                  2.6,
+                  0.2,
+                  1.2,
+                  0.4
+                ]
+              },
+              "chunk-blobs": {
+                "reads": 4,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 198112,
+                "estimatedWriteBytes": 198112,
+                "writeMsTotal": 13.900000000372529,
+                "writeMsMax": 9.300000000279397,
+                "writeMsSamples": [
+                  2.7,
+                  9.3,
+                  1.2,
+                  0.7
+                ]
+              },
+              "volume-profiles": {
+                "reads": 10,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 7640,
+                "estimatedWriteBytes": 3256,
+                "writeMsTotal": 1881.2999999998137,
+                "writeMsMax": 948.1999999997206,
+                "writeMsSamples": [
+                  948.2,
+                  932,
+                  0.6,
+                  0.5
+                ]
+              },
+              "snips": {
+                "reads": 594,
+                "writes": 1,
+                "cursors": 27,
+                "cursorContinues": 594,
+                "estimatedReadBytes": 267616,
+                "estimatedWriteBytes": 379,
+                "writeMsTotal": 0.6000000000931323,
+                "writeMsMax": 0.6000000000931323,
+                "writeMsSamples": [
+                  0.6
+                ]
+              },
+              "transcripts": {
+                "reads": 590,
+                "writes": 0,
+                "cursors": 17,
+                "cursorContinues": 590,
+                "estimatedReadBytes": 445920,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 108510
+          }
+        },
+        {
+          "name": "stopToFinished",
+          "wallMs": 4552,
+          "extra": {
+            "interactiveMs": 2770,
+            "longTasks": {
+              "count": 3,
+              "over50": 3,
+              "over200": 3,
+              "maxMs": 454,
+              "sumMs": 1073
+            }
+          },
+          "idb": {
+            "startedAt": 81.60000000009313,
+            "now": 20665.700000000186,
+            "byStore": {
+              "sessions": {
+                "reads": 133,
+                "writes": 11,
+                "cursors": 2,
+                "cursorContinues": 102,
+                "estimatedReadBytes": 2333361195,
+                "estimatedWriteBytes": 1565572,
+                "writeMsTotal": 26.899999999906868,
+                "writeMsMax": 9.700000000186265,
+                "writeMsSamples": [
+                  9.7,
+                  2.6,
+                  1.1,
+                  9.7,
+                  0.8,
+                  1.2,
+                  0.7,
+                  0.4,
+                  0.5,
+                  0.1,
+                  0.1
+                ]
+              },
+              "logs": {
+                "reads": 24,
+                "writes": 5,
+                "cursors": 6,
+                "cursorContinues": 24,
+                "estimatedReadBytes": 7762,
+                "estimatedWriteBytes": 1592,
+                "writeMsTotal": 61.10000000009313,
+                "writeMsMax": 56.8000000002794,
+                "writeMsSamples": [
+                  56.8,
+                  0.7,
+                  0.3,
+                  2.6,
+                  0.7
+                ]
+              },
+              "chunks": {
+                "reads": 107126,
+                "writes": 4,
+                "cursors": 7,
+                "cursorContinues": 107122,
+                "estimatedReadBytes": 6989113327,
+                "estimatedWriteBytes": 198112,
+                "writeMsTotal": 4.399999999906868,
+                "writeMsMax": 2.6000000000931323,
+                "writeMsSamples": [
+                  2.6,
+                  0.2,
+                  1.2,
+                  0.4
+                ]
+              },
+              "chunk-blobs": {
+                "reads": 4,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 198112,
+                "estimatedWriteBytes": 198112,
+                "writeMsTotal": 13.900000000372529,
+                "writeMsMax": 9.300000000279397,
+                "writeMsSamples": [
+                  2.7,
+                  9.3,
+                  1.2,
+                  0.7
+                ]
+              },
+              "volume-profiles": {
+                "reads": 10,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 7640,
+                "estimatedWriteBytes": 3256,
+                "writeMsTotal": 1881.2999999998137,
+                "writeMsMax": 948.1999999997206,
+                "writeMsSamples": [
+                  948.2,
+                  932,
+                  0.6,
+                  0.5
+                ]
+              },
+              "snips": {
+                "reads": 594,
+                "writes": 1,
+                "cursors": 27,
+                "cursorContinues": 594,
+                "estimatedReadBytes": 267616,
+                "estimatedWriteBytes": 379,
+                "writeMsTotal": 0.6000000000931323,
+                "writeMsMax": 0.6000000000931323,
+                "writeMsSamples": [
+                  0.6
+                ]
+              },
+              "transcripts": {
+                "reads": 590,
+                "writes": 0,
+                "cursors": 17,
+                "cursorContinues": 590,
+                "estimatedReadBytes": 445920,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 108510
+          }
+        }
+      ]
+    },
+    {
+      "n": 100,
+      "seeded": 100,
+      "storage": {
+        "usage": 2393841664,
+        "quota": 13131259904
+      },
+      "quotaCapped": null,
+      "storeMicrobench": {
+        "n": 100,
+        "listedCount": 100,
+        "listSessions": {
+          "ms": 7.400000000372529,
+          "minMs": 4,
+          "medianMs": 4.599999999627471,
+          "maxMs": 4.900000000372529
+        },
+        "getStorageStats": {
+          "minMs": 1250.1000000000931,
+          "medianMs": 1274.3000000002794,
+          "maxMs": 1294.7999999998137
+        },
+        "getSession": {
+          "minMs": 0.19999999972060323,
+          "medianMs": 0.20000000018626451,
+          "maxMs": 0.39999999990686774
+        },
+        "getChunkCoverage": {
+          "minMs": 0.10000000009313226,
+          "medianMs": 0.10000000009313226,
+          "maxMs": 0.10000000009313226
+        },
+        "getChunksForSession": {
+          "minMs": 9.200000000186265,
+          "medianMs": 9.399999999906868,
+          "maxMs": 9.799999999813735
+        },
+        "getSnipsForSession": {
+          "minMs": 3.7000000001862645,
+          "medianMs": 4.399999999906868,
+          "maxMs": 4.899999999906868
+        },
+        "getTranscriptsForSession": {
+          "minMs": 2.8000000002793968,
+          "medianMs": 3.5,
+          "maxMs": 3.6999999997206032
+        },
+        "getVolumeProfile": {
+          "minMs": 1,
+          "medianMs": 1.3999999999068677,
+          "maxMs": 1.400000000372529
+        },
+        "listLikeGetChunkCoverageParallelMs": 5.599999999627471,
+        "listLikeGetChunkCoverageSerialMs": 10.100000000093132,
+        "listLikeTileFanoutMs": 376.70000000018626
+      },
+      "phases": [
+        {
+          "name": "coldLoadToInteractiveList",
+          "wallMs": 2590,
+          "extra": {
+            "cardsVisibleMs": 2604,
+            "idleMs": 5018,
+            "idle": {
+              "idleWaitMs": 2409.7999999998137,
+              "ops": 72076,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 2,
+              "over50": 2,
+              "over200": 0,
+              "maxMs": 62,
+              "sumMs": 118
+            }
+          },
+          "idb": {
+            "startedAt": 91.70000000018626,
+            "now": 5016.100000000093,
+            "byStore": {
+              "chunks": {
+                "reads": 71400,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 71400,
+                "estimatedReadBytes": 4658493000,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "logs": {
+                "reads": 0,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "sessions": {
+                "reads": 202,
+                "writes": 0,
+                "cursors": 2,
+                "cursorContinues": 200,
+                "estimatedReadBytes": 4658493000,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "meta": {
+                "reads": 2,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 76,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "snips": {
+                "reads": 236,
+                "writes": 0,
+                "cursors": 4,
+                "cursorContinues": 236,
+                "estimatedReadBytes": 106440,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 236,
+                "writes": 0,
+                "cursors": 4,
+                "cursorContinues": 236,
+                "estimatedReadBytes": 178368,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 72076
+          }
+        },
+        {
+          "name": "openSessionDetail",
+          "wallMs": 530,
+          "extra": {
+            "headingMs": 69,
+            "idle": {
+              "idleWaitMs": 453.5,
+              "ops": 121,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 0,
+              "over50": 0,
+              "over200": 0,
+              "maxMs": 0,
+              "sumMs": 0
+            }
+          },
+          "idb": {
+            "startedAt": 91.70000000018626,
+            "now": 5787.700000000186,
+            "byStore": {
+              "snips": {
+                "reads": 59,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 59,
+                "estimatedReadBytes": 26610,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 59,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 59,
+                "estimatedReadBytes": 44592,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "sessions": {
+                "reads": 2,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 46584930,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "volume-profiles": {
+                "reads": 1,
+                "writes": 0,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 125664,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 121
+          }
+        },
+        {
+          "name": "backToList",
+          "wallMs": 793,
+          "extra": {
+            "cardsVisibleMs": 203,
+            "idle": {
+              "idleWaitMs": 586.6999999997206,
+              "ops": 1044,
+              "timedOut": false
+            },
+            "longTasks": {
+              "count": 1,
+              "over50": 1,
+              "over200": 0,
+              "maxMs": 71,
+              "sumMs": 71
+            }
+          },
+          "idb": {
+            "startedAt": 91.70000000018626,
+            "now": 6590.300000000279,
+            "byStore": {
+              "sessions": {
+                "reads": 100,
+                "writes": 0,
+                "cursors": 1,
+                "cursorContinues": 100,
+                "estimatedReadBytes": 2329246500,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "snips": {
+                "reads": 472,
+                "writes": 0,
+                "cursors": 8,
+                "cursorContinues": 472,
+                "estimatedReadBytes": 212880,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              },
+              "transcripts": {
+                "reads": 472,
+                "writes": 0,
+                "cursors": 8,
+                "cursorContinues": 472,
+                "estimatedReadBytes": 356736,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 1044
+          }
+        },
+        {
+          "name": "tapRecordToActive",
+          "wallMs": 152,
+          "idb": {
+            "startedAt": 91.70000000018626,
+            "now": 6793.100000000093,
+            "byStore": {
+              "sessions": {
+                "reads": 0,
+                "writes": 1,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 321,
+                "writeMsTotal": 11.899999999906868,
+                "writeMsMax": 11.899999999906868,
+                "writeMsSamples": [
+                  11.9
+                ]
+              },
+              "logs": {
+                "reads": 0,
+                "writes": 1,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 0,
+                "estimatedWriteBytes": 363,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 2
+          }
+        },
+        {
+          "name": "recordWindow",
+          "wallMs": 12000,
+          "extra": {
+            "samples": [
+              {
+                "at": 8798.5,
+                "chunksEncoded": 0,
+                "currentDuration": 2.043356009070295,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 0,
+                "chunkWriteMsMax": 0,
+                "chunkWriteMsTotal": 0,
+                "chunkCursors": 0,
+                "chunkCursorContinues": 0,
+                "chunkReadBytes": 0
+              },
+              {
+                "at": 11209.600000000093,
+                "chunksEncoded": 1,
+                "currentDuration": 4.08671201814059,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 0,
+                "chunkWriteMsMax": 0,
+                "chunkWriteMsTotal": 0,
+                "chunkCursors": 0,
+                "chunkCursorContinues": 0,
+                "chunkReadBytes": 0
+              },
+              {
+                "at": 13217.100000000093,
+                "chunksEncoded": 1,
+                "currentDuration": 6.501587301587302,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 1,
+                "chunkWriteMsMax": 1,
+                "chunkWriteMsTotal": 1,
+                "chunkCursors": 1,
+                "chunkCursorContinues": 34461,
+                "chunkReadBytes": 2248471474
+              },
+              {
+                "at": 15223.100000000093,
+                "chunksEncoded": 2,
+                "currentDuration": 8.452063492063493,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 2,
+                "chunkWriteMsMax": 1,
+                "chunkWriteMsTotal": 1.1999999997206032,
+                "chunkCursors": 2,
+                "chunkCursorContinues": 35704,
+                "chunkReadBytes": 2329569293
+              },
+              {
+                "at": 17229.900000000373,
+                "chunksEncoded": 2,
+                "currentDuration": 10.495419501133787,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 2,
+                "chunkWriteMsMax": 1,
+                "chunkWriteMsTotal": 1.1999999997206032,
+                "chunkCursors": 2,
+                "chunkCursorContinues": 71403,
+                "chunkReadBytes": 4658812319
+              },
+              {
+                "at": 19245.30000000028,
+                "chunksEncoded": 3,
+                "currentDuration": 12.445895691609977,
+                "persistEvents": 0,
+                "lastPersist": null,
+                "savingBehind": false,
+                "chunkWrites": 3,
+                "chunkWriteMsMax": 1.1000000000931323,
+                "chunkWriteMsTotal": 2.2999999998137355,
+                "chunkCursors": 3,
+                "chunkCursorContinues": 71444,
+                "chunkReadBytes": 4661551312
+              }
+            ],
+            "longTasks": {
+              "count": 4,
+              "over50": 4,
+              "over200": 3,
+              "maxMs": 418,
+              "sumMs": 1162
+            },
+            "capture": {
+              "persistEvents": [],
+              "encodedCount": 4,
+              "status": {
+                "isActive": false,
+                "chunksEncoded": 4,
+                "currentDuration": 12.538775510204081,
+                "watchdogActive": false,
+                "watchdogRemaining": 0,
+                "bufferSamples": 0,
+                "stalled": false,
+                "stalledFor": 0
+              }
+            }
+          },
+          "idb": {
+            "startedAt": 91.70000000018626,
+            "now": 27869.80000000028,
+            "byStore": {
+              "sessions": {
+                "reads": 233,
+                "writes": 11,
+                "cursors": 2,
+                "cursorContinues": 202,
+                "estimatedReadBytes": 4662621074,
+                "estimatedWriteBytes": 1571007,
+                "writeMsTotal": 35.799999999813735,
+                "writeMsMax": 11.899999999906868,
+                "writeMsSamples": [
+                  11.9,
+                  4.7,
+                  0.8,
+                  10.3,
+                  0.5,
+                  0.9,
+                  1.8,
+                  2.6,
+                  1.5,
+                  0.7,
+                  0.1
+                ]
+              },
+              "logs": {
+                "reads": 23,
+                "writes": 5,
+                "cursors": 6,
+                "cursorContinues": 23,
+                "estimatedReadBytes": 7453,
+                "estimatedWriteBytes": 1592,
+                "writeMsTotal": 68.00000000046566,
+                "writeMsMax": 65.40000000037253,
+                "writeMsSamples": [
+                  65.4,
+                  0.8,
+                  0.7,
+                  0.5,
+                  0.6
+                ]
+              },
+              "chunks": {
+                "reads": 214226,
+                "writes": 4,
+                "cursors": 7,
+                "cursorContinues": 214222,
+                "estimatedReadBytes": 13976867457,
+                "estimatedWriteBytes": 201038,
+                "writeMsTotal": 5.3999999994412065,
+                "writeMsMax": 3.099999999627471,
+                "writeMsSamples": [
+                  1,
+                  0.2,
+                  1.1,
+                  3.1
+                ]
+              },
+              "chunk-blobs": {
+                "reads": 4,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 201038,
+                "estimatedWriteBytes": 201038,
+                "writeMsTotal": 18.899999999441206,
+                "writeMsMax": 10.200000000186265,
+                "writeMsSamples": [
+                  5.2,
+                  10.2,
+                  0.9,
+                  2.6
+                ]
+              },
+              "volume-profiles": {
+                "reads": 10,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 7688,
+                "estimatedWriteBytes": 3272,
+                "writeMsTotal": 6202.200000000186,
+                "writeMsMax": 2246.8000000002794,
+                "writeMsSamples": [
+                  1976.6,
+                  1978.1,
+                  2246.8,
+                  0.7
+                ]
+              },
+              "snips": {
+                "reads": 594,
+                "writes": 1,
+                "cursors": 27,
+                "cursorContinues": 594,
+                "estimatedReadBytes": 267616,
+                "estimatedWriteBytes": 379,
+                "writeMsTotal": 0.20000000018626451,
+                "writeMsMax": 0.20000000018626451,
+                "writeMsSamples": [
+                  0.2
+                ]
+              },
+              "transcripts": {
+                "reads": 590,
+                "writes": 0,
+                "cursors": 17,
+                "cursorContinues": 590,
+                "estimatedReadBytes": 445920,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 215709
+          }
+        },
+        {
+          "name": "stopToFinished",
+          "wallMs": 8615,
+          "extra": {
+            "interactiveMs": 5525,
+            "longTasks": {
+              "count": 4,
+              "over50": 4,
+              "over200": 3,
+              "maxMs": 418,
+              "sumMs": 1162
+            }
+          },
+          "idb": {
+            "startedAt": 91.70000000018626,
+            "now": 27874.80000000028,
+            "byStore": {
+              "sessions": {
+                "reads": 233,
+                "writes": 11,
+                "cursors": 2,
+                "cursorContinues": 202,
+                "estimatedReadBytes": 4662621074,
+                "estimatedWriteBytes": 1571007,
+                "writeMsTotal": 35.799999999813735,
+                "writeMsMax": 11.899999999906868,
+                "writeMsSamples": [
+                  11.9,
+                  4.7,
+                  0.8,
+                  10.3,
+                  0.5,
+                  0.9,
+                  1.8,
+                  2.6,
+                  1.5,
+                  0.7,
+                  0.1
+                ]
+              },
+              "logs": {
+                "reads": 23,
+                "writes": 5,
+                "cursors": 6,
+                "cursorContinues": 23,
+                "estimatedReadBytes": 7453,
+                "estimatedWriteBytes": 1592,
+                "writeMsTotal": 68.00000000046566,
+                "writeMsMax": 65.40000000037253,
+                "writeMsSamples": [
+                  65.4,
+                  0.8,
+                  0.7,
+                  0.5,
+                  0.6
+                ]
+              },
+              "chunks": {
+                "reads": 214226,
+                "writes": 4,
+                "cursors": 7,
+                "cursorContinues": 214222,
+                "estimatedReadBytes": 13976867457,
+                "estimatedWriteBytes": 201038,
+                "writeMsTotal": 5.3999999994412065,
+                "writeMsMax": 3.099999999627471,
+                "writeMsSamples": [
+                  1,
+                  0.2,
+                  1.1,
+                  3.1
+                ]
+              },
+              "chunk-blobs": {
+                "reads": 4,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 201038,
+                "estimatedWriteBytes": 201038,
+                "writeMsTotal": 18.899999999441206,
+                "writeMsMax": 10.200000000186265,
+                "writeMsSamples": [
+                  5.2,
+                  10.2,
+                  0.9,
+                  2.6
+                ]
+              },
+              "volume-profiles": {
+                "reads": 10,
+                "writes": 4,
+                "cursors": 0,
+                "cursorContinues": 0,
+                "estimatedReadBytes": 7688,
+                "estimatedWriteBytes": 3272,
+                "writeMsTotal": 6202.200000000186,
+                "writeMsMax": 2246.8000000002794,
+                "writeMsSamples": [
+                  1976.6,
+                  1978.1,
+                  2246.8,
+                  0.7
+                ]
+              },
+              "snips": {
+                "reads": 594,
+                "writes": 1,
+                "cursors": 27,
+                "cursorContinues": 594,
+                "estimatedReadBytes": 267616,
+                "estimatedWriteBytes": 379,
+                "writeMsTotal": 0.20000000018626451,
+                "writeMsMax": 0.20000000018626451,
+                "writeMsSamples": [
+                  0.2
+                ]
+              },
+              "transcripts": {
+                "reads": 590,
+                "writes": 0,
+                "cursors": 17,
+                "cursorContinues": 590,
+                "estimatedReadBytes": 445920,
+                "estimatedWriteBytes": 0,
+                "writeMsTotal": 0,
+                "writeMsMax": 0,
+                "writeMsSamples": []
+              }
+            },
+            "ops": 215709
+          }
+        }
+      ]
+    }
+  ]
+}

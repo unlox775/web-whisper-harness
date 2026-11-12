@@ -12,6 +12,7 @@ import type { ChunkRecord, SessionRecord, SnipRecord, TranscriptRecord } from '.
 import { VolumeHistogram } from '../components/VolumeHistogram';
 import { buildTranscriptText, previewSnipTranscriptText } from '../transcriptText';
 import {
+  chunkCoverageFromSessionRow,
   elapsedSecondsForCoverage,
   formatCoverageSummary,
   formatGapRangeList,
@@ -95,7 +96,10 @@ export function SessionDetailScreen() {
           ? sessionTranscribedPreview()
           : null;
   const sessionId = screenshotPreview?.session.id ?? app.sessionId!;
-  const [session, setSession] = useState<SessionRecord | null>(screenshotPreview?.session ?? null);
+  const listedSession = app.sessions.find((row) => row.id === sessionId) ?? null;
+  const [session, setSession] = useState<SessionRecord | null>(
+    screenshotPreview?.session ?? listedSession
+  );
   const [chunks, setChunks] = useState<ChunkRecord[]>(
     isSessionDebugExportScreenshot(screenshotMode) && screenshotPreview
       ? [
@@ -119,7 +123,7 @@ export function SessionDetailScreen() {
   const [chunkCoverage, setChunkCoverage] = useState<ChunkCoverage | null>(
     screenshotPreview && 'chunkCoverage' in screenshotPreview
       ? screenshotPreview.chunkCoverage
-      : null
+      : chunkCoverageFromSessionRow(listedSession)
   );
   const demoPlayhead = readPlayheadQuery();
   const [playing, setPlaying] = useState(false);
@@ -153,21 +157,32 @@ export function SessionDetailScreen() {
   const selectTokenRef = useRef(0);
 
   async function load() {
-    const next = await sessionStore.getSession(sessionId);
-    setSession(next as SessionRecord | null);
-    const chunkList = await sessionStore.getChunksForSession(sessionId);
-    setChunks((chunkList.chunks || []) as ChunkRecord[]);
-    const snipList = await sessionStore.getSnipsForSession(sessionId);
+    const [next, snipList, transcriptList] = await Promise.all([
+      sessionStore.getSession(sessionId),
+      sessionStore.getSnipsForSession(sessionId),
+      sessionStore.getTranscriptsForSession(sessionId),
+    ]);
+    if (next) setSession(next as SessionRecord);
     setSnips((snipList.snips || []) as SnipRecord[]);
-    const transcriptList = await sessionStore.getTranscriptsForSession(sessionId);
     setTranscripts((transcriptList.transcripts || []) as TranscriptRecord[]);
-    setVolumeProfile(await sessionStore.getVolumeProfile(sessionId));
-    const coverage = await sessionStore.getChunkCoverage(sessionId);
+    const [chunkList, volume, coverage] = await Promise.all([
+      sessionStore.getChunksForSession(sessionId),
+      sessionStore.getVolumeProfile(sessionId),
+      sessionStore.getChunkCoverage(sessionId),
+    ]);
+    setChunks((chunkList.chunks || []) as ChunkRecord[]);
+    setVolumeProfile(volume);
     setChunkCoverage(isChunkCoverage(coverage) ? coverage : null);
   }
 
   useEffect(() => {
     if (screenshotPreview) return undefined;
+    const fromList = app.sessions.find((row) => row.id === sessionId);
+    if (fromList) {
+      setSession(fromList);
+      const fromRow = chunkCoverageFromSessionRow(fromList);
+      if (fromRow) setChunkCoverage(fromRow);
+    }
     setHasPlayback(demoPlayhead != null);
     if (demoPlayhead == null) setCurrentTime(0);
     else setCurrentTime(demoPlayhead);
