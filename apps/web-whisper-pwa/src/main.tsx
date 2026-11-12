@@ -1,8 +1,12 @@
+import './perfIdbProbe';
+import { installPerfHarness } from './perfHarness';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './styles/app.css';
 import './seed';
+
+installPerfHarness();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -442,6 +442,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setScreen('recording');
       recordingStartedAtRef.current = Date.now();
       void setRecordingWakeLockActive(true, 'recording-active');
+      try {
+        if (new URLSearchParams(window.location.search).get('perfHarness') === '1') {
+          const persist: Array<{ at: number; pendingCount?: number; oldestSeq?: number }> = [];
+          const encoded: Array<{ at: number; seq?: number }> = [];
+          (window as unknown as { __wwCapture?: unknown }).__wwCapture = {
+            getStatus: () => handle.getStatus(),
+            persist,
+            encoded,
+          };
+          handle.on('persist_backpressure', (event: { pendingCount?: number; oldestSeq?: number }) => {
+            persist.push({ at: performance.now(), ...event });
+          });
+          handle.on('chunkEncoded', (event: { seq?: number }) => {
+            encoded.push({ at: performance.now(), seq: event.seq });
+          });
+        }
+      } catch {
+        // harness only
+      }
       handle.on('chunkEncoded', (event: { seq?: number }) => {
         setChunkCount((event.seq ?? 0) + 1);
         setSavingBehind(false);

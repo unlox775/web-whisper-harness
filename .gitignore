@@ -33,3 +33,9 @@ yarn-error.log*
 .cache/
 .parcel-cache/
 .rollup.cache/
+
+# Perf harness generated archives and Playwright output
+apps/web-whisper-pwa/tests/perf/.cache/
+apps/web-whisper-pwa/test-results/
+apps/web-whisper-pwa/playwright-report/
+apps/web-whisper-pwa/blob-report/

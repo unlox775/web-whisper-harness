@@ -19,6 +19,12 @@ Thumbs.db
 # Logs
 *.log
 
+# Perf harness generated zips / Playwright output
+tests/perf/.cache/
+test-results/
+playwright-report/
+blob-report/
+
 # Environment
 .env
 .env.local
