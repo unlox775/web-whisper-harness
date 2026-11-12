@@ -13,8 +13,8 @@ Playback-engine is a customer of session-store for reading sessions, chunks, and
 1. **PWA calls playback-engine.playSession(sessionId)**:
    - Playback-engine calls `getSession(sessionId)` → session-store returns session metadata `{id, createdAt, duration, chunkCount, sizeBytes, ...}` or null
    - If null → playback-engine returns error to PWA → PWA displays "Session not found"
-   - Playback-engine calls `getChunksForSession(sessionId)` → session-store returns chunk list (metadata only, NO blobs)
-   - Playback-engine iterates chunk list sorted by seq → calls `getChunk(chunkId)` for each chunk → session-store returns chunk blob + metadata
+   - Playback-engine calls `getChunksForSession(sessionId)` → session-store returns chunk list (metadata only, NO blobs **in storage**; audio is in `chunk-blobs`)
+   - Playback-engine iterates chunk list sorted by seq → calls `getChunk(chunkId)` for each chunk → session-store returns chunk blob + metadata. **`getChunk` is the blob API.**
    - Playback-engine concatenates MP3 blobs (or uses MediaSource API for streaming) → plays audio via HTML5 `<audio>` element or Web Audio API
 
 2. **PWA calls playback-engine.playChunk(chunkId)** (developer mode or chunk inspector):
@@ -38,8 +38,8 @@ Playback-engine is a customer of session-store for reading sessions, chunks, and
 **Outputs playback-engine expects**:
 
 1. **getSession(sessionId)** → `{id, createdAt, updatedAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}` or null if not found
-2. **getChunksForSession(sessionId)** → `{chunks: [{id, sessionId, seq, startTime, endTime, duration, sizeBytes}]}` (NO blobs, metadata only, sorted by seq asc) or error `{error: "database_unavailable"}`
-3. **getChunk(chunkId)** → `{id, sessionId, seq, startTime, endTime, duration, blob: Blob, sizeBytes}` or null if not found
+2. **getChunksForSession(sessionId)** → `{chunks: [{id, sessionId, seq, startTime, endTime, duration, sizeBytes}]}` (NO blobs, metadata only **in storage**, sorted by seq asc) or error `{error: "database_unavailable"}`
+3. **getChunk(chunkId)** → `{id, sessionId, seq, startTime, endTime, duration, blob: Blob, sizeBytes}` or null if not found. This is the only public API that loads audio bytes.
 4. **getSnip(snipId)** → `{id, sessionId, startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds: string[], confidence, createdAt}` or null if not found
 
 **Error handling expectations**:
@@ -70,8 +70,8 @@ Session-store does NOT need to transform blobs (e.g., convert MP3 to WAV). Playb
 **Performance expectations**:
 
 - `getSession` should be fast (< 50ms) since it is a single-record read by primary key.
-- `getChunksForSession` should return quickly (< 100ms for 50 chunks) with metadata only (NO blobs).
-- `getChunk` will be called once per chunk in sequence for playback → playback-engine will buffer chunks in memory. Acceptable latency: < 50ms per getChunk call. Playback-engine may implement lookahead buffering (pre-fetch next 5 chunks while playing current chunk).
+- `getChunksForSession` should return quickly (< 100ms for 50 chunks) with metadata only (NO blobs deserialized from IndexedDB). Audio is not in the `chunks` object-store value.
+- `getChunk` will be called once per chunk in sequence for playback → playback-engine will buffer chunks in memory. Acceptable latency: < 50ms per getChunk call. Playback-engine may implement lookahead buffering (pre-fetch next 5 chunks while playing current chunk). `getChunk` is the blob API.
 - `getSnip` should be fast (< 50ms) since snip is small metadata.
 
 **Referential integrity expectations**:
@@ -334,15 +334,15 @@ I'm session-store. I accept your playback-engine customer request. You are my re
 
 **`getChunksForSession(sessionId)`** → `{chunks: [...]}` or error
 
-- Queries `chunks` object store using `by-sessionId-seq` compound index (ASC order by seq)
+- Queries the metadata-only `chunks` object store using `by-sessionId-seq` compound index (ASC order by seq). Does not deserialize `chunk-blobs`.
 - Returns chunk metadata list: `{id, sessionId, seq, startTime, endTime, duration, sizeBytes}`
-- **NO BLOBS** in result (performance requirement). You call `getChunk(chunkId)` per chunk to fetch blobs separately for playback.
+- **NO BLOBS** in storage or in the result. You call `getChunk(chunkId)` (the blob API) per chunk to fetch audio separately for playback.
 - **Sorted by seq ASC** (critical requirement). If chunks out of order, concatenated playback sounds scrambled. Guaranteed via compound index with ASC cursor.
 - Returns `{error: 'database_unavailable'}` if IndexedDB query fails
 
 **`getChunk(chunkId)`** → chunk object with blob or `null`
 
-- Single record read by primary key (`chunks` object store)
+- Single record read: metadata from `chunks` plus audio from `chunk-blobs` (`getChunk` is the blob API)
 - Returns full chunk: `{id, sessionId, seq, startTime, endTime, duration, blob: Blob, sizeBytes}`
 - **Blob format**: JavaScript Blob object with MIME type `'audio/mpeg'`. Ready for `URL.createObjectURL(blob)` (HTML5 Audio) or `audioContext.decodeAudioData()` (Web Audio API).
 - Returns `null` if chunk not found (NOT error object)
@@ -394,7 +394,7 @@ You handle `null` gracefully:
 ### Performance Targets
 
 - `getSession`: < 50ms (single record by primary key)
-- `getChunksForSession`: < 100ms for < 50 chunks (metadata only, NO BLOBS)
+- `getChunksForSession`: < 100ms for < 50 chunks (metadata only in storage, NO BLOBS deserialized)
 - `getChunk`: < 50ms per call (single record by primary key, includes blob)
 - `getSnip`: < 50ms (single record)
 

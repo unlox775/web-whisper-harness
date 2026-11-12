@@ -5,8 +5,10 @@
 let dbInstance = null;
 let dbName = 'web-whisper-db';
 
-/** v2 adds `logs`. v3 adds `meta` (logWriteFailures + cheap retention stats). */
-const DB_VERSION = 3;
+/** v2 adds `logs`. v3 adds `meta`. v4 splits audio into `chunk-blobs`. */
+export const DB_VERSION = 4;
+export const CHUNK_BLOBS_STORE = 'chunk-blobs';
+export const META_CHUNK_BLOB_MIGRATION_ID = 'chunk-blob-migration';
 
 /**
  * Close the current database connection (tests / switching DB names).
@@ -15,6 +17,70 @@ export function closeDatabase() {
   if (dbInstance) {
     dbInstance.close();
     dbInstance = null;
+  }
+}
+
+function ensureStores(db, tx, oldVersion) {
+  // sessions object store
+  if (!db.objectStoreNames.contains('sessions')) {
+    const sessionsStore = db.createObjectStore('sessions', { keyPath: 'id' });
+    sessionsStore.createIndex('by-createdAt', 'createdAt', { unique: false });
+  }
+
+  // chunks object store (metadata; audio is in chunk-blobs as of v4)
+  if (!db.objectStoreNames.contains('chunks')) {
+    const chunksStore = db.createObjectStore('chunks', { keyPath: 'id' });
+    chunksStore.createIndex('by-sessionId', 'sessionId', { unique: false });
+    chunksStore.createIndex('by-sessionId-seq', ['sessionId', 'seq'], { unique: false });
+  }
+
+  // volume-profiles object store
+  if (!db.objectStoreNames.contains('volume-profiles')) {
+    db.createObjectStore('volume-profiles', { keyPath: 'sessionId' });
+  }
+
+  // snips object store
+  if (!db.objectStoreNames.contains('snips')) {
+    const snipsStore = db.createObjectStore('snips', { keyPath: 'id' });
+    snipsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
+  }
+
+  // transcripts object store
+  if (!db.objectStoreNames.contains('transcripts')) {
+    const transcriptsStore = db.createObjectStore('transcripts', { keyPath: 'snipId' });
+    transcriptsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
+  }
+
+  // logs object store (v2)
+  if (!db.objectStoreNames.contains('logs')) {
+    const logsStore = db.createObjectStore('logs', { keyPath: 'id' });
+    logsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
+    logsStore.createIndex('by-packageId', 'packageId', { unique: false });
+    logsStore.createIndex('by-createdAt', 'createdAt', { unique: false });
+    logsStore.createIndex('by-sessionId-createdAt', ['sessionId', 'createdAt'], { unique: false });
+  }
+
+  // meta object store (v3) — persisted logWriteFailures + migration cursors
+  if (!db.objectStoreNames.contains('meta')) {
+    db.createObjectStore('meta', { keyPath: 'id' });
+  }
+
+  // chunk-blobs object store (v4) — audio bytes, keyed by chunk id
+  if (!db.objectStoreNames.contains(CHUNK_BLOBS_STORE)) {
+    const blobsStore = db.createObjectStore(CHUNK_BLOBS_STORE, { keyPath: 'id' });
+    blobsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
+  }
+
+  if (oldVersion < 4 && db.objectStoreNames.contains('meta')) {
+    const metaStore = tx.objectStore('meta');
+    // Fresh install: no legacy blob-on-chunk rows to copy.
+    const fresh = oldVersion === 0;
+    metaStore.put({
+      id: META_CHUNK_BLOB_MIGRATION_ID,
+      done: fresh,
+      lastKey: null,
+      coverageDone: fresh
+    });
   }
 }
 
@@ -46,50 +112,8 @@ export async function initDatabase(databaseName) {
     
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      
-      // sessions object store
-      if (!db.objectStoreNames.contains('sessions')) {
-        const sessionsStore = db.createObjectStore('sessions', { keyPath: 'id' });
-        sessionsStore.createIndex('by-createdAt', 'createdAt', { unique: false });
-      }
-      
-      // chunks object store
-      if (!db.objectStoreNames.contains('chunks')) {
-        const chunksStore = db.createObjectStore('chunks', { keyPath: 'id' });
-        chunksStore.createIndex('by-sessionId', 'sessionId', { unique: false });
-        chunksStore.createIndex('by-sessionId-seq', ['sessionId', 'seq'], { unique: false });
-      }
-      
-      // volume-profiles object store
-      if (!db.objectStoreNames.contains('volume-profiles')) {
-        db.createObjectStore('volume-profiles', { keyPath: 'sessionId' });
-      }
-      
-      // snips object store
-      if (!db.objectStoreNames.contains('snips')) {
-        const snipsStore = db.createObjectStore('snips', { keyPath: 'id' });
-        snipsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
-      }
-      
-      // transcripts object store
-      if (!db.objectStoreNames.contains('transcripts')) {
-        const transcriptsStore = db.createObjectStore('transcripts', { keyPath: 'snipId' });
-        transcriptsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
-      }
-
-      // logs object store (v2)
-      if (!db.objectStoreNames.contains('logs')) {
-        const logsStore = db.createObjectStore('logs', { keyPath: 'id' });
-        logsStore.createIndex('by-sessionId', 'sessionId', { unique: false });
-        logsStore.createIndex('by-packageId', 'packageId', { unique: false });
-        logsStore.createIndex('by-createdAt', 'createdAt', { unique: false });
-        logsStore.createIndex('by-sessionId-createdAt', ['sessionId', 'createdAt'], { unique: false });
-      }
-
-      // meta object store (v3) — persisted logWriteFailures
-      if (!db.objectStoreNames.contains('meta')) {
-        db.createObjectStore('meta', { keyPath: 'id' });
-      }
+      const tx = event.target.transaction;
+      ensureStores(db, tx, event.oldVersion || 0);
     };
   });
 }

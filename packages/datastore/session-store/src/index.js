@@ -7,9 +7,14 @@
  * age-prune logs).
  */
 
-import { initDatabase, closeDatabase as closeDatabaseRaw } from './db.js';
+import { initDatabase, closeDatabase as closeDatabaseRaw, CHUNK_BLOBS_STORE } from './db.js';
 import { resetScheduler } from './scheduler.js';
 import { rebuildStatsCache, resetStatsCache } from './stats-cache.js';
+import {
+  migrateLegacyChunkBlobs,
+  resetChunkBlobMigrationSchedule,
+  scheduleChunkBlobMigration
+} from './chunk-blobs.js';
 import {
   createSession,
   getSession,
@@ -24,7 +29,8 @@ import {
   getChunksForSession,
   getChunkCoverage,
   recordChunkLost,
-  putChunkRecordsBulk
+  putChunkRecordsBulk,
+  recomputeSessionCoverage
 } from './chunks.js';
 import {
   writeVolumeProfile,
@@ -98,10 +104,12 @@ import {
 export async function init(config = {}) {
   resetScheduler();
   resetStatsCache();
+  resetChunkBlobMigrationSchedule();
   setLogWriteFailureForTests(false);
   const databaseName = config.databaseName || 'web-whisper-db';
   await initDatabase(databaseName);
   await rebuildStatsCache();
+  scheduleChunkBlobMigration();
   return { initialized: true };
 }
 
@@ -111,6 +119,7 @@ export async function init(config = {}) {
 export function closeDatabase() {
   resetScheduler();
   resetStatsCache();
+  resetChunkBlobMigrationSchedule();
   setLogWriteFailureForTests(false);
   closeDatabaseRaw();
 }
@@ -132,7 +141,10 @@ export {
   getChunksForSession,
   getChunkCoverage,
   recordChunkLost,
-  putChunkRecordsBulk
+  putChunkRecordsBulk,
+  recomputeSessionCoverage,
+  migrateLegacyChunkBlobs,
+  CHUNK_BLOBS_STORE
 };
 
 // Volume Profile Operations

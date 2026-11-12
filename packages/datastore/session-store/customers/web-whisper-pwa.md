@@ -16,13 +16,13 @@ The Web Whisper PWA is the primary customer of session-store. The PWA calls sess
    - Capture-engine writes chunks via `writeChunk` (NOT called by PWA directly)
 
 2. **Home screen loads or refreshes**:
-   - PWA calls `listSessions({limit: 100, offset: 0})` → session-store queries sessions via by-createdAt index DESC → returns session list sorted by most recent first
-   - PWA displays session cards with: createdAt timestamp, duration, size, chunk count, volume/snips/transcripts indicators
+   - PWA calls `listSessions({limit: 100, offset: 0})` → session-store queries sessions via by-createdAt index DESC → returns session list sorted by most recent first. Each row includes coverage (`lastSeq`, `savedCount`, `missingSeqs`, `savedDurationMs`, `lostChunks`) so Home tiles can show gap honesty **without** calling `getChunkCoverage` per card.
+   - PWA displays session cards with: createdAt timestamp, duration, size, chunk count, volume/snips/transcripts indicators, and optional gap summary from the session row
 
 3. **User taps session card to open detail view**:
    - PWA calls `getSession(sessionId)` → session-store reads session metadata → returns `{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}` or null
-   - PWA calls `getChunksForSession(sessionId)` → session-store queries chunks via by-sessionId-seq index ASC → returns chunk list (NO blobs, metadata only)
-   - PWA calls `getChunkCoverage(sessionId)` → `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks }` and shows elapsed vs saved vs gaps
+   - PWA calls `getChunksForSession(sessionId)` → session-store reads the metadata-only `chunks` store (audio lives in `chunk-blobs`) → returns chunk list (NO blobs, in storage and in the DTO)
+   - PWA calls `getChunkCoverage(sessionId)` → O(1) session-row read `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks }` and shows elapsed vs saved vs gaps. `getChunk` is the blob API (playback-engine).
    - PWA calls `getSnipsForSession(sessionId)` → session-store queries snips via by-sessionId index → returns snip list sorted by startTime
    - PWA calls `getTranscriptsForSession(sessionId)` → session-store queries transcripts via by-sessionId index → returns transcript list
    - PWA displays session detail screen with: playback controls (calls playback-engine, not session-store), snip list, transcript text, chunk-gap summary
@@ -57,9 +57,9 @@ The Web Whisper PWA is the primary customer of session-store. The PWA calls sess
 **Outputs PWA expects**:
 
 1. **createSession()** → `{id: string}` or error `{error: "database_unavailable"}`
-2. **listSessions(options)** → `{sessions: [{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}], total: number}` (sorted by createdAt desc) or error `{error: "database_unavailable"}`
-3. **getSession(sessionId)** → `{id, createdAt, updatedAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}` or null if not found
-4. **getChunksForSession(sessionId)** → `{chunks: [{id, sessionId, seq, startTime, endTime, duration, sizeBytes}]}` (NO blobs for performance, sorted by seq asc) or error `{error: "database_unavailable"}`
+2. **listSessions(options)** → `{sessions: [{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks}], total: number}` (sorted by createdAt desc) or error `{error: "database_unavailable"}`. Coverage fields are on the row so tiles do not scan chunks.
+3. **getSession(sessionId)** → `{id, createdAt, updatedAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks}` or null if not found
+4. **getChunksForSession(sessionId)** → `{chunks: [{id, sessionId, seq, startTime, endTime, duration, sizeBytes}]}` (NO blobs **in storage**, sorted by seq asc) or error `{error: "database_unavailable"}`. `getChunk(chunkId)` is the blob API.
 5. **getSnipsForSession(sessionId)** → `{snips: [{id, sessionId, startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds, confidence, createdAt}]}` (sorted by startTime asc) or error `{error: "database_unavailable"}`
 6. **getTranscriptsForSession(sessionId)** → `{transcripts: [{snipId, sessionId, text, createdAt, updatedAt}]}` or error `{error: "database_unavailable"}`
 7. **deleteSession(sessionId)** → `{deleted: true}` or error `{error: "session_not_found"}` or error `{error: "database_unavailable"}`
@@ -92,7 +92,8 @@ Session-store must:
 
 - `listSessions` should return quickly for typical session counts (< 100 sessions: < 100ms, 100–1000 sessions: < 500ms). Use IndexedDB by-createdAt index for efficient sorted scan.
 - `getSession` should be fast (< 50ms) since it is a single-record read by primary key.
-- `getChunksForSession` should return metadata only (NO blobs) for performance. PWA will call playback-engine to fetch/play blobs when needed.
+- `getChunksForSession` is metadata-only **in storage** (the `chunks` object store has no audio bytes). PWA will call playback-engine, which calls `getChunk`, to fetch/play blobs when needed.
+- `getChunkCoverage` is O(1) in chunk count (session row). Home tiles should use `listSessions` coverage fields rather than N `getChunkCoverage` calls (PWA list spec).
 - `deleteSession` cascade delete may take longer (100–500ms for large sessions with many chunks/snips/transcripts) but is acceptable since it is infrequent user action with confirm dialog.
 
 **Data format expectations**:
@@ -221,7 +222,7 @@ Output I expect:
 
 Failure: `{error: 'database_unavailable', reason?: string}`
 
-Critical requirement: **NO BLOBS in return value**. Returning blobs would be too slow for sessions with 100+ chunks. I only need metadata. Playback-engine will call `getChunk(chunkId)` separately to fetch blobs for playback.
+Critical requirement: **NO BLOBS in return value, and no blob deserialization on this path.** Audio lives in `chunk-blobs`. Playback-engine will call `getChunk(chunkId)` separately to fetch blobs for playback. `getChunk` is the only public blob read.
 
 How I use it:
 - In developer mode: Display chunk list in detail view (seq, startTime, duration, size)
@@ -406,7 +407,7 @@ Session-store MUST return error objects (NOT throw exceptions). If session-store
 - `getSession(sessionId)`: < 50ms (single IndexedDB read by primary key)
 - `getChunksForSession(sessionId)`: < 100ms for typical chunk counts (< 30 chunks), < 500ms for large chunk counts (30–100 chunks)
   - Use IndexedDB by-sessionId-seq index for efficient query
-  - **NO BLOBS in return value** (huge performance issue if blobs included)
+  - **NO BLOBS in storage or in the return value** (audio is in `chunk-blobs`; `getChunk` is the blob API)
 - `getSnipsForSession(sessionId)`: < 100ms (typical session has 0–10 snips)
 - `getTranscriptsForSession(sessionId)`: < 100ms (typical session has 0–10 transcripts)
 - `deleteSession(sessionId)`: 100–500ms for large sessions (cascade delete many chunks/snips/transcripts is slower, but acceptable since infrequent user action with confirm dialog)
@@ -498,7 +499,8 @@ I'm session-store. I accept your web-whisper-pwa customer request. You are my pr
 Options: `{limit = 100, offset = 0}`
 
 - Queries `sessions` object store using `by-createdAt` index (DESC order, most recent first)
-- Returns session list: `[{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}, ...]`
+- Returns session list: `[{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks}, ...]`
+- Coverage summary on each row is enough for Home gap honesty; do not call `getChunkCoverage` per card
 - **Sorted by createdAt DESC** (most recent first, guaranteed via index with prev cursor)
 - Applies limit/offset: skip first `offset` sessions, return next `limit` sessions
 - Returns `total` field (count of ALL sessions, not limited to current page)
@@ -531,7 +533,8 @@ Options: `{limit = 100, offset = 0}`
 **`getChunksForSession(sessionId)`** → `{chunks: [...]}` or error
 
 - Returns chunk metadata list (id, sessionId, seq, startTime, endTime, duration, sizeBytes)
-- **NO BLOBS** (huge performance issue if included). Playback-engine calls `getChunk` separately to fetch blobs for playback.
+- **NO BLOBS in storage or in the DTO.** IndexedDB does not deserialize audio for this call. Playback-engine calls `getChunk` (the blob API) separately.
+- `getChunkCoverage` is a session get (O(1) in chunk count), not a second metadata/blob walk
 - Sorted by seq ASC (guaranteed via `by-sessionId-seq` index)
 - Developer mode: You display chunk list in detail view
 - Default mode: You still call it to check `chunkCount > 0` before showing play button
@@ -639,7 +642,8 @@ You do NOT manually update session metadata. I handle it.
 - `createSession`: < 50ms
 - `listSessions({limit: 100})`: < 100ms for < 100 sessions, < 500ms for 100–1000 sessions (use `by-createdAt` index for efficient sorted scan)
 - `getSession`: < 50ms
-- `getChunksForSession`: < 100ms for < 50 chunks (NO BLOBS)
+- `getChunksForSession`: < 100ms for < 50 chunks (NO BLOBS in storage)
+- `getChunkCoverage`: O(1) session-row read
 - `getSnipsForSession`: < 100ms (typical session has 0–10 snips)
 - `getTranscriptsForSession`: < 100ms (typical session has 0–10 transcripts)
 - `deleteSession`: 100–500ms for large sessions (acceptable with confirm dialog)

@@ -1,13 +1,27 @@
 /**
  * Chunk operations
+ *
+ * Metadata lives in `chunks`. Audio bytes live in `chunk-blobs`.
+ * `getChunksForSession` / `getChunkCoverage` never deserialize audio.
  */
 
-import { getDatabase, generateId } from './db.js';
+import { getDatabase, generateId, CHUNK_BLOBS_STORE } from './db.js';
 import { getSession } from './sessions.js';
 import { enqueueCustomer } from './scheduler.js';
 import { addChunkBytes, ensureStatsCache, getStatsCache } from './stats-cache.js';
 import { WRITE_WAIT_BUDGET_MS } from './constants.js';
 import { runRetentionUnlocked } from './retention.js';
+import {
+  applySavedChunkToCoverage,
+  assignCoverageToSession,
+  chunkDurationMs,
+  computeCoverageFromChunkMetas,
+  coverageFromSession,
+  hasPersistedCoverage,
+  publicChunkMeta,
+  stripBlob
+} from './chunk-coverage.js';
+import { deleteBlobInTransaction, hasChunkBlobsStore, putBlobInTransaction } from './chunk-blobs.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,13 +42,20 @@ function classifyTxnError(error) {
   return 'transient';
 }
 
-function chunkDurationMs(chunk) {
-  if (typeof chunk.duration === 'number' && Number.isFinite(chunk.duration)) {
-    return chunk.duration * 1000;
-  }
-  const start = typeof chunk.startTime === 'number' ? chunk.startTime : 0;
-  const end = typeof chunk.endTime === 'number' ? chunk.endTime : start;
-  return Math.max(0, (end - start) * 1000);
+function chunkWriteStores(db) {
+  const names = ['chunks', 'sessions'];
+  if (hasChunkBlobsStore(db)) names.push(CHUNK_BLOBS_STORE);
+  return names;
+}
+
+function assembleChunk(meta, blobRow) {
+  if (!meta) return null;
+  const leftover = meta.blob;
+  const mime = blobRow?.mime || leftover?.type || 'audio/mpeg';
+  let blob = blobRow?.blob;
+  if (!blob && leftover && leftover.size > 0) blob = leftover;
+  if (!blob) blob = new Blob([], { type: mime });
+  return { ...stripBlob(meta), blob };
 }
 
 /**
@@ -63,7 +84,7 @@ async function persistChunk(sessionId, chunkData) {
   const now = new Date().toISOString();
 
   return new Promise((resolve) => {
-    const transaction = db.transaction(['chunks', 'sessions'], 'readwrite');
+    const transaction = db.transaction(chunkWriteStores(db), 'readwrite');
     const chunksStore = transaction.objectStore('chunks');
     const sessionsStore = transaction.objectStore('sessions');
     const seqIndex = chunksStore.index('by-sessionId-seq');
@@ -92,20 +113,29 @@ async function persistChunk(sessionId, chunkData) {
           return;
         }
         const chunkId = generateId('chunk');
-        chunksStore.add({
+        const meta = {
           id: chunkId,
           sessionId,
           seq: chunkData.seq,
           startTime: chunkData.startTime,
           endTime: chunkData.endTime,
           duration: chunkData.duration,
-          blob: chunkData.blob,
           sizeBytes: chunkData.sizeBytes
+        };
+        if (chunkData.audioPurgedAt) {
+          meta.audioPurgedAt = chunkData.audioPurgedAt;
+        }
+        chunksStore.add(meta);
+        putBlobInTransaction(transaction, {
+          id: chunkId,
+          sessionId,
+          blob: chunkData.blob
         });
         session.chunkCount += 1;
         session.sizeBytes += chunkData.sizeBytes;
         session.duration = Math.max(session.duration || 0, chunkData.endTime);
         session.updatedAt = now;
+        applySavedChunkToCoverage(session, chunkData);
         sessionsStore.put(session);
         result = { chunkId };
       };
@@ -199,7 +229,7 @@ export async function writeChunk(sessionId, chunkData) {
 
 /**
  * Bulk-insert chunk rows (test seed / import). Updates the stats cache.
- * Does not increment session metadata per row.
+ * Does not increment session metadata per row. Splits blobs into chunk-blobs.
  *
  * @param {object[]} records
  * @returns {Promise<{written: number} | {error: string, class: string}>}
@@ -213,13 +243,16 @@ export async function putChunkRecordsBulk(records) {
       }
       const BATCH = 100;
       let written = 0;
+      const storeNames = ['chunks'];
+      if (hasChunkBlobsStore(db)) storeNames.push(CHUNK_BLOBS_STORE);
       for (let i = 0; i < records.length; i += BATCH) {
-        const slice = records.slice(i, i + BATCH);
+        const slice = records.slice(i, BATCH + i);
         await new Promise((resolve, reject) => {
-          const transaction = db.transaction(['chunks'], 'readwrite');
+          const transaction = db.transaction(storeNames, 'readwrite');
           const store = transaction.objectStore('chunks');
           for (const record of slice) {
-            store.put(record);
+            store.put(stripBlob(record));
+            putBlobInTransaction(transaction, record);
           }
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
@@ -239,7 +272,66 @@ export async function putChunkRecordsBulk(records) {
 }
 
 /**
- * Get chunk by ID
+ * Write one already-identified chunk row (archive preserveIds). Splits blob.
+ * Does not go through the customer queue — caller serializes.
+ *
+ * @param {object} record
+ * @returns {Promise<null | {error: string}>}
+ */
+export async function putSplitChunkRecord(record) {
+  try {
+    const db = await getDatabase();
+    return new Promise((resolve) => {
+      const storeNames = ['chunks'];
+      if (hasChunkBlobsStore(db)) storeNames.push(CHUNK_BLOBS_STORE);
+      const transaction = db.transaction(storeNames, 'readwrite');
+      transaction.objectStore('chunks').put(stripBlob(record));
+      putBlobInTransaction(transaction, record);
+      transaction.oncomplete = () => resolve(null);
+      transaction.onerror = () => resolve({ error: 'database_unavailable' });
+    });
+  } catch {
+    return { error: 'database_unavailable' };
+  }
+}
+
+/**
+ * Mark a chunk's audio purged: metadata stays, blob row is deleted.
+ *
+ * @param {string} chunkId
+ * @param {number | string} [audioPurgedAt]
+ * @returns {Promise<null | {error: string}>}
+ */
+export async function purgeChunkAudioRecord(chunkId, audioPurgedAt) {
+  try {
+    const db = await getDatabase();
+    const meta = await new Promise((resolve) => {
+      const tx = db.transaction(['chunks'], 'readonly');
+      const req = tx.objectStore('chunks').get(chunkId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+    if (!meta) return { error: 'database_unavailable' };
+    meta.sizeBytes = 0;
+    meta.audioPurgedAt = audioPurgedAt || Date.now();
+    return new Promise((resolve) => {
+      const storeNames = ['chunks'];
+      if (hasChunkBlobsStore(db)) storeNames.push(CHUNK_BLOBS_STORE);
+      const transaction = db.transaction(storeNames, 'readwrite');
+      transaction.objectStore('chunks').put(stripBlob(meta));
+      deleteBlobInTransaction(transaction, chunkId);
+      transaction.oncomplete = () => resolve(null);
+      transaction.onerror = () => resolve({ error: 'database_unavailable' });
+    });
+  } catch {
+    return { error: 'database_unavailable' };
+  }
+}
+
+/**
+ * Get chunk by ID (metadata + blob). Blob comes from chunk-blobs, with a
+ * fallback to a leftover v3 `chunks.blob` during migration.
+ *
  * @param {string} chunkId
  * @returns {Promise<Object | null>}
  */
@@ -248,17 +340,28 @@ export async function getChunk(chunkId) {
     const db = await getDatabase();
 
     return new Promise((resolve) => {
-      const transaction = db.transaction(['chunks'], 'readonly');
-      const store = transaction.objectStore('chunks');
-      const request = store.get(chunkId);
+      const storeNames = ['chunks'];
+      if (hasChunkBlobsStore(db)) storeNames.push(CHUNK_BLOBS_STORE);
+      const transaction = db.transaction(storeNames, 'readonly');
+      const metaReq = transaction.objectStore('chunks').get(chunkId);
+      let meta = null;
+      let blobRow = null;
 
-      request.onsuccess = () => {
-        resolve(request.result || null);
+      metaReq.onsuccess = () => {
+        meta = metaReq.result || null;
+        if (!meta) return;
+        if (meta.blob && meta.blob.size > 0) return;
+        if (!hasChunkBlobsStore(db)) return;
+        const blobReq = transaction.objectStore(CHUNK_BLOBS_STORE).get(chunkId);
+        blobReq.onsuccess = () => {
+          blobRow = blobReq.result || null;
+        };
       };
 
-      request.onerror = () => {
-        resolve(null);
+      transaction.oncomplete = () => {
+        resolve(assembleChunk(meta, blobRow));
       };
+      transaction.onerror = () => resolve(null);
     });
   } catch (err) {
     return null;
@@ -266,7 +369,8 @@ export async function getChunk(chunkId) {
 }
 
 /**
- * Get all chunks for a session (metadata only, no blobs)
+ * Get all chunks for a session (metadata only, no blobs — in storage, not
+ * just in the returned DTO).
  * @param {string} sessionId
  * @returns {Promise<{chunks: Array} | {error: string}>}
  */
@@ -278,30 +382,30 @@ export async function getChunksForSession(sessionId) {
       const transaction = db.transaction(['chunks'], 'readonly');
       const store = transaction.objectStore('chunks');
       const index = store.index('by-sessionId-seq');
-      const request = index.openCursor(IDBKeyRange.bound([sessionId, 0], [sessionId, Infinity]));
+      const range = IDBKeyRange.bound([sessionId, 0], [sessionId, Infinity]);
 
+      const finish = (rows) => {
+        resolve({ chunks: (rows || []).map(publicChunkMeta) });
+      };
+
+      if (typeof index.getAll === 'function') {
+        const request = index.getAll(range);
+        request.onsuccess = () => finish(request.result || []);
+        request.onerror = () => resolve({ error: 'database_unavailable' });
+        return;
+      }
+
+      const request = index.openCursor(range);
       const chunks = [];
-
       request.onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor) {
-          const chunk = cursor.value;
-          chunks.push({
-            id: chunk.id,
-            sessionId: chunk.sessionId,
-            seq: chunk.seq,
-            startTime: chunk.startTime,
-            endTime: chunk.endTime,
-            duration: chunk.duration,
-            sizeBytes: chunk.sizeBytes,
-            audioPurgedAt: chunk.audioPurgedAt || null
-          });
+          chunks.push(publicChunkMeta(cursor.value));
           cursor.continue();
         } else {
-          resolve({ chunks });
+          finish(chunks);
         }
       };
-
       request.onerror = () => {
         resolve({ error: 'database_unavailable' });
       };
@@ -311,8 +415,21 @@ export async function getChunksForSession(sessionId) {
   }
 }
 
+async function persistCoverage(session, coverage) {
+  assignCoverageToSession(session, coverage);
+  session.updatedAt = new Date().toISOString();
+  const db = await getDatabase();
+  return new Promise((resolve) => {
+    const transaction = db.transaction(['sessions'], 'readwrite');
+    transaction.objectStore('sessions').put(session);
+    transaction.oncomplete = () => resolve(coverageFromSession(session));
+    transaction.onerror = () => resolve(coverageFromSession(session));
+  });
+}
+
 /**
- * Gap + saved-duration coverage for a session.
+ * Gap + saved-duration coverage for a session. O(1) in chunk count when the
+ * session row has persisted coverage fields.
  *
  * @param {string} sessionId
  * @returns {Promise<{
@@ -330,35 +447,47 @@ export async function getChunkCoverage(sessionId) {
     if (!session) {
       return { error: 'session_not_found', class: 'permanent' };
     }
+    if (hasPersistedCoverage(session)) {
+      return coverageFromSession(session);
+    }
     const listed = await getChunksForSession(sessionId);
     if (listed.error) {
       return { error: listed.error, class: 'permanent' };
     }
-    const chunks = listed.chunks || [];
-    const seqs = chunks
-      .map((chunk) => chunk.seq)
-      .filter((seq) => typeof seq === 'number')
-      .sort((a, b) => a - b);
-    const expectedFirstSeq = 0;
-    const lastSeq = seqs.length > 0 ? seqs[seqs.length - 1] : -1;
-    const saved = new Set(seqs);
-    const missingSeqs = [];
-    if (lastSeq >= expectedFirstSeq) {
-      for (let seq = expectedFirstSeq; seq <= lastSeq; seq += 1) {
-        if (!saved.has(seq)) missingSeqs.push(seq);
-      }
-    }
-    const savedDurationMs = chunks.reduce((sum, chunk) => sum + chunkDurationMs(chunk), 0);
-    return {
-      expectedFirstSeq,
-      lastSeq,
-      savedCount: chunks.length,
-      missingSeqs,
-      savedDurationMs,
-      lostChunks: Array.isArray(session.lostChunks) ? session.lostChunks.slice() : []
-    };
+    const coverage = computeCoverageFromChunkMetas(listed.chunks, session.lostChunks);
+    enqueueCustomer(() => persistCoverage(session, coverage)).catch(() => {});
+    return coverage;
   } catch {
     return { error: 'database_unavailable', class: 'permanent' };
+  }
+}
+
+/**
+ * Recompute coverage from metadata (no blobs) and persist it on the session.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<object | {error: string}>}
+ */
+export async function recomputeSessionCoverage(sessionId) {
+  const session = await getSession(sessionId);
+  if (!session) {
+    return { error: 'session_not_found', class: 'permanent' };
+  }
+  const listed = await getChunksForSession(sessionId);
+  if (listed.error) return listed;
+  const coverage = computeCoverageFromChunkMetas(listed.chunks, session.lostChunks);
+  assignCoverageToSession(session, coverage);
+  session.updatedAt = new Date().toISOString();
+  try {
+    const db = await getDatabase();
+    return new Promise((resolve) => {
+      const transaction = db.transaction(['sessions'], 'readwrite');
+      transaction.objectStore('sessions').put(session);
+      transaction.oncomplete = () => resolve(coverageFromSession(session));
+      transaction.onerror = () => resolve({ error: 'database_unavailable' });
+    });
+  } catch {
+    return { error: 'database_unavailable' };
   }
 }
 
@@ -406,3 +535,5 @@ export async function recordChunkLost(sessionId, loss) {
     }
   });
 }
+
+export { chunkDurationMs };

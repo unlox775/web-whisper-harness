@@ -4,7 +4,7 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 
 ## Boundary
 
-- **Owns**: IndexedDB schema (object stores: sessions, chunks, volume-profiles, snips, transcripts, **logs**), all create/read/update/delete operations, storage quota enforcement (200 MB default cap, configurable), retention policy (purge transcribed audio when quota exceeded; keep transcripts; **age-prune log rows**), durable per-package logging (`log` / `queryLogs` / byte accounting), data integrity (session existence validation, referential integrity for chunks/snips/transcripts/logs)
+- **Owns**: IndexedDB schema (object stores: sessions, chunks, **chunk-blobs**, volume-profiles, snips, transcripts, **logs**), all create/read/update/delete operations, storage quota enforcement (200 MB default cap, configurable), retention policy (purge transcribed audio when quota exceeded; keep transcripts; **age-prune log rows**), durable per-package logging (`log` / `queryLogs` / byte accounting), data integrity (session existence validation, referential integrity for chunks/snips/transcripts/logs). Audio bytes live in `chunk-blobs`; `chunks` holds metadata only.
 - **Does NOT own**: Audio capture logic (capture-engine), volume computation logic (volume-analyzer), transcription logic (transcription-client), playback logic (playback-engine), UI (PWA)
 
 ## Main Callable Interfaces
@@ -14,16 +14,16 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
 ### Session Operations
 
 - `createSession()` → returns session ID
-- `getSession(sessionId)` → returns session metadata `{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript}`
-- `listSessions(options)` → returns session list (sorted by createdAt desc, paginated)
+- `getSession(sessionId)` → returns session metadata `{id, createdAt, duration, chunkCount, sizeBytes, hasVolumeProfile, hasSnips, hasTranscript, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks}`
+- `listSessions(options)` → returns session list (sorted by createdAt desc, paginated). Each row includes the coverage summary (`lastSeq`, `savedCount`, `missingSeqs`, `savedDurationMs`, `lostChunks`) so list tiles do not need `getChunkCoverage` per card.
 - `deleteSession(sessionId)` → deletes session + all chunks + volume profile + snips + transcripts + **logs**
 
 ### Chunk Operations
 
 - `writeChunk(sessionId, chunkData)` → writes chunk (called by capture-engine during recording). Concurrent-safe, owner-serialized, idempotent by `(sessionId, seq)`.
-- `getChunk(chunkId)` → returns chunk blob + metadata
-- `getChunksForSession(sessionId)` → returns chunk list for session (ordered by seq)
-- `getChunkCoverage(sessionId)` → `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks }`
+- `getChunk(chunkId)` → returns chunk blob + metadata. **This is the blob API.** Audio is read from `chunk-blobs`.
+- `getChunksForSession(sessionId)` → returns chunk list for session (ordered by seq). Metadata-only **in storage**, not just in the returned DTO: the `chunks` cursor does not deserialize audio bytes. Shape: `{id, seq, startTime, endTime, duration, sizeBytes, audioPurgedAt}` (no `blob`).
+- `getChunkCoverage(sessionId)` → `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks }`. **O(1) in chunk count**: a session-row read, not a blob or metadata cursor.
 - `recordChunkLost(sessionId, {seq,startMs,endMs,reason})` → persists a permanent loss record on the session
 
 ### Volume Profile Operations
@@ -52,7 +52,7 @@ IndexedDB schema and durable storage authority for all Web Whisper data. Owns se
   - `{ error: 'quota_exceeded', class: 'permanent', usedBytes?, capBytes? }` — only after an internal retention attempt
   - `{ error: 'database_unavailable', class: 'permanent' }`
   - `{ error: 'store_busy', class: 'transient' }` — only after ≥ 5 s internal retry of aborted/busy IndexedDB (`WRITE_WAIT_BUDGET_MS`). `transaction_conflict` is not a customer-facing error.
-- `getChunkCoverage(sessionId)` → `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks: [{seq,startMs,endMs,reason}] }` or `{ error, class: 'permanent' }`. `savedDurationMs` sums only saved chunks.
+- `getChunkCoverage(sessionId)` → `{ expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks: [{seq,startMs,endMs,reason}] }` or `{ error, class: 'permanent' }`. `savedDurationMs` sums only saved chunks. Coverage is maintained on the session row on `writeChunk` / `recordChunkLost` / import / finalize; the read does not walk chunk records.
 - `recordChunkLost(sessionId, {seq,startMs,endMs,reason})` → `{ recorded: true }` or `{ error: 'session_not_found' | 'database_unavailable', class: 'permanent' }`. Persists a loss record on the session (idempotent by seq).
 
 ### Durable per-package logs
