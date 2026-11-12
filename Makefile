@@ -3,7 +3,7 @@ include Makefile.harness
 
 .DEFAULT_GOAL := start
 
-.PHONY: start build install soak
+.PHONY: start build install soak perf
 
 PWA_DIR := apps/web-whisper-pwa
 
@@ -24,3 +24,8 @@ build: install
 # Cross-package 60-minute accelerated soak (real store + persist queue).
 soak:
 	npm --prefix $(PWA_DIR) run test:soak
+
+# Scale perf harness (synthetic archives + Playwright iPhone emulation).
+# Does not publish docs/. See apps/web-whisper-pwa/tests/perf/README.md.
+perf:
+	npm --prefix $(PWA_DIR) run test:perf

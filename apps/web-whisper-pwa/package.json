@@ -9,7 +9,9 @@
     "build": "vite build",
     "preview": "vite preview --host --port 4173",
     "test": "npx --yes tsx --test src/*.test.ts",
-    "test:soak": "NODE_PATH=./node_modules npx --yes tsx --test --test-timeout=60000 tests/soak/*.test.ts"
+    "test:soak": "NODE_PATH=./node_modules npx --yes tsx --test --test-timeout=60000 tests/soak/*.test.ts",
+    "perf:generate": "node tests/perf/generate-synthetic-archive.mjs",
+    "test:perf": "node tests/perf/run.mjs"
   },
   "dependencies": {
     "lamejs": "^1.2.1",
@@ -20,7 +22,9 @@
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^4.2.1",
+    "@playwright/test": "^1.49.1",
     "fake-indexeddb": "^6.0.0",
+    "playwright": "^1.49.1",
     "typescript": "^5.3.3",
     "vite": "^5.4.0"
   }
