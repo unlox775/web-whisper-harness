@@ -8,6 +8,7 @@ import { enqueueCustomer } from './scheduler.js';
 import { DEFAULT_CAP_BYTES } from './constants.js';
 import {
   flushStatsPersist,
+  getStatsCache,
   hydrateStatsCache,
   rebuildStatsCache,
   resetCacheToEmpty,
@@ -30,8 +31,10 @@ import {
  */
 export async function getStorageStats() {
   try {
-    await flushStatsPersist();
-    await hydrateStatsCache();
+    if (!getStatsCache().valid) {
+      await flushStatsPersist();
+      await hydrateStatsCache();
+    }
     return statsToPublic(DEFAULT_CAP_BYTES);
   } catch (err) {
     return { error: 'database_unavailable' };

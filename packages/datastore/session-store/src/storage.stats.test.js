@@ -103,6 +103,28 @@ describe('getStorageStats — O(1) running totals, no blob cursor', () => {
     sessionStore.closeDatabase();
   });
 
+  it('with a valid cache, getStorageStats opens no IndexedDB transaction', async () => {
+    const session = await sessionStore.createSession();
+    await writeAudioChunk(session.id, 0, 1024);
+    const warmed = await sessionStore.getStorageStats();
+    assert.equal(warmed.chunkCount, 1);
+
+    let txCount = 0;
+    const original = IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction = function transactionSpy() {
+      txCount += 1;
+      return original.apply(this, arguments);
+    };
+    try {
+      const stats = await sessionStore.getStorageStats();
+      assert.equal(txCount, 0, 'valid-cache getStorageStats must not open IndexedDB');
+      assert.equal(stats.chunkCount, 1);
+      assert.equal(stats.usedBytes, warmed.usedBytes);
+    } finally {
+      IDBDatabase.prototype.transaction = original;
+    }
+  });
+
   it('after N chunk writes, usedBytes matches sizeBytes sums without a chunks cursor or readwrite', async () => {
     const session = await sessionStore.createSession();
     const sizes = [1200, 3400, 5600, 64, 65536];
