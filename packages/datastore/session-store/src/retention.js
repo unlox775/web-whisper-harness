@@ -21,6 +21,8 @@ import {
   cachedUsedBytes,
   ensureStatsCache,
   getStatsCache,
+  persistStatsCache,
+  rebuildStatsCache,
   setCapBytes,
   subtractChunkBytes,
   usedBytesFromSizes
@@ -231,6 +233,9 @@ async function pruneLogsOnly(options, yieldToCustomer) {
  */
 export async function runRetentionUnlocked(capBytes, options = {}, yieldToCustomer = async () => {}) {
   await ensureStatsCache();
+  if (!getStatsCache().valid) {
+    await rebuildStatsCache(yieldToCustomer);
+  }
   const now = typeof options.now === 'number' ? options.now : Date.now();
   const approachRatio =
     typeof options.approachRatio === 'number' ? options.approachRatio : RETENTION_APPROACH_RATIO;
@@ -408,6 +413,7 @@ export async function runRetentionUnlocked(capBytes, options = {}, yieldToCustom
   }
 
   usedBytes = cachedUsedBytes();
+  await persistStatsCache();
   if (usedBytes > targetBytes) {
     const rawNeed = Math.ceil((usedBytes - targetBytes) / 1.1);
     const capPrune = await pruneOldestLogsBatched(rawNeed, yieldToCustomer);
@@ -453,16 +459,17 @@ export async function enforceRetentionPolicy(capBytes, options = {}) {
 
     setCapBytes(Number.isFinite(capBytes) ? capBytes : DEFAULT_CAP_BYTES);
 
+    const cache = getStatsCache();
+    // Invalid cache → usedBytes unknown/high. Never cheap-exit as under cap.
     const usedBefore = cachedUsedBytes();
     const safeCap = Number.isFinite(capBytes) ? Math.max(0, capBytes) : usedBefore;
     const targetBytes = Math.floor(safeCap * approachRatio);
-    const cache = getStatsCache();
-    const needsAge = cache.oldestLogCreatedAt
+    const needsAge = cache.valid && cache.oldestLogCreatedAt
       ? cache.oldestLogCreatedAt < new Date(now - maxLogAgeMs).toISOString()
       : false;
-    const needsCount = cache.logEntryCount > MAX_LOG_COUNT;
+    const needsCount = cache.valid && cache.logEntryCount > MAX_LOG_COUNT;
 
-    if (usedBefore <= targetBytes && !needsAge && !needsCount) {
+    if (cache.valid && usedBefore <= targetBytes && !needsAge && !needsCount) {
       return emptyResult(usedBefore);
     }
 

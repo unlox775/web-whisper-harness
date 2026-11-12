@@ -30,3 +30,12 @@ export const MAX_LOG_COUNT = 100_000;
 
 /** Singleton key in the `meta` object store. */
 export const META_RUNTIME_ID = 'runtime';
+
+/** Persisted running storage totals so boot does not scan `chunk-blobs`. */
+export const META_STATS_ID = 'storage-stats';
+
+/**
+ * usedBytes when the stats cache is invalid. High on purpose: never cheap-exit
+ * retention as "under cap" from a missing/stale-low total.
+ */
+export const UNKNOWN_USED_BYTES = Number.MAX_SAFE_INTEGER;

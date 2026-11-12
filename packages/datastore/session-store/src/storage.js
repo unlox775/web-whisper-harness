@@ -6,10 +6,22 @@ import { getDatabase } from './db.js';
 import { enforceRetentionPolicy } from './retention.js';
 import { enqueueCustomer } from './scheduler.js';
 import { DEFAULT_CAP_BYTES } from './constants.js';
-import { getLogWriteFailures, rebuildStatsCache, resetCacheToEmpty } from './stats-cache.js';
+import {
+  flushStatsPersist,
+  getStatsCache,
+  hydrateStatsCache,
+  rebuildStatsCache,
+  resetCacheToEmpty,
+  statsToPublic
+} from './stats-cache.js';
 
 /**
  * Get storage statistics.
+ *
+ * O(1) when the stats cache is valid: running totals, same 1.1 overhead as
+ * before. Does not openCursor `chunk-blobs` (or `chunks`); blob bytes come
+ * from the cache / metadata `sizeBytes`. If the cache is invalid, usedBytes
+ * is unknown/high rather than a stale-low 0.
  *
  * `usedBytes` includes chunk bytes **and** log bytes, each with the same 1.1
  * IndexedDB overhead factor already used for chunks. `logBytes` is the
@@ -19,83 +31,11 @@ import { getLogWriteFailures, rebuildStatsCache, resetCacheToEmpty } from './sta
  */
 export async function getStorageStats() {
   try {
-    const db = await getDatabase();
-    const storeNames = ['sessions', 'chunks'];
-    if (db.objectStoreNames.contains('logs')) {
-      storeNames.push('logs');
+    if (!getStatsCache().valid) {
+      await flushStatsPersist();
+      await hydrateStatsCache();
     }
-    
-    return new Promise((resolve) => {
-      const transaction = db.transaction(storeNames, 'readonly');
-      const sessionsStore = transaction.objectStore('sessions');
-      const chunksStore = transaction.objectStore('chunks');
-      
-      let sessionCount = 0;
-      let chunkCount = 0;
-      let chunkSize = 0;
-      let logRawBytes = 0;
-      let logEntryCount = 0;
-      const logBytesByPackage = {};
-      
-      // Count sessions
-      const sessionsRequest = sessionsStore.count();
-      sessionsRequest.onsuccess = () => {
-        sessionCount = sessionsRequest.result;
-      };
-      
-      // Count chunks and sum sizes
-      const chunksRequest = chunksStore.openCursor();
-      chunksRequest.onsuccess = (event) => {
-        const cursor = event.target.result;
-        if (cursor) {
-          chunkCount++;
-          chunkSize += cursor.value.sizeBytes || 0;
-          cursor.continue();
-        }
-      };
-
-      if (db.objectStoreNames.contains('logs')) {
-        const logsRequest = transaction.objectStore('logs').openCursor();
-        logsRequest.onsuccess = (event) => {
-          const cursor = event.target.result;
-          if (cursor) {
-            const row = cursor.value;
-            const bytes = row.sizeBytes || 0;
-            logRawBytes += bytes;
-            logEntryCount += 1;
-            const key = row.packageId || 'unknown';
-            if (!logBytesByPackage[key]) {
-              logBytesByPackage[key] = { bytes: 0, count: 0 };
-            }
-            logBytesByPackage[key].bytes += bytes;
-            logBytesByPackage[key].count += 1;
-            cursor.continue();
-          }
-        };
-      }
-      
-      transaction.oncomplete = () => {
-        // Same 1.1 overhead for chunks and logs (IndexedDB metadata estimate)
-        const logBytes = Math.round(logRawBytes * 1.1);
-        const usedBytes = Math.round(chunkSize * 1.1) + logBytes;
-        
-        // Default cap: 200 MB (can be overridden by caller in enforceRetentionPolicy)
-        resolve({
-          usedBytes,
-          capBytes: DEFAULT_CAP_BYTES,
-          sessionCount,
-          chunkCount,
-          logBytes,
-          logEntryCount,
-          logWriteFailures: getLogWriteFailures(),
-          logBytesByPackage
-        });
-      };
-      
-      transaction.onerror = () => {
-        resolve({ error: 'database_unavailable' });
-      };
-    });
+    return statsToPublic(DEFAULT_CAP_BYTES);
   } catch (err) {
     return { error: 'database_unavailable' };
   }
@@ -151,8 +91,9 @@ async function clearAllUnlocked() {
         }
       }
       transaction.oncomplete = () => {
-        resetCacheToEmpty();
-        resolve({ cleared: true });
+        resetCacheToEmpty()
+          .catch(() => {})
+          .then(() => resolve({ cleared: true }));
       };
       transaction.onerror = () => {
         resolve({ error: 'database_unavailable' });
@@ -212,7 +153,7 @@ async function cleanupOrphansUnlocked() {
     await deleteOrphans('volume-profiles', (record) => record.sessionId);
     await deleteOrphans('logs', (record) => record.sessionId);
 
-    await rebuildStatsCache();
+    await rebuildStatsCache(async () => {});
     return { removed };
   } catch (err) {
     return { error: 'database_unavailable' };

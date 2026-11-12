@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-12T18:00:00Z
+Resolved: 2026-11-12T19:00:00Z
 Product: packages/datastore/session-store
 Contract: docs/DURABILITY-CONTRACT.md
 Harness: apps/web-whisper-pwa/tests/perf/README.md
@@ -36,12 +37,12 @@ A running totals cache already exists (`src/stats-cache.js`) and retention alrea
 
 ## Root cause
 
-`packages/datastore/session-store/src/storage.js` `getStorageStats` and `src/stats-cache.js` `rebuildStatsCache` walk the `chunks` object store (blob-bearing records) and the `logs` store to recompute totals the cache already maintains on write/delete.
+`packages/datastore/session-store/src/storage.js` `getStorageStats` and `src/stats-cache.js` `rebuildStatsCache` walked the blob-bearing store (now `chunk-blobs`; previously `chunks`) and the `logs` store to recompute totals the cache already maintains on write/delete. After v4, stats must still account blob bytes from the cache / metadata `sizeBytes` and must never `openCursor` `chunk-blobs`.
 
 ## Requested Outcome
 
-1. **`getStorageStats()` is O(1) in chunk count** when the stats cache is valid: return `usedBytes` / `chunkCount` / `logBytes` / `sessionCount` from running totals (same 1.1 overhead as today). Do **not** `openCursor` the chunks store on the customer path.
-2. **`init()` / `rebuildStatsCache` must not block the first customer read** on a full blob-store walk. If a rebuild is required, it yields to customer writes (existing scheduler) and must not make `listSessions` or `writeChunk` wait on the scan. Prefer persisting the running totals in `meta` so boot does not rescan.
+1. **`getStorageStats()` is O(1) in chunk count** when the stats cache is valid: return `usedBytes` / `chunkCount` / `logBytes` / `sessionCount` from running totals (same 1.1 overhead as today). Do **not** `openCursor` `chunk-blobs` (or `chunks`) on the customer path. Blob bytes come from the cache / metadata `sizeBytes`.
+2. **`init()` / `rebuildStatsCache` must not block the first customer read** on a full blob-store walk. If a rebuild is required, it yields to customer writes (existing scheduler) and must not make `listSessions` or `writeChunk` wait on the scan. Prefer persisting the running totals in `meta` so boot does not rescan. Rebuild from session rows, never by cursoring `chunk-blobs`.
 3. **Never use a stale-low `usedBytes` to justify purging untranscribed audio.** If the cache is invalid, treat used bytes as unknown / high (skip cheap “under cap” only when that is safe) rather than scanning blobs on the UI path. Untranscribed captured audio is never discarded (`docs/DURABILITY-CONTRACT.md`).
 4. Public contract: `getStorageStats` remains `{ usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount, logWriteFailures, logBytesByPackage }`. Callers must not be told to “not call this while recording.”
 

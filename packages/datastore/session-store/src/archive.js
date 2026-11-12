@@ -16,6 +16,10 @@ import {
   purgeChunkAudioRecord,
   recomputeSessionCoverage
 } from './chunks.js';
+import {
+  addSessionCount,
+  persistStatsCache
+} from './stats-cache.js';
 import { getSnipsForSession, writeSnip } from './snips.js';
 import { getTranscriptsForSession, writeTranscript } from './transcripts.js';
 import { getVolumeProfile, writeVolumeProfile } from './volume-profiles.js';
@@ -456,6 +460,8 @@ export async function importSessionArchive(blob, options = {}) {
       hasTranscript: false
     });
     if (putError) return putError;
+    await addSessionCount(1);
+    await persistStatsCache();
 
     for (const entry of parsed.chunks) {
       const written = await putChunkRecord(sessionId, entry, entry.meta.id);
@@ -607,7 +613,7 @@ function putSessionRecord(session) {
   return idbPut('sessions', session);
 }
 
-function putChunkRecord(sessionId, entry, chunkId) {
+async function putChunkRecord(sessionId, entry, chunkId) {
   const hasAudio = Boolean(entry.blob && entry.blob.size > 0);
   const chunk = {
     id: chunkId,
