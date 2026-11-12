@@ -582,15 +582,22 @@ async function refreshStorageStats() {
   }
 
   const usagePercent = currentStorageCap > 0 
-    ? Math.round((stats.usedBytes / currentStorageCap) * 100)
+    ? Math.round(((stats.usedBytesKnown ? stats.usedBytes : 0) / currentStorageCap) * 100)
     : 0;
 
   // Header stats
   document.getElementById('header-storage-stats').textContent = 
-    `Storage: ${formatBytes(stats.usedBytes)} / ${formatBytes(currentStorageCap)} (${usagePercent}%)`;
+    `Storage: ${
+      stats.usedBytesKnown && stats.usedBytes != null
+        ? formatBytes(stats.usedBytes)
+        : 'Calculating…'
+    } / ${formatBytes(currentStorageCap)} (${usagePercent}%)`;
 
   // Storage panel stats
-  document.getElementById('used-bytes').textContent = formatBytes(stats.usedBytes);
+  document.getElementById('used-bytes').textContent =
+    stats.usedBytesKnown && stats.usedBytes != null
+      ? formatBytes(stats.usedBytes)
+      : 'Calculating…';
   document.getElementById('cap-bytes').textContent = formatBytes(currentStorageCap);
   document.getElementById('usage-percent').textContent = `${usagePercent}%`;
   document.getElementById('session-count').textContent = stats.sessionCount;

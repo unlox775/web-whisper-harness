@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
+import { formatStorageMeterLabel } from '../storageMeter';
 import { useApp } from '../context';
 import { transcribeSession } from '../orchestration';
 import { transcriptionContextFromSettings } from '../settings';
@@ -177,7 +178,12 @@ function SessionCard({
 
 export function HomeScreen() {
   const app = useApp();
-  const capLabel = `${formatBytes(app.usedBytes)} / ${formatBytes(app.capBytes)}`;
+  const capLabel = formatStorageMeterLabel({
+    usedBytes: app.usedBytes,
+    capBytes: app.capBytes,
+    usedBytesKnown: app.usedBytesKnown,
+    usedBytesStatus: app.usedBytesStatus,
+  });
   const [retryingSession, setRetryingSession] = useState<string | null>(null);
   const screenshot = readScreenshotMode();
   const liveTile = isHomeTileLiveScreenshot(screenshot);

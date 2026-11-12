@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, jsonReplacer } from '../format';
+import { formatStorageMeterLabel } from '../storageMeter';
 import { useApp } from '../context';
 import { isolationDemosHref } from '../isolationDemos';
 
@@ -157,8 +158,14 @@ export function DeveloperConsole() {
               {showStorage ? (
                 <>
                   <p>
-                    Using {formatBytes(app.usedBytes)} of {formatBytes(app.capBytes)} device
-                    storage
+                    Using{' '}
+                    {formatStorageMeterLabel({
+                      usedBytes: app.usedBytes,
+                      capBytes: app.capBytes,
+                      usedBytesKnown: app.usedBytesKnown,
+                      usedBytesStatus: app.usedBytesStatus,
+                    })}{' '}
+                    device storage
                   </p>
                   <p className="tiny">Sessions: {app.sessions.length}</p>
                   <p className="tiny">

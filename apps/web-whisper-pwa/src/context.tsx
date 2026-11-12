@@ -82,6 +82,8 @@ type AppContextValue = {
   settings: AppSettings;
   sessions: SessionRecord[];
   usedBytes: number;
+  usedBytesKnown: boolean;
+  usedBytesStatus: 'known' | 'unknown' | 'rebuilding';
   capBytes: number;
   screen: Screen;
   sessionId: string | null;
@@ -122,6 +124,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [usedBytes, setUsedBytes] = useState(0);
+  const [usedBytesKnown, setUsedBytesKnown] = useState(false);
+  const [usedBytesStatus, setUsedBytesStatus] = useState<'known' | 'unknown' | 'rebuilding'>(
+    'unknown'
+  );
   const [screen, setScreen] = useState<Screen>('home');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [autoPlay, setAutoPlay] = useState(false);
@@ -188,10 +194,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshStats = useCallback(async () => {
     const stats = await sessionStore.getStorageStats();
-    if (!stats.error) {
-      usedBytesKnownRef.current = true;
-      usedBytesRef.current = stats.usedBytes || 0;
-      setUsedBytes(usedBytesRef.current);
+    if (stats.error) return;
+    const known = stats.usedBytesKnown === true;
+    const status = (stats.usedBytesStatus || (known ? 'known' : 'unknown')) as
+      | 'known'
+      | 'unknown'
+      | 'rebuilding';
+    setUsedBytesStatus(status);
+    usedBytesKnownRef.current = known;
+    if (known && typeof stats.usedBytes === 'number' && Number.isFinite(stats.usedBytes)) {
+      usedBytesRef.current = stats.usedBytes;
+      setUsedBytes(stats.usedBytes);
+      setUsedBytesKnown(true);
+    } else {
+      setUsedBytesKnown(false);
     }
   }, []);
 
@@ -250,10 +266,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     );
     if (result.error) return;
-    if (typeof result.newUsedBytes === 'number' && Number.isFinite(result.newUsedBytes)) {
+    if (
+      typeof result.newUsedBytes === 'number' &&
+      Number.isFinite(result.newUsedBytes) &&
+      result.newUsedBytes < Number.MAX_SAFE_INTEGER
+    ) {
       usedBytesKnownRef.current = true;
       usedBytesRef.current = result.newUsedBytes;
       setUsedBytes(result.newUsedBytes);
+      setUsedBytesKnown(true);
+      setUsedBytesStatus('known');
     }
     const purged = Array.isArray(result.purgedChunkIds) ? result.purgedChunkIds.length : 0;
     if (purged > 0 || result.deletedSessions > 0) {
@@ -284,6 +306,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       await refreshSessions();
       void refreshStats();
+      void sessionStore.waitForStatsCacheValid().then(() => {
+        if (!cancelled) void refresh();
+      });
       if (!cancelled) setReady(true);
       if (loaded.groqApiKey) {
         const result = await validateKey(loaded.groqApiKey);
@@ -775,6 +800,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       settings,
       sessions,
       usedBytes,
+      usedBytesKnown,
+      usedBytesStatus,
       capBytes,
       screen,
       sessionId,
@@ -830,6 +857,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       abortRecording,
       stopFinishing,
       usedBytes,
+      usedBytesKnown,
+      usedBytesStatus,
       showToast,
       updateSetting,
       persistKey,

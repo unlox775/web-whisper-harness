@@ -53,6 +53,7 @@ import {
 } from './transcripts.js';
 import {
   getStorageStats,
+  waitForStatsCacheValid as waitForStorageStats,
   enforceRetentionPolicy,
   dumpStore,
   clearAll,
@@ -178,6 +179,7 @@ export {
 // Storage Management
 export {
   getStorageStats,
+  waitForStorageStats as waitForStatsCacheValid,
   enforceRetentionPolicy,
   dumpStore,
   clearAll,

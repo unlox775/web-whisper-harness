@@ -243,6 +243,37 @@ async function storageEstimate(page: Page) {
   });
 }
 
+async function simulateUpgradedDbMissingStats(page: Page) {
+  return page.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('web-whisper-db');
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(['meta', 'sessions'], 'readwrite');
+        tx.objectStore('meta').delete('storage-stats');
+        const cursorReq = tx.objectStore('sessions').openCursor();
+        cursorReq.onsuccess = (event) => {
+          const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
+          if (!cursor) return;
+          const row = cursor.value as { chunkCount?: number; sizeBytes?: number };
+          if ((row.chunkCount || 0) > 0) {
+            row.sizeBytes = 0;
+            cursor.update(row);
+          }
+          cursor.continue();
+        };
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+    return { ok: true as const };
+  });
+}
+
 async function deleteNewestSession(page: Page) {
   await page.evaluate(async () => {
     const perf = window.__webWhisperPerf;
@@ -507,6 +538,45 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
       idb: await snapshotIdb(page),
     });
 
+    let upgradedStats: Record<string, unknown> | null = null;
+    if (n === 100) {
+      await simulateUpgradedDbMissingStats(page);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await waitReady(page);
+      const chipBefore = (await page.locator('.data-chip .value').textContent())?.trim() ?? '';
+      await page.screenshot({
+        path: resolve(qaDir, 'storage-stats-calculating-iphone.png'),
+        fullPage: false,
+      });
+      await page.waitForFunction(
+        async () => {
+          const perf = window.__webWhisperPerf;
+          if (!perf?.getStorageStats) return false;
+          const stats = (await perf.getStorageStats()) as { usedBytesKnown?: boolean };
+          return stats.usedBytesKnown === true;
+        },
+        undefined,
+        { timeout: 120_000 }
+      );
+      const afterStats = await page.evaluate(async () => {
+        const perf = window.__webWhisperPerf;
+        if (!perf) return null;
+        return perf.getStorageStats();
+      });
+      const chipAfter = (await page.locator('.data-chip .value').textContent())?.trim() ?? '';
+      await page.screenshot({
+        path: resolve(qaDir, 'storage-stats-meter-upgraded-iphone-n100.png'),
+        fullPage: false,
+      });
+      upgradedStats = {
+        chipBefore,
+        chipAfter,
+        afterStats,
+        sentinelLeaked: chipBefore.includes('8388608') || chipAfter.includes('8388608'),
+      };
+      expect(upgradedStats.sentinelLeaked).toBe(false);
+    }
+
     await setCpu(page, 1);
     await deleteNewestSession(page);
 
@@ -517,12 +587,16 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
       quotaCapped,
       storeMicrobench: storeMicro,
       phases,
+      upgradedStats,
     });
     writeFileSync(resolve(cacheDir, 'perf-baseline-raw.json'), `${JSON.stringify(report, null, 2)}\n`);
     if (quotaCapped) break;
   }
 
-  writeFileSync(resolve(qaDir, 'perf-baseline-raw.json'), `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(
+    resolve(qaDir, 'perf-stats-cache-harness-raw.json'),
+    `${JSON.stringify(report, null, 2)}\n`
+  );
   expect((report.ns as unknown[]).length).toBeGreaterThan(0);
 });
 
@@ -536,6 +610,7 @@ declare global {
       }>;
       deleteSession: (id: string) => Promise<unknown>;
       timeStore: (method: string, sessionId?: string) => Promise<{ ms: number; result: unknown }>;
+      getStorageStats: () => Promise<unknown>;
       getChunkCoverage: (id: string) => Promise<unknown>;
       getSnipsForSession: (id: string) => Promise<unknown>;
       getTranscriptsForSession: (id: string) => Promise<unknown>;
