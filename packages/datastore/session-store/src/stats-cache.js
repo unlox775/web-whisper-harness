@@ -424,6 +424,24 @@ export async function hydrateStatsCache() {
 
 const REBUILD_BATCH = 64;
 
+function getHarnessRebuildDelayMs() {
+  try {
+    const root = typeof globalThis !== 'undefined' ? globalThis : {};
+    const ms = root.__wwStatsRebuildDelayMs;
+    if (typeof ms === 'number' && ms > 0) return ms;
+  } catch {
+    // ignore
+  }
+  return 0;
+}
+
+async function optionalHarnessRebuildDelay(yieldToCustomer) {
+  const ms = getHarnessRebuildDelayMs();
+  if (ms <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+  if (yieldToCustomer) await yieldToCustomer();
+}
+
 async function scanLogsBatched(yieldToCustomer) {
   const db = await getDatabase();
   if (!db.objectStoreNames.contains('logs')) {
@@ -619,6 +637,7 @@ async function scanTotals(yieldToCustomer) {
  */
 export async function rebuildStatsCache(yieldToCustomer = async () => {}) {
   const capBytes = cache.capBytes || DEFAULT_CAP_BYTES;
+  await optionalHarnessRebuildDelay(yieldToCustomer);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const startSeq = mutationSeq;
     let scanned;

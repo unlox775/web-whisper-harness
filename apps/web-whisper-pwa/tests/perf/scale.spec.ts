@@ -565,7 +565,7 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
       });
       const chipAfter = (await page.locator('.data-chip .value').textContent())?.trim() ?? '';
       await page.screenshot({
-        path: resolve(qaDir, 'storage-stats-meter-iphone-n100.png'),
+        path: resolve(qaDir, 'storage-stats-meter-upgraded-iphone-n100.png'),
         fullPage: false,
       });
       upgradedStats = {
@@ -593,7 +593,10 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
     if (quotaCapped) break;
   }
 
-  writeFileSync(resolve(qaDir, 'perf-baseline-raw.json'), `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(
+    resolve(qaDir, 'perf-stats-cache-harness-raw.json'),
+    `${JSON.stringify(report, null, 2)}\n`
+  );
   expect((report.ns as unknown[]).length).toBeGreaterThan(0);
 });
 

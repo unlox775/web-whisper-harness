@@ -307,7 +307,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       await refreshSessions();
       void refreshStats();
       void sessionStore.waitForStatsCacheValid().then(() => {
-        if (!cancelled) void refreshStats();
+        if (!cancelled) void refresh();
       });
       if (!cancelled) setReady(true);
       if (loaded.groqApiKey) {

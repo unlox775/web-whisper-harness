@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import * as sessionStore from './index.js';
-import { META_STATS_ID, UNKNOWN_USED_BYTES } from './constants.js';
+import { META_STATS_ID, UNKNOWN_USED_BYTES, IDB_OVERHEAD } from './constants.js';
 import { getStatsCache, resetStatsCache } from './stats-cache.js';
 
 let dbSeq = 0;
@@ -75,6 +75,72 @@ function spyBlobStoreReadwrite() {
       IDBDatabase.prototype.transaction = original;
     }
   };
+}
+
+async function sumChunkBlobStoreBytes(dbName) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(dbName);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('chunk-blobs')) {
+        db.close();
+        resolve(0);
+        return;
+      }
+      let total = 0;
+      const tx = db.transaction(['chunk-blobs'], 'readonly');
+      const cursorReq = tx.objectStore('chunk-blobs').openCursor();
+      cursorReq.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (!cursor) return;
+        const blob = cursor.value?.blob;
+        if (blob && blob.size > 0) total += blob.size;
+        cursor.continue();
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(total);
+      };
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+
+async function simulateUpgradedZeroedTotals(dbName, sessionId) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(dbName);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction(['meta', 'sessions', 'chunks'], 'readwrite');
+      tx.objectStore('meta').delete(META_STATS_ID);
+      const sessReq = tx.objectStore('sessions').get(sessionId);
+      sessReq.onsuccess = () => {
+        const row = sessReq.result;
+        if (row) {
+          row.sizeBytes = 0;
+          tx.objectStore('sessions').put(row);
+        }
+      };
+      const chunkCur = tx.objectStore('chunks').openCursor();
+      chunkCur.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (!cursor) return;
+        const chunk = cursor.value;
+        if (chunk.sessionId === sessionId) {
+          chunk.sizeBytes = 0;
+          cursor.update(chunk);
+        }
+        cursor.continue();
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error);
+    };
+  });
 }
 
 function deletePersistedStats() {
@@ -283,6 +349,29 @@ describe('getStorageStats — O(1) running totals, no blob cursor', () => {
 
     const reopened = await sessionStore.getSession(session.id);
     assert.ok(reopened.sizeBytes >= 20_000);
+  });
+
+  it('rebuilt usedBytes matches chunk-blobs total when session and chunk sizeBytes were zeroed', async () => {
+    const session = await sessionStore.createSession();
+    await writeAudioChunk(session.id, 0, 48_000);
+    await writeAudioChunk(session.id, 1, 32_000);
+    const blobTotal = await sumChunkBlobStoreBytes(currentDbName);
+    assert.ok(blobTotal >= 80_000);
+
+    sessionStore.closeDatabase();
+    await simulateUpgradedZeroedTotals(currentDbName, session.id);
+    resetStatsCache();
+    await sessionStore.init({ databaseName: currentDbName });
+
+    const ready = await sessionStore.waitForStatsCacheValid(30_000);
+    assert.equal(ready, true);
+    const stats = await sessionStore.getStorageStats();
+    const expectedUsed = Math.round(blobTotal * IDB_OVERHEAD);
+    assert.equal(stats.usedBytesKnown, true);
+    assert.equal(stats.usedBytes, expectedUsed);
+
+    const reopened = await sessionStore.getSession(session.id);
+    assert.equal(reopened.sizeBytes, blobTotal);
   });
 
   it('does not purge untranscribed audio when the stats cache is invalid', async () => {
