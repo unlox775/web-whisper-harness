@@ -5,7 +5,7 @@ Package-local runnable demo for operating session-store independently without th
 ## Purpose
 
 Proves that session-store:
-- Creates IndexedDB schema (all object stores: sessions, chunks, volume-profiles, snips, transcripts, **logs**)
+- Creates IndexedDB schema (all object stores: sessions, chunks, **chunk-blobs**, volume-profiles, snips, transcripts, **logs**)
 - Writes sessions, chunks, volume profiles, snips, transcripts, **fixture logs**
 - Reads sessions, chunks, volume profiles, snips, transcripts, **logs** (proves data persists after page reload)
 - Deletes sessions with cascade (session + all chunks + volume profile + snips + transcripts + **logs**)
@@ -188,7 +188,7 @@ Proves that session-store:
 (To be filled by Phase 06 implementation agent)
 
 - Sandbox database name: "web-whisper-isolation-demo-session-store" (not "web-whisper-db")
-- IndexedDB schema: Same as production schema (object stores: sessions, chunks, volume-profiles, snips, transcripts, logs)
+- IndexedDB schema: Same as production schema (object stores: sessions, chunks, chunk-blobs, volume-profiles, snips, transcripts, logs)
 - Fixture chunk generation: Generate small MP3 blobs (1–4s each) using Web Audio API or pre-encoded fixture files
 - Fixture volume profile: Mock peakDb values (e.g., [-50, -20, -45, -15, -55] for 5 chunks)
 - Fixture snips: Mock snip boundaries (e.g., snip 0 = chunks 0–2, snip 1 = chunks 3–4)

@@ -8,7 +8,14 @@
 
 import { getDatabase, generateId } from './db.js';
 import { createSession, deleteSession, getSession } from './sessions.js';
-import { getChunk, getChunksForSession, writeChunk } from './chunks.js';
+import {
+  getChunk,
+  getChunksForSession,
+  writeChunk,
+  putSplitChunkRecord,
+  purgeChunkAudioRecord,
+  recomputeSessionCoverage
+} from './chunks.js';
 import { getSnipsForSession, writeSnip } from './snips.js';
 import { getTranscriptsForSession, writeTranscript } from './transcripts.js';
 import { getVolumeProfile, writeVolumeProfile } from './volume-profiles.js';
@@ -456,6 +463,8 @@ export async function importSessionArchive(blob, options = {}) {
       chunkIdMap.set(entry.meta.id, entry.meta.id);
       chunkIds.push(entry.meta.id);
     }
+    const coverage = await recomputeSessionCoverage(sessionId);
+    if (coverage?.error) return coverage;
   } else {
     const created = await createSession();
     if (created.error) return created;
@@ -607,13 +616,13 @@ function putChunkRecord(sessionId, entry, chunkId) {
     startTime: entry.meta.startTime,
     endTime: entry.meta.endTime,
     duration: entry.meta.duration,
-    blob: entry.blob || new Blob([], { type: entry.meta.mime || 'audio/mpeg' }),
+    blob: hasAudio ? entry.blob : undefined,
     sizeBytes: hasAudio ? entry.blob.size : 0
   };
   if (entry.meta.audioPurgedAt || !hasAudio) {
     chunk.audioPurgedAt = entry.meta.audioPurgedAt || Date.now();
   }
-  return idbPut('chunks', chunk);
+  return putSplitChunkRecord(chunk);
 }
 
 function putSnipRecord(snip) {
@@ -629,12 +638,7 @@ function putVolumeProfileRecord(profile) {
 }
 
 async function patchChunkPurged(chunkId, audioPurgedAt) {
-  const chunk = await getChunk(chunkId);
-  if (!chunk) return { error: 'database_unavailable' };
-  chunk.blob = new Blob([], { type: chunk.blob?.type || 'audio/mpeg' });
-  chunk.sizeBytes = 0;
-  chunk.audioPurgedAt = audioPurgedAt || Date.now();
-  return idbPut('chunks', chunk);
+  return purgeChunkAudioRecord(chunkId, audioPurgedAt);
 }
 
 async function patchImportedSession(sessionId, archiveSession, flags) {

@@ -103,7 +103,7 @@ export async function getStorageStats() {
 
 export { enforceRetentionPolicy };
 
-const ALL_STORES = ['meta', 'logs', 'transcripts', 'snips', 'volume-profiles', 'chunks', 'sessions'];
+const ALL_STORES = ['meta', 'logs', 'transcripts', 'snips', 'volume-profiles', 'chunk-blobs', 'chunks', 'sessions'];
 
 /**
  * Dump every record from an object store (developer console).
@@ -206,6 +206,7 @@ async function cleanupOrphansUnlocked() {
     });
 
     await deleteOrphans('chunks', (record) => record.sessionId);
+    await deleteOrphans('chunk-blobs', (record) => record.sessionId);
     await deleteOrphans('snips', (record) => record.sessionId);
     await deleteOrphans('transcripts', (record) => record.sessionId);
     await deleteOrphans('volume-profiles', (record) => record.sessionId);

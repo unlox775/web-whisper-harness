@@ -11,8 +11,8 @@ Volume-analyzer is a customer of session-store for reading chunks (to compute vo
 **When volume-analyzer calls session-store**:
 
 1. **PWA calls volume-analyzer.analyzeVolume(sessionId) post-recording**:
-   - Volume-analyzer calls `getChunksForSession(sessionId)` → session-store returns chunk list (metadata only, NO blobs for performance)
-   - Volume-analyzer iterates chunk list → calls `getChunk(chunkId)` for each chunk → session-store returns chunk blob + metadata
+   - Volume-analyzer calls `getChunksForSession(sessionId)` → session-store returns chunk list (metadata only **in storage**, NO blobs deserialized)
+   - Volume-analyzer iterates chunk list → calls `getChunk(chunkId)` for each chunk → session-store returns chunk blob + metadata. **`getChunk` is the blob API.**
    - Volume-analyzer decodes each MP3 blob to PCM → computes peak dB per chunk → accumulates chunkVolumes array
    - Volume-analyzer calls `writeVolumeProfile(sessionId, {chunkVolumes: [{chunkId, peakDb}]})` → session-store validates sessionId exists → writes/replaces volume profile → updates session.hasVolumeProfile = true → returns confirmation
 
@@ -36,8 +36,8 @@ Volume-analyzer is a customer of session-store for reading chunks (to compute vo
 
 **Outputs volume-analyzer expects**:
 
-1. **getChunksForSession(sessionId)** → `{chunks: [{id, sessionId, seq, startTime, endTime, duration, sizeBytes}]}` (NO blobs, metadata only, sorted by seq asc) or error `{error: "database_unavailable"}`
-2. **getChunk(chunkId)** → `{id, sessionId, seq, startTime, endTime, duration, blob: Blob, sizeBytes}` or null if not found
+1. **getChunksForSession(sessionId)** → `{chunks: [{id, sessionId, seq, startTime, endTime, duration, sizeBytes}]}` (NO blobs **in storage**, metadata only, sorted by seq asc) or error `{error: "database_unavailable"}`
+2. **getChunk(chunkId)** → `{id, sessionId, seq, startTime, endTime, duration, blob: Blob, sizeBytes}` or null if not found. This is the only public API that loads audio bytes.
 3. **writeVolumeProfile(sessionId, volumeProfile)** → `{written: true}` or error `{error: "session_not_found"}` or error `{error: "database_unavailable"}`
 4. **getVolumeProfile(sessionId)** → `{sessionId, chunkVolumes: [{chunkId, peakDb}], createdAt}` or null if not found
 5. **writeSnip(sessionId, snipData)** → `{snipId: string}` or error `{error: "session_not_found"}` or error `{error: "database_unavailable"}`
@@ -80,8 +80,8 @@ OR session-store could provide `replaceSnipsForSession(sessionId, snipDataArray)
 
 **Performance expectations**:
 
-- `getChunksForSession` should return quickly (< 100ms for 50 chunks) with metadata only (NO blobs).
-- `getChunk` will be called once per chunk in sequence → volume-analyzer will accumulate blobs in memory for analysis. Acceptable latency: < 50ms per getChunk call.
+- `getChunksForSession` should return quickly (< 100ms for 50 chunks) with metadata only (NO blobs deserialized from IndexedDB).
+- `getChunk` will be called once per chunk in sequence → volume-analyzer will accumulate blobs in memory for analysis. Acceptable latency: < 50ms per getChunk call. `getChunk` is the blob API.
 - `writeVolumeProfile` should be fast (< 50ms) since volume profile is small (one peakDb float per chunk, e.g., 50 chunks = 50 floats = ~200 bytes JSON).
 - `writeSnip` should be fast (< 50ms per snip) since snip is small metadata.
 
@@ -316,15 +316,15 @@ I'm session-store. I accept your volume-analyzer customer request. You are my ba
 
 **`getChunksForSession(sessionId)`** → `{chunks: [...]}` or error
 
-- Queries `chunks` object store using `by-sessionId-seq` compound index (ASC order by seq)
+- Queries the metadata-only `chunks` object store using `by-sessionId-seq` compound index (ASC order by seq). Does not deserialize `chunk-blobs`.
 - Returns chunk metadata list: `{id, sessionId, seq, startTime, endTime, duration, sizeBytes}`
-- **NO BLOBS** in result (performance requirement). You call `getChunk(chunkId)` per chunk to fetch blobs separately.
+- **NO BLOBS** in storage or in the result. You call `getChunk(chunkId)` (the blob API) per chunk to fetch audio separately.
 - Sorted by seq ASC (critical for your sequential volume analysis)
 - Returns `{error: 'database_unavailable'}` if IndexedDB query fails
 
 **`getChunk(chunkId)`** → chunk object with blob or `null`
 
-- Single record read by primary key (`chunks` object store)
+- Single record read: metadata from `chunks` plus audio from `chunk-blobs` (`getChunk` is the blob API)
 - Returns full chunk: `{id, sessionId, seq, startTime, endTime, duration, blob: Blob, sizeBytes}`
 - Returns `null` if chunk not found (NOT error object—null is expected return for not-found)
 - Blob is MP3 format (`type: 'audio/mpeg'`), ready for Web Audio API decoding
@@ -386,7 +386,7 @@ All write errors returned as structured objects (NOT thrown exceptions).
 
 ### Performance Targets
 
-- `getChunksForSession`: < 100ms for < 50 chunks (NO BLOBS, metadata only)
+- `getChunksForSession`: < 100ms for < 50 chunks (NO BLOBS in storage, metadata only)
 - `getChunk`: < 50ms per call (you call sequentially, one per chunk)
 - `writeVolumeProfile`: < 50ms (volume profile is small: ~50 floats = ~200 bytes JSON)
 - `writeSnip`: < 50ms per snip (snip is small metadata)

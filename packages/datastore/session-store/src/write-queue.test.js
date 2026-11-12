@@ -154,6 +154,13 @@ describe('owner-serialized writes and coverage', () => {
     assert.equal(coverage.lostChunks.length, 1);
     assert.equal(coverage.lostChunks[0].seq, 4);
     assert.equal(coverage.lostChunks[0].reason, 'quota_exceeded');
+
+    const listed = await sessionStore.getChunksForSession(session.id);
+    for (const chunk of listed.chunks) {
+      assert.equal(chunk.blob, undefined);
+    }
+    const row = await sessionStore.getSession(session.id);
+    assert.deepEqual(row.missingSeqs, [4, 7]);
   });
 
   it('injected log-write failure increments logWriteFailures', async () => {

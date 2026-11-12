@@ -6,7 +6,9 @@
  * to queued customer writes between batches.
  */
 
-import { getDatabase } from './db.js';
+import { getDatabase, CHUNK_BLOBS_STORE } from './db.js';
+import { deleteBlobInTransaction, hasChunkBlobsStore } from './chunk-blobs.js';
+import { stripBlob } from './chunk-coverage.js';
 import {
   getLogByteSizes,
   pruneLogsByAgeBatched,
@@ -162,6 +164,7 @@ async function collectEligible(db, snips, transcriptBySnip, sessionById, yieldTo
 
 async function putPurgeBatch(db, {
   chunksToPut,
+  blobIdsToDelete = [],
   snipsToPut,
   profilesToPut,
   profilesToDelete,
@@ -169,6 +172,7 @@ async function putPurgeBatch(db, {
 }) {
   if (
     chunksToPut.length === 0 &&
+    blobIdsToDelete.length === 0 &&
     snipsToPut.length === 0 &&
     profilesToPut.length === 0 &&
     profilesToDelete.length === 0 &&
@@ -179,12 +183,12 @@ async function putPurgeBatch(db, {
   retentionWriteInFlight = true;
   try {
     await new Promise((resolve, reject) => {
-      const transaction = db.transaction(
-        ['chunks', 'snips', 'volume-profiles', 'sessions'],
-        'readwrite'
-      );
+      const storeNames = ['chunks', 'snips', 'volume-profiles', 'sessions'];
+      if (hasChunkBlobsStore(db)) storeNames.push(CHUNK_BLOBS_STORE);
+      const transaction = db.transaction(storeNames, 'readwrite');
       const chunkStore = transaction.objectStore('chunks');
-      for (const chunk of chunksToPut) chunkStore.put(chunk);
+      for (const chunk of chunksToPut) chunkStore.put(stripBlob(chunk));
+      for (const chunkId of blobIdsToDelete) deleteBlobInTransaction(transaction, chunkId);
       const snipStore = transaction.objectStore('snips');
       for (const snip of snipsToPut) snipStore.put(snip);
       const profileStore = transaction.objectStore('volume-profiles');
@@ -314,15 +318,17 @@ export async function runRetentionUnlocked(capBytes, options = {}, yieldToCustom
     const slice = eligible.slice(i, i + RETENTION_BATCH_SIZE);
     const sessionDelta = new Map();
     const chunksToPut = [];
+    const blobIdsToDelete = [];
     for (const entry of slice) {
       if (usedBytes <= targetBytes) break;
       const chunk = chunkById.get(entry.chunk.id) || entry.chunk;
       const removedBytes = chunk.sizeBytes || chunk.blob?.size || 0;
       if (removedBytes <= 0) continue;
-      chunk.blob = new Blob([], { type: chunk.blob?.type || 'audio/mpeg' });
+      delete chunk.blob;
       chunk.sizeBytes = 0;
       chunk.audioPurgedAt = now;
       chunksToPut.push(chunk);
+      blobIdsToDelete.push(chunk.id);
       purgedChunkIds.push(chunk.id);
       reclaimedBytes += removedBytes;
       usedBytes = Math.max(0, usedBytes - Math.round(removedBytes * 1.1));
@@ -392,6 +398,7 @@ export async function runRetentionUnlocked(capBytes, options = {}, yieldToCustom
     // accumulated maps. Re-put is idempotent.
     await putPurgeBatch(db, {
       chunksToPut,
+      blobIdsToDelete,
       snipsToPut: snipsToMark,
       profilesToPut,
       profilesToDelete,

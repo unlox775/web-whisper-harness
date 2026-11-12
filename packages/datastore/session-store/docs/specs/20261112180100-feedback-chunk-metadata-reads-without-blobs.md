@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-12T18:01:00Z
+Resolved: 2026-11-12T18:30:00Z
 Product: packages/datastore/session-store
 Contract: docs/DURABILITY-CONTRACT.md
 Harness: apps/web-whisper-pwa/tests/perf/README.md
@@ -80,3 +81,17 @@ PWA Home `SessionCard` query shape (separate spec). `getStorageStats` full-store
 ## Durability
 
 Splitting metadata from blobs must not lose chunks, break idempotent `(sessionId, seq)`, or skip `blob` on `getChunk`. Coverage stored on the session row must not hide gaps (`DURABILITY-CONTRACT` §7–8).
+
+## Resolution
+
+Implemented in `packages/datastore/session-store` only. IndexedDB v4 splits audio into `chunk-blobs` (keyed by chunk id). `chunks` holds metadata. `getChunksForSession` reads only `chunks`. `getChunk` joins metadata + blob (legacy `chunks.blob` still served during migration). `getChunkCoverage` / `listSessions` rows use persisted `lastSeq`, `savedCount`, `missingSeqs`, `savedDurationMs`, `lostChunks` on the session (O(1) in chunk count). v3 → v4 copy-then-strip migration is batched, resumable, idempotent, and never deletes audio.
+
+- [x] `getChunksForSession` metadata-only in storage
+- [x] `getChunkCoverage` is a session-row read; coverage updated on `writeChunk` / import / finalize / `recordChunkLost`
+- [x] `listSessions` / `getSession` carry coverage summary for PWA tiles
+- [x] `getChunk` still returns the blob
+- [x] `writeChunk` remains owner-serialized and idempotent by `(sessionId, seq)`
+- [x] Resumable v4 migration; unit proof that 357×64 KB listing does not touch `chunk-blobs`
+- [x] Customer contracts + README match the shipped API
+- [x] Package tests + archive import/export green
+- [x] Harness N=10/50/100: `getChunkCoverage` 19 ms → 0.1–0.4 ms; `getChunksForSession` 18 ms → ~9 ms; open-detail heading 76 ms at N=100; detail IDB does not read `chunk-blobs`

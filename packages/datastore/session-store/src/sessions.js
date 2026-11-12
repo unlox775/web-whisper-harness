@@ -2,9 +2,11 @@
  * Session operations
  */
 
-import { getDatabase, generateId } from './db.js';
+import { getDatabase, generateId, CHUNK_BLOBS_STORE } from './db.js';
 import { enqueueCustomer } from './scheduler.js';
 import { addSessionCount, rebuildStatsCache, subtractSessionCount } from './stats-cache.js';
+import { emptyCoverageFields, assignCoverageToSession, computeCoverageFromChunkMetas, publicChunkMeta } from './chunk-coverage.js';
+import { deleteBlobInTransaction, hasChunkBlobsStore } from './chunk-blobs.js';
 
 /**
  * Create new session
@@ -30,7 +32,8 @@ async function createSessionUnlocked() {
       hasVolumeProfile: false,
       hasSnips: false,
       hasTranscript: false,
-      status: 'recording'
+      status: 'recording',
+      ...emptyCoverageFields()
     };
     
     return new Promise((resolve, reject) => {
@@ -159,6 +162,9 @@ async function deleteSessionUnlocked(sessionId) {
       if (db.objectStoreNames.contains('logs')) {
         storeNames.unshift('logs');
       }
+      if (hasChunkBlobsStore(db)) {
+        storeNames.push(CHUNK_BLOBS_STORE);
+      }
       const transaction = db.transaction(storeNames, 'readwrite');
       
       // Delete logs for this session (cascade; after transcripts/snips/volume/chunks or same tx)
@@ -205,7 +211,7 @@ async function deleteSessionUnlocked(sessionId) {
       const volumeProfilesStore = transaction.objectStore('volume-profiles');
       volumeProfilesStore.delete(sessionId);
       
-      // Delete chunks for this session
+      // Delete chunks + audio blobs for this session
       const chunksStore = transaction.objectStore('chunks');
       const chunksIndex = chunksStore.index('by-sessionId');
       const chunksRequest = chunksIndex.openCursor(IDBKeyRange.only(sessionId));
@@ -213,10 +219,24 @@ async function deleteSessionUnlocked(sessionId) {
       chunksRequest.onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor) {
+          deleteBlobInTransaction(transaction, cursor.value.id);
           cursor.delete();
           cursor.continue();
         }
       };
+
+      if (hasChunkBlobsStore(db)) {
+        const blobsStore = transaction.objectStore(CHUNK_BLOBS_STORE);
+        const blobsIndex = blobsStore.index('by-sessionId');
+        const blobsRequest = blobsIndex.openCursor(IDBKeyRange.only(sessionId));
+        blobsRequest.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor) {
+            cursor.delete();
+            cursor.continue();
+          }
+        };
+      }
       
       // Delete session itself
       const sessionsStore = transaction.objectStore('sessions');
@@ -266,6 +286,7 @@ async function finalizeSessionUnlocked(sessionId) {
       let chunkCount = 0;
       let sizeBytes = 0;
       let duration = 0;
+      const metas = [];
 
       request.onsuccess = (event) => {
         const cursor = event.target.result;
@@ -274,6 +295,7 @@ async function finalizeSessionUnlocked(sessionId) {
           chunkCount += 1;
           sizeBytes += chunk.sizeBytes || 0;
           duration = Math.max(duration, chunk.endTime || 0);
+          metas.push(publicChunkMeta(chunk));
           cursor.continue();
         }
       };
@@ -288,6 +310,10 @@ async function finalizeSessionUnlocked(sessionId) {
           updatedAt: now,
           status: chunkCount > 0 ? 'ready' : 'error'
         };
+        assignCoverageToSession(
+          updated,
+          computeCoverageFromChunkMetas(metas, session.lostChunks)
+        );
         const putTx = db.transaction(['sessions'], 'readwrite');
         putTx.objectStore('sessions').put(updated);
         putTx.oncomplete = () => resolve({ session: updated });
