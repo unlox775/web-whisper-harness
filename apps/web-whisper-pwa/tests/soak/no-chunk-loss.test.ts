@@ -27,9 +27,9 @@ import {
 } from '../../src/retentionAfterIdle.ts';
 import {
   isNearCap,
-  shouldRunRetention,
   type RetentionOpportunity,
 } from '../../src/retentionPolicy.ts';
+import { shouldRunRecordingRetention } from '../../src/recordingUsedBytes.ts';
 
 const CHUNK_SECONDS = 4;
 const CHUNK_MS = CHUNK_SECONDS * 1000;
@@ -289,18 +289,10 @@ function createPwaRetentionController(opts: {
       options?.opportunity ?? (recording ? 'recording' : 'idle');
 
     if (recording && opportunity === 'recording') {
-      // Same 60s latch as the PWA, checked before getStorageStats so an
-      // accelerated soak does not open hundreds of overlapping table scans.
-      if (
-        lastRecordingRetentionAtMs != null &&
-        Date.now() - lastRecordingRetentionAtMs < 60_000
-      ) {
-        calls.push({ opportunity, skipped: true });
-        return;
-      }
-      const run = shouldRunRetention({
-        opportunity: 'recording',
-        recording: true,
+      // Same 90% / 60s gate as the PWA: last-known usedBytes only. Do not
+      // call getStorageStats per chunk (that was a whole-library cursor).
+      const run = shouldRunRecordingRetention({
+        usedBytesKnown: true,
         usedBytes: opts.getUsedBytes(),
         capBytes: opts.getCapBytes(),
         lastRecordingRetentionAtMs,
