@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  chunkCoverageFromSessionRow,
   formatCoverageSummary,
   formatGapRangeList,
   gapCount,
@@ -8,6 +9,7 @@ import {
   hasChunkGaps,
   readyWithoutGapForbidden,
   sessionGapNote,
+  sessionRowHasPersistedCoverage,
   type ChunkCoverage,
 } from './chunkCoverage.ts';
 import { sessionTilePreview } from './sessionTile.ts';
@@ -146,5 +148,19 @@ describe('chunk coverage display', () => {
     const row = coverage({ missingSeqs: [], lostChunks: [] });
     assert.equal(sessionGapNote(row, 40), null);
     assert.equal(hasChunkGaps(row), false);
+  });
+
+  it('builds getChunkCoverage-shaped coverage from a listSessions row', () => {
+    const fromRow = chunkCoverageFromSessionRow({
+      lastSeq: 2,
+      savedCount: 2,
+      missingSeqs: [1],
+      savedDurationMs: 8000,
+      lostChunks: [{ seq: 1, startMs: 4000, endMs: 8000, reason: 'quota_exceeded' }],
+    });
+    assert.equal(sessionRowHasPersistedCoverage(fromRow), true);
+    assert.equal(fromRow?.savedCount, 2);
+    assert.deepEqual(fromRow?.missingSeqs, [1]);
+    assert.equal(sessionGapNote(fromRow, 12), '0:12 elapsed · 0:08 saved · 1 gap');
   });
 });

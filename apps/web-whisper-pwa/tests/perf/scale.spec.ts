@@ -367,6 +367,12 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
     if (n === 10 || n === sorted[sorted.length - 1] || n === 20) {
       const shot = resolve(qaDir, `perf-baseline-list-n${n}.png`);
       await page.screenshot({ path: shot, fullPage: false });
+      if (n === 100 || n === sorted[sorted.length - 1]) {
+        await page.screenshot({
+          path: resolve(qaDir, 'perf-session-list-n100-after.png'),
+          fullPage: false,
+        });
+      }
     }
 
     const phases: Phase[] = [
@@ -404,11 +410,16 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
       await page.getByRole('button', { name: '← Sessions' }).click();
       await waitReady(page);
       await waitCards(page, n);
+      const backCardsMs = Date.now() - backStart;
       const backIdle = await waitIdbIdle(page);
       phases.push({
         name: 'backToList',
         wallMs: Date.now() - backStart,
-        extra: { idle: backIdle, longTasks: await longTasks(page) },
+        extra: {
+          cardsVisibleMs: backCardsMs,
+          idle: backIdle,
+          longTasks: await longTasks(page),
+        },
         idb: await snapshotIdb(page),
       });
     }

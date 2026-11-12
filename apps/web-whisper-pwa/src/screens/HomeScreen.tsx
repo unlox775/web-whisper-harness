@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { useApp } from '../context';
 import { transcribeSession } from '../orchestration';
 import { transcriptionContextFromSettings } from '../settings';
-import { isChunkCoverage, type ChunkCoverage } from '../chunkCoverage';
-import { sessionTilePreview, type SessionTilePreview } from '../sessionTile';
+import { sessionTilePreview, sessionTilePreviewFromRow, type SessionTilePreview } from '../sessionTile';
+import { chunkCoverageFromSessionRow, isChunkCoverage } from '../chunkCoverage';
 import { emitTranscriptionEvent, subscribeSessionTranscription } from '../transcriptionEvents';
 import { sessionTranscriptionCoverage, uncoveredTailCopy } from '../transcriptionCoverage';
 import { coverageExtrasForSession } from '../recorderDuration';
@@ -35,18 +35,11 @@ function SessionCard({
   preview?: { snips: SnipRecord[]; transcripts: TranscriptRecord[]; snippet: string };
 }) {
   const app = useApp();
+  const cardRef = useRef<HTMLElement | null>(null);
   const [tile, setTile] = useState<SessionTilePreview>(() =>
     preview
       ? sessionTilePreview(session, preview.snips, preview.transcripts)
-      : {
-          snipCount: 0,
-          transcriptCount: 0,
-          snippet: '',
-          badge: null,
-          coverage: sessionTranscriptionCoverage(session, [], []),
-          coverageNote: null,
-          chunkGapNote: null,
-        }
+      : sessionTilePreviewFromRow(session)
   );
 
   useEffect(() => {
@@ -55,15 +48,20 @@ function SessionCard({
       return undefined;
     }
 
+    setTile(sessionTilePreviewFromRow(session));
+
     let cancelled = false;
     async function loadTile() {
-      const snipsResult = await sessionStore.getSnipsForSession(session.id);
-      const transcriptsResult = await sessionStore.getTranscriptsForSession(session.id);
-      const coverageResult = await sessionStore.getChunkCoverage(session.id);
+      const [snipsResult, transcriptsResult] = await Promise.all([
+        sessionStore.getSnipsForSession(session.id),
+        sessionStore.getTranscriptsForSession(session.id),
+      ]);
+      let chunkCoverage = chunkCoverageFromSessionRow(session);
+      if (!chunkCoverage) {
+        const coverageResult = await sessionStore.getChunkCoverage(session.id);
+        chunkCoverage = isChunkCoverage(coverageResult) ? coverageResult : null;
+      }
       if (cancelled) return;
-      const chunkCoverage: ChunkCoverage | null = isChunkCoverage(coverageResult)
-        ? coverageResult
-        : null;
       setTile(
         sessionTilePreview(
           session,
@@ -75,17 +73,54 @@ function SessionCard({
       );
     }
 
-    void loadTile();
-    return subscribeSessionTranscription(session.id, () => {
+    const unsub = subscribeSessionTranscription(session.id, () => {
       void loadTile();
     });
-  }, [preview, session]);
+
+    const el = cardRef.current;
+    if (typeof IntersectionObserver === 'undefined' || !el) {
+      void loadTile();
+      return () => {
+        cancelled = true;
+        unsub();
+      };
+    }
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        io.disconnect();
+        void loadTile();
+      },
+      { rootMargin: '120px' }
+    );
+    io.observe(el);
+    return () => {
+      cancelled = true;
+      io.disconnect();
+      unsub();
+    };
+  }, [
+    preview,
+    session.id,
+    session.updatedAt,
+    session.hasTranscript,
+    session.hasSnips,
+    session.duration,
+    session.chunkCount,
+    session.lastSeq,
+    session.savedCount,
+    session.savedDurationMs,
+    session.missingSeqs,
+    session.lostChunks,
+  ]);
 
   const { snippet, badge, coverageNote, chunkGapNote } = tile;
   const showRetry = badge === 'part-tx';
 
   return (
     <article
+      ref={cardRef}
       key={session.id}
       className="card session-card"
       onClick={() => app.openSession(session.id)}

@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-12T18:02:00Z
 Product: apps/web-whisper-pwa
@@ -81,3 +81,25 @@ Making `getStorageStats` O(1) (store). Live recording `chunkEncoded` stats (sepa
 ## Durability
 
 List speed must not come from dropping sessions, hiding gaps, or purging audio. Captured chunks stay in session-store until a real retention decision under cap.
+
+## Resolution
+
+**Resolved:** 2026-11-12T18:45:00Z on branch `cursor/pwa-session-list-no-chunk-scan-1bfa`.
+
+### What shipped
+
+1. Home `SessionCard` paints chrome from the `listSessions` row (`sessionTilePreviewFromRow`). Gap honesty uses persisted coverage on that row (`lastSeq`, `savedCount`, `missingSeqs`, `savedDurationMs`, `lostChunks`) — the same O(1) `getChunkCoverage` shape shipped in #72. Visible cards lazy-load snips + transcripts for READY / PART TX / snippet. `hasTranscript` / `status: ready` never paint READY by themselves. Fallback: `getChunkCoverage` if a row lacks persisted fields. No `getChunksForSession` on the list.
+2. `refresh` / boot: `listSessions` then setReady; `getStorageStats` is background. `goHome` refreshes session rows only.
+3. Session detail heading and gap line paint from the list row; `getChunkCoverage` / `getChunksForSession` load for **that session only**.
+
+### Tests
+
+- `npm test` in `apps/web-whisper-pwa`: 149 pass (existing tile badge / gap fixtures plus from-row coverage cases).
+- Re-measured on `main` after #72 (`getChunkCoverage` O(1), `getChunksForSession` metadata-only). Harness N=10/50/100, CPU 4×, full-size 357×4 s sessions. N=100: `getChunkCoverage` median **0.1 ms**; back-to-list **no `chunks` cursors**; heading **69 ms**; cards-visible **203 ms** (wall 793 ms includes ~400 ms idle window). Cold list **2590 ms** still dominated by store `init()` blob-stats walk (out of scope).
+
+### Proof
+
+- `documentation/qa/perf-session-list-2026-11-12.md`
+- `documentation/qa/perf-session-list-n100-before.png`
+- `documentation/qa/perf-session-list-n100-after.png`
+
