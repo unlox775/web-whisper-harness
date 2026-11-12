@@ -9,7 +9,12 @@
 
 import { initDatabase, closeDatabase as closeDatabaseRaw, CHUNK_BLOBS_STORE } from './db.js';
 import { resetScheduler } from './scheduler.js';
-import { rebuildStatsCache, resetStatsCache } from './stats-cache.js';
+import {
+  hydrateStatsCache,
+  resetStatsCache,
+  scheduleStatsRebuild,
+  getStatsCache
+} from './stats-cache.js';
 import {
   migrateLegacyChunkBlobs,
   resetChunkBlobMigrationSchedule,
@@ -108,7 +113,10 @@ export async function init(config = {}) {
   setLogWriteFailureForTests(false);
   const databaseName = config.databaseName || 'web-whisper-db';
   await initDatabase(databaseName);
-  await rebuildStatsCache();
+  await hydrateStatsCache();
+  if (!getStatsCache().valid) {
+    scheduleStatsRebuild();
+  }
   scheduleChunkBlobMigration();
   return { initialized: true };
 }

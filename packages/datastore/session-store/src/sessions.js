@@ -4,7 +4,13 @@
 
 import { getDatabase, generateId, CHUNK_BLOBS_STORE } from './db.js';
 import { enqueueCustomer } from './scheduler.js';
-import { addSessionCount, rebuildStatsCache, subtractSessionCount } from './stats-cache.js';
+import {
+  addSessionCount,
+  persistStatsCache,
+  subtractChunkBytes,
+  subtractLogRows,
+  subtractSessionCount
+} from './stats-cache.js';
 import { emptyCoverageFields, assignCoverageToSession, computeCoverageFromChunkMetas, publicChunkMeta } from './chunk-coverage.js';
 import { deleteBlobInTransaction, hasChunkBlobsStore } from './chunk-blobs.js';
 
@@ -41,13 +47,17 @@ async function createSessionUnlocked() {
       const store = transaction.objectStore('sessions');
       const request = store.add(session);
       
-      request.onsuccess = () => {
-        addSessionCount(1);
-        resolve({ id: sessionId });
-      };
-      
+      request.onsuccess = () => {};
+
       request.onerror = () => {
         resolve({ error: 'database_unavailable' });
+      };
+
+      transaction.oncomplete = () => {
+        Promise.resolve(addSessionCount(1))
+          .then(() => persistStatsCache())
+          .catch(() => {})
+          .then(() => resolve({ id: sessionId }));
       };
       
       transaction.onerror = () => {
@@ -167,6 +177,10 @@ async function deleteSessionUnlocked(sessionId) {
       }
       const transaction = db.transaction(storeNames, 'readwrite');
       
+      let removedLogCount = 0;
+      let removedLogBytes = 0;
+      const removedLogsByPackage = {};
+
       // Delete logs for this session (cascade; after transcripts/snips/volume/chunks or same tx)
       if (db.objectStoreNames.contains('logs')) {
         const logsStore = transaction.objectStore('logs');
@@ -175,6 +189,16 @@ async function deleteSessionUnlocked(sessionId) {
         logsRequest.onsuccess = (event) => {
           const cursor = event.target.result;
           if (cursor) {
+            const row = cursor.value;
+            const bytes = row.sizeBytes || 0;
+            removedLogCount += 1;
+            removedLogBytes += bytes;
+            const key = row.packageId || 'unknown';
+            if (!removedLogsByPackage[key]) {
+              removedLogsByPackage[key] = { bytes: 0, count: 0 };
+            }
+            removedLogsByPackage[key].bytes += bytes;
+            removedLogsByPackage[key].count += 1;
             cursor.delete();
             cursor.continue();
           }
@@ -215,11 +239,15 @@ async function deleteSessionUnlocked(sessionId) {
       const chunksStore = transaction.objectStore('chunks');
       const chunksIndex = chunksStore.index('by-sessionId');
       const chunksRequest = chunksIndex.openCursor(IDBKeyRange.only(sessionId));
-      
+      let removedChunkBytes = 0;
+      let removedChunkCount = 0;
+
       chunksRequest.onsuccess = (event) => {
         const cursor = event.target.result;
         if (cursor) {
           deleteBlobInTransaction(transaction, cursor.value.id);
+          removedChunkBytes += cursor.value.sizeBytes || 0;
+          removedChunkCount += 1;
           cursor.delete();
           cursor.continue();
         }
@@ -243,8 +271,13 @@ async function deleteSessionUnlocked(sessionId) {
       sessionsStore.delete(sessionId);
       
       transaction.oncomplete = () => {
-        subtractSessionCount(1);
-        rebuildStatsCache()
+        Promise.resolve()
+          .then(() => subtractChunkBytes(removedChunkBytes, removedChunkCount))
+          .then(() =>
+            subtractLogRows(removedLogCount, removedLogBytes, undefined, removedLogsByPackage)
+          )
+          .then(() => subtractSessionCount(1))
+          .then(() => persistStatsCache())
           .catch(() => {})
           .then(() => resolve({ deleted: true }));
       };

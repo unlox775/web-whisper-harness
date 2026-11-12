@@ -8,7 +8,13 @@
 import { getDatabase, generateId, CHUNK_BLOBS_STORE } from './db.js';
 import { getSession } from './sessions.js';
 import { enqueueCustomer } from './scheduler.js';
-import { addChunkBytes, ensureStatsCache, getStatsCache } from './stats-cache.js';
+import {
+  addChunkBytes,
+  ensureStatsCache,
+  getStatsCache,
+  persistStatsCache,
+  subtractChunkBytes
+} from './stats-cache.js';
 import { WRITE_WAIT_BUDGET_MS } from './constants.js';
 import { runRetentionUnlocked } from './retention.js';
 import {
@@ -142,10 +148,15 @@ async function persistChunk(sessionId, chunkData) {
     };
 
     transaction.oncomplete = () => {
+      const done = () => finish(result || { error: 'database_unavailable', class: 'permanent' });
       if (result && result.chunkId && !result.idempotent) {
-        addChunkBytes(chunkData.sizeBytes || 0, 1);
+        Promise.resolve(addChunkBytes(chunkData.sizeBytes || 0, 1))
+          .then(() => persistStatsCache())
+          .catch(() => {})
+          .then(done);
+        return;
       }
-      finish(result || { error: 'database_unavailable', class: 'permanent' });
+      done();
     };
 
     const onFail = () => {
@@ -261,7 +272,8 @@ export async function putChunkRecordsBulk(records) {
         for (const record of slice) {
           bytes += record.sizeBytes || 0;
         }
-        addChunkBytes(bytes, slice.length);
+        await addChunkBytes(bytes, slice.length);
+        await persistStatsCache();
         written += slice.length;
       }
       return { written };
@@ -287,7 +299,12 @@ export async function putSplitChunkRecord(record) {
       const transaction = db.transaction(storeNames, 'readwrite');
       transaction.objectStore('chunks').put(stripBlob(record));
       putBlobInTransaction(transaction, record);
-      transaction.oncomplete = () => resolve(null);
+      transaction.oncomplete = () => {
+        Promise.resolve(addChunkBytes(record.sizeBytes || 0, 1))
+          .then(() => persistStatsCache())
+          .catch(() => {})
+          .then(() => resolve(null));
+      };
       transaction.onerror = () => resolve({ error: 'database_unavailable' });
     });
   } catch {
@@ -312,6 +329,7 @@ export async function purgeChunkAudioRecord(chunkId, audioPurgedAt) {
       req.onerror = () => resolve(null);
     });
     if (!meta) return { error: 'database_unavailable' };
+    const previous = meta.sizeBytes || 0;
     meta.sizeBytes = 0;
     meta.audioPurgedAt = audioPurgedAt || Date.now();
     return new Promise((resolve) => {
@@ -320,7 +338,17 @@ export async function purgeChunkAudioRecord(chunkId, audioPurgedAt) {
       const transaction = db.transaction(storeNames, 'readwrite');
       transaction.objectStore('chunks').put(stripBlob(meta));
       deleteBlobInTransaction(transaction, chunkId);
-      transaction.oncomplete = () => resolve(null);
+      transaction.oncomplete = () => {
+        const done = () => resolve(null);
+        if (previous > 0) {
+          Promise.resolve(subtractChunkBytes(previous, 0))
+            .then(() => persistStatsCache())
+            .catch(() => {})
+            .then(done);
+          return;
+        }
+        done();
+      };
       transaction.onerror = () => resolve({ error: 'database_unavailable' });
     });
   } catch {

@@ -15,6 +15,7 @@ import {
   addLogRow,
   getStatsCache,
   incrementLogWriteFailures,
+  persistStatsCache,
   setOldestLogCreatedAt,
   subtractLogRows
 } from './stats-cache.js';
@@ -253,8 +254,10 @@ async function putLogRecordUnlocked(row) {
       const transaction = db.transaction([LOGS_STORE], 'readwrite');
       transaction.objectStore(LOGS_STORE).put(record);
       transaction.oncomplete = () => {
-        addLogRow(record.sizeBytes || 0, record.createdAt);
-        resolve({ written: true, id: record.id });
+        Promise.resolve(addLogRow(record.sizeBytes || 0, record.createdAt, record.packageId))
+          .then(() => persistStatsCache())
+          .catch(() => {})
+          .then(() => resolve({ written: true, id: record.id }));
       };
       transaction.onerror = () => {
         resolve(failLogWrite(transaction.error));
@@ -306,11 +309,12 @@ export async function putLogRecordsBulk(rows) {
               record.sizeBytes = estimateSizeBytes(record);
             }
             store.put(record);
-            addLogRow(record.sizeBytes || 0, record.createdAt);
+            addLogRow(record.sizeBytes || 0, record.createdAt, record.packageId);
           }
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
         });
+        await persistStatsCache();
         written += slice.length;
       }
       return { written };
@@ -507,6 +511,7 @@ async function pruneLogBatch({ cutoffIso = null, maxDeletes, bytesToFree = null 
       const store = transaction.objectStore(LOGS_STORE);
       let prunedLogCount = 0;
       let prunedLogBytes = 0;
+      const byPackage = {};
       const request = store.indexNames.contains('by-createdAt')
         ? cutoffIso
           ? store.index('by-createdAt').openCursor(IDBKeyRange.upperBound(cutoffIso, true))
@@ -523,17 +528,27 @@ async function pruneLogBatch({ cutoffIso = null, maxDeletes, bytesToFree = null 
           cursor.continue();
           return;
         }
+        const bytes = row.sizeBytes || 0;
         prunedLogCount += 1;
-        prunedLogBytes += row.sizeBytes || 0;
+        prunedLogBytes += bytes;
+        const key = row.packageId || 'unknown';
+        if (!byPackage[key]) byPackage[key] = { bytes: 0, count: 0 };
+        byPackage[key].bytes += bytes;
+        byPackage[key].count += 1;
         cursor.delete();
         cursor.continue();
       };
 
       transaction.oncomplete = () => {
+        const done = () => resolve({ prunedLogCount, prunedLogBytes });
         if (prunedLogCount > 0) {
-          subtractLogRows(prunedLogCount, prunedLogBytes);
+          Promise.resolve(subtractLogRows(prunedLogCount, prunedLogBytes, undefined, byPackage))
+            .then(() => persistStatsCache())
+            .catch(() => {})
+            .then(done);
+          return;
         }
-        resolve({ prunedLogCount, prunedLogBytes });
+        done();
       };
       transaction.onerror = () => {
         resolve({ error: 'database_unavailable', class: 'permanent' });

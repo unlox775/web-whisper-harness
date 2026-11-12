@@ -33,12 +33,12 @@ The Web Whisper PWA is the primary customer of session-store. The PWA calls sess
    - PWA removes session card from home screen, updates storage stats
 
 5. **After recording completes (PWA orchestration)**:
-   - PWA calls `getStorageStats()` → session-store calculates usedBytes, returns stats
+   - PWA calls `getStorageStats()` → session-store returns running totals (O(1); no blob-store cursor)
    - PWA calls `enforceRetentionPolicy(capBytes)` → session-store deletes oldest sessions until usedBytes <= capBytes → returns summary
    - PWA optionally displays toast notification ("1 old session deleted to free space")
 
 6. **Settings screen loads**:
-   - PWA calls `getStorageStats()` → session-store returns `{usedBytes, capBytes, sessionCount, chunkCount}`
+   - PWA calls `getStorageStats()` → session-store returns `{usedBytes, capBytes, sessionCount, chunkCount, …}` from running totals
    - PWA displays "Storage: 45 MB / 200 MB (22%)" chip
    - PWA displays "5 sessions, 72 chunks" detail text
 
@@ -63,7 +63,7 @@ The Web Whisper PWA is the primary customer of session-store. The PWA calls sess
 5. **getSnipsForSession(sessionId)** → `{snips: [{id, sessionId, startChunkIndex, endChunkIndex, startTime, endTime, duration, chunkIds, confidence, createdAt}]}` (sorted by startTime asc) or error `{error: "database_unavailable"}`
 6. **getTranscriptsForSession(sessionId)** → `{transcripts: [{snipId, sessionId, text, createdAt, updatedAt}]}` or error `{error: "database_unavailable"}`
 7. **deleteSession(sessionId)** → `{deleted: true}` or error `{error: "session_not_found"}` or error `{error: "database_unavailable"}`
-8. **getStorageStats()** → `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount, logWriteFailures, logBytesByPackage}` or error `{error: "database_unavailable"}`
+8. **getStorageStats()** → `{usedBytes, capBytes, sessionCount, chunkCount, logBytes, logEntryCount, logWriteFailures, logBytesByPackage}` or error `{error: "database_unavailable"}`. O(1) when the stats cache is valid; safe on boot, every list refresh, and every live `chunkEncoded`. Callers are not told to skip this while recording.
 9. **enforceRetentionPolicy(capBytes)** → `{deletedSessions, reclaimedBytes, newUsedBytes, purgedChunkIds, purgedSnipIds, droppedVolumeProfiles, prunedLogCount, prunedLogBytes}` or error `{error: "database_unavailable"}`. Safe to call any time; cheap no-op (no transaction, no in-flight flag) when under cap.
 10. **writeTranscript(snipId, transcriptText)** → `{written: true}` or error `{error: "snip_not_found"}` or error `{error: "database_unavailable"}`
 11. **getChunkCoverage(sessionId)** → `{expectedFirstSeq, lastSeq, savedCount, missingSeqs, savedDurationMs, lostChunks}` or `{error, class: 'permanent'}`
@@ -328,14 +328,15 @@ How I use it:
 
 Cascade delete requirement: **Session-store MUST cascade delete all related data**: transcripts → snips → volume-profile → chunks → session. I should NOT have to call separate delete functions for chunks/snips/transcripts. One `deleteSession(sessionId)` call deletes everything.
 
-**`getStorageStats()`** (settings screen, post-recording retention check)
+**`getStorageStats()`** (settings screen, post-recording retention check, live 90% cap check)
 
 When I call it:
+- App boot / home list refresh
 - Settings screen loads (user taps ⚙️ icon)
 - Home / list refresh (boot, after Stop, after delete)
 - After recording stops (to check if retention policy needs enforcement)
 - After session deletion (to update storage display)
-- **Not** on every live `chunkEncoded`. The 90% recording gate uses last-known `usedBytes` already in PWA state (plus incremental encoded sizes). I *may* call `getStorageStats` during recording **because it is O(1)**; I will not cursor the chunks store myself.
+- **Not** on every live `chunkEncoded`. The 90% recording gate uses last-known `usedBytes` already in PWA state (plus incremental encoded sizes). I *may* call `getStorageStats` during recording **because it is O(1)**; I will not cursor `chunks` or `chunk-blobs` myself.
 
 Input: None
 
@@ -413,7 +414,7 @@ Session-store MUST return error objects (NOT throw exceptions). If session-store
 - `getSnipsForSession(sessionId)`: < 100ms (typical session has 0–10 snips)
 - `getTranscriptsForSession(sessionId)`: < 100ms (typical session has 0–10 transcripts)
 - `deleteSession(sessionId)`: 100–500ms for large sessions (cascade delete many chunks/snips/transcripts is slower, but acceptable since infrequent user action with confirm dialog)
-- `getStorageStats()`: O(1) / < 10 ms when the stats cache is valid (safe during recording). The PWA still must not treat this as license to do extra whole-library work on `chunkEncoded`; live usedBytes is last-known + incremental.
+- `getStorageStats()`: O(1) / < 10 ms when the stats cache is valid (safe during recording). Does not cursor `chunk-blobs`; blob bytes come from the cache / metadata `sizeBytes`. The PWA still must not treat this as license to do extra whole-library work on `chunkEncoded`; live usedBytes is last-known + incremental.
 - `enforceRetentionPolicy(capBytes)`: 500–2000ms (deletes multiple sessions, acceptable since automatic background operation or triggered by user in settings)
 
 If listSessions takes > 500ms for 100 sessions, home screen feels sluggish. Optimize with IndexedDB indexes.
@@ -649,7 +650,7 @@ You do NOT manually update session metadata. I handle it.
 - `getSnipsForSession`: < 100ms (typical session has 0–10 snips)
 - `getTranscriptsForSession`: < 100ms (typical session has 0–10 transcripts)
 - `deleteSession`: 100–500ms for large sessions (acceptable with confirm dialog)
-- `getStorageStats`: < 200ms (aggregate calculation)
+- `getStorageStats`: O(1) / < 10 ms when cache valid (no blob-store cursor)
 - `enforceRetentionPolicy`: 500–2000ms (deletes multiple sessions, acceptable for automatic/user-triggered operation)
 
 If `listSessions` takes > 500ms for 100 sessions, home screen feels sluggish. Optimize with IndexedDB indexes.
@@ -688,7 +689,7 @@ Default per-package level is `info`. Levels you persist in Settings localStorage
 
 ### Storage stats + retention
 
-`getStorageStats()` includes log bytes in the cap story (`logBytes`, `logEntryCount`, `logWriteFailures`). `usedBytes` counts logs.
+`getStorageStats()` includes log bytes in the cap story (`logBytes`, `logEntryCount`, `logWriteFailures`). `usedBytes` counts logs. It is **O(1)** when the running-totals cache is valid (persisted in `meta`; no `chunks` object-store cursor). Safe to call on boot, every list refresh, and every live chunk — do not gate this call on “not recording.” If the cache is invalid, `usedBytes` is unknown/high so retention will not cheap-exit as under cap from a stale-low total. Untranscribed captured audio is never discarded to make stats cheap.
 
 `enforceRetentionPolicy(capBytes)` is **safe to call any time** and is **cheap when under cap** (returns immediately; no in-flight flag; no IndexedDB transaction). You do **not** await capture-engine `flushPending()` / serialize writers first. When over cap it runs in the store's owner-serialized queue, in small batches that yield to live `writeChunk` calls. It also age-prunes log rows (default 14 days) and count-bounds them (`MAX_LOG_COUNT`), and may drop oldest logs under cap pressure. `deleteSession` cascades that session’s logs. Call after Stop / idle / Settings, not per chunk.
 
