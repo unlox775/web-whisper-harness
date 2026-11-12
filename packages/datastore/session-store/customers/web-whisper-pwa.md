@@ -112,7 +112,7 @@ Session duration should be in seconds (number, float). PWA will format for displ
 
 **Orchestration flow** (PWA's role):
 
-1. User taps "Start Recording" → PWA calls createSession → PWA calls capture-engine.startCapture(sessionId) → capture-engine writes chunks. The PWA does **not** call `enforceRetentionPolicy` per chunk. After Stop it `await`s `flushPending()` then `enforceRetentionPolicy`. During a live take it retains only if `usedBytes ≥ 90%` of cap (at most once per 60 s). Boot / idle / Settings also retain. Session-store owns writer concurrency — the PWA does not serialize callers.
+1. User taps "Start Recording" → PWA calls createSession → PWA calls capture-engine.startCapture(sessionId) → capture-engine writes chunks. The PWA does **not** call `enforceRetentionPolicy` per chunk. After Stop it `await`s `flushPending()` then `enforceRetentionPolicy`. During a live take it retains only if last-known `usedBytes ≥ 90%` of cap (at most once per 60 s). Recording-path usedBytes is O(1): last successful `getStorageStats` (boot / list refresh / post-retention) plus incremental encoded `byteLength × 1.1`. Live `chunkEncoded` does **not** call `getStorageStats` and does not cursor the chunks store itself. The PWA *may* call `getStorageStats` during recording **because it is O(1)** (for Settings / a rare near-cap refresh after retention); it will not walk other sessions’ chunks on the record path. If usedBytes is unknown, it skips retention and keeps recording. Boot / idle / Settings also retain. Session-store owns writer concurrency — the PWA does not serialize callers.
 2. After recording → PWA calls volume-analyzer.analyzeChunks(sessionId) → volume-analyzer writes volume profile + snips
 3. If Groq key valid → PWA calls volume-analyzer.proposeSnips(sessionId) → PWA calls transcription-client.transcribeSnip(snipAudioBlob) for each snip → PWA calls writeTranscript(snipId, transcriptText) for each transcript
 4. User opens home screen → PWA calls listSessions → displays session cards
@@ -330,10 +330,12 @@ Cascade delete requirement: **Session-store MUST cascade delete all related data
 
 **`getStorageStats()`** (settings screen, post-recording retention check)
 
-When I call it: 
+When I call it:
 - Settings screen loads (user taps ⚙️ icon)
+- Home / list refresh (boot, after Stop, after delete)
 - After recording stops (to check if retention policy needs enforcement)
 - After session deletion (to update storage display)
+- **Not** on every live `chunkEncoded`. The 90% recording gate uses last-known `usedBytes` already in PWA state (plus incremental encoded sizes). I *may* call `getStorageStats` during recording **because it is O(1)**; I will not cursor the chunks store myself.
 
 Input: None
 
@@ -411,7 +413,7 @@ Session-store MUST return error objects (NOT throw exceptions). If session-store
 - `getSnipsForSession(sessionId)`: < 100ms (typical session has 0–10 snips)
 - `getTranscriptsForSession(sessionId)`: < 100ms (typical session has 0–10 transcripts)
 - `deleteSession(sessionId)`: 100–500ms for large sessions (cascade delete many chunks/snips/transcripts is slower, but acceptable since infrequent user action with confirm dialog)
-- `getStorageStats()`: < 200ms (aggregate calculation over all sessions/chunks)
+- `getStorageStats()`: O(1) / < 10 ms when the stats cache is valid (safe during recording). The PWA still must not treat this as license to do extra whole-library work on `chunkEncoded`; live usedBytes is last-known + incremental.
 - `enforceRetentionPolicy(capBytes)`: 500–2000ms (deletes multiple sessions, acceptable since automatic background operation or triggered by user in settings)
 
 If listSessions takes > 500ms for 100 sessions, home screen feels sluggish. Optimize with IndexedDB indexes.
@@ -572,7 +574,7 @@ Options: `{limit = 100, offset = 0}`
 - Reads `capBytes` from localStorage `'web-whisper-storage-cap'` key (default 200 MB = 209715200 if not set)
 - Returns `{usedBytes, capBytes, sessionCount, chunkCount}`
 - You display: "Storage: 45 MB / 200 MB (22%)" in settings, "5 sessions, 72 chunks" detail text
-- Performance: < 200ms (aggregate calculation over all sessions/chunks)
+- Performance: O(1) when the stats cache is valid (safe to call during recording). The PWA still does **not** call this on every `chunkEncoded` and does not cursor chunks itself; live usedBytes is last-known + incremental encoded sizes.
 
 **`enforceRetentionPolicy(capBytes)`** → `{deletedSessions, reclaimedBytes, newUsedBytes}` or error
 

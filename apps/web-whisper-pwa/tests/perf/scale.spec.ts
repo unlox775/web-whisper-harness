@@ -424,6 +424,13 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
 
     const recSamples: Array<Record<string, unknown>> = [];
     const recUntil = Date.now() + RECORD_SECONDS * 1000;
+    if (n === 10 || (sorted.includes(10) === false && n === sorted.find((v) => v > 0))) {
+      await page.waitForTimeout(2500);
+      await page.screenshot({
+        path: resolve(qaDir, 'recording-no-library-scan-iphone.png'),
+        fullPage: false,
+      });
+    }
     while (Date.now() < recUntil) {
       await page.waitForTimeout(2000);
       recSamples.push(
@@ -450,6 +457,16 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
       );
     }
 
+    // Snapshot before Stop. Stop → home `refresh()` + tile fan-out is the
+    // list spec; this phase is the live record path only.
+    const recordIdb = await snapshotIdb(page);
+    const recordCapture = await page.evaluate(() => ({
+      persistEvents: window.__wwCapture?.persist ?? [],
+      encodedCount: window.__wwCapture?.encoded?.length ?? 0,
+      status: window.__wwCapture?.getStatus?.() ?? null,
+    }));
+    const recordTasks = await longTasks(page);
+
     const stopStart = Date.now();
     await page.getByTestId('stop-recording').click();
     await waitReady(page);
@@ -467,14 +484,10 @@ test('PWA scale baseline (iPhone emulation, CPU 4x)', async ({ page }) => {
       wallMs: RECORD_SECONDS * 1000,
       extra: {
         samples: recSamples,
-        longTasks: await longTasks(page),
-        capture: await page.evaluate(() => ({
-          persistEvents: window.__wwCapture?.persist ?? [],
-          encodedCount: window.__wwCapture?.encoded?.length ?? 0,
-          status: window.__wwCapture?.getStatus?.() ?? null,
-        })),
+        longTasks: recordTasks,
+        capture: recordCapture,
       },
-      idb: await snapshotIdb(page),
+      idb: recordIdb,
     });
     phases.push({
       name: 'stopToFinished',

@@ -1,4 +1,4 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-12T18:03:00Z
 Product: apps/web-whisper-pwa
@@ -71,3 +71,25 @@ MP3 encode long tasks on the main thread (~400 ms at N=0). Session list fan-out 
 ## Durability
 
 Background stats/retention must yield to `writeChunk`. Never discard encoded audio because a usedBytes check was slow or skipped. If stats are unknown, do **not** run retention; keep recording.
+
+## Resolution
+
+**Resolved:** 2026-11-12T18:45:00Z on branch `cursor/pwa-no-chunk-stats-scan-c87b`.
+
+### What shipped
+
+1. Live `chunkEncoded` / `store_write_failed` no longer `await sessionStore.getStorageStats()`. The 90% / once-per-60s gate (`shouldRunRecordingRetention`) uses last-known usedBytes from refresh plus incremental encoded `byteLength × 1.1`. If usedBytes is unknown, retention is skipped and recording continues.
+2. `writeChunk` / persist queue unchanged. After Stop the PWA still `await`s `flushPending()` then `enforceRetentionPolicy`. Near-cap during a live take still skips flush so a backed-up persist queue cannot block freeing space. Retention still does not purge unsaved / untranscribed audio (store policy).
+3. Customer docs: `apps/web-whisper-pwa/README.md`, `apps/web-whisper-pwa/customers/README.md`, `packages/datastore/session-store/customers/web-whisper-pwa.md`, session-store README. PWA may call O(1) `getStorageStats` during recording; it will not cursor chunks itself and does not call stats on every encoded chunk.
+
+### Tests
+
+- `npm --prefix apps/web-whisper-pwa test`: 148 pass (including `retentionPolicy.ts` and `recordingUsedBytes.ts`)
+- `npm --prefix apps/web-whisper-pwa run test:soak`: 2 pass, zero chunk loss
+- Harness `PERF_N=0,10,50,100` CPU 4× 60 s: live `chunks` cursorContinues at 15 encoded chunks = **240 for every N** (baseline N=100 was 505,866). persist `writeMsMax` 5–9 ms; no `persist_backpressure`; `tapRecordToActive` 83–185 ms.
+
+### Proof
+
+- `documentation/qa/recording-no-library-scan.md`
+- `documentation/qa/recording-no-library-scan-iphone.png`
+- `documentation/qa/perf-after-no-chunk-scan-raw.json`

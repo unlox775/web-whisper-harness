@@ -37,10 +37,11 @@ import {
   actionForCaptureError,
   bannerForPersistEvent,
 } from './captureErrorPolicy';
+import { type RetentionOpportunity } from './retentionPolicy';
 import {
-  shouldRunRetention,
-  type RetentionOpportunity,
-} from './retentionPolicy';
+  accountEncodedChunkBytes,
+  shouldRunRecordingRetention,
+} from './recordingUsedBytes';
 import {
   closeAlertAudio,
   pcmHeartbeatFromStatus,
@@ -148,6 +149,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const logSessionRef = useRef<string | null>(null);
 
   const capBytes = capBytesFromMb(settings.storageCapMb);
+  const usedBytesRef = useRef(0);
+  const usedBytesKnownRef = useRef(false);
 
   const syncLogger = useCallback((overrides?: {
     levels?: PackageLogLevels;
@@ -183,7 +186,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const stats = await sessionStore.getStorageStats();
     if (!stats.error) {
-      setUsedBytes(stats.usedBytes || 0);
+      usedBytesKnownRef.current = true;
+      usedBytesRef.current = stats.usedBytes || 0;
+      setUsedBytes(usedBytesRef.current);
     }
   }, []);
 
@@ -201,13 +206,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       opts?.opportunity ?? (recording ? 'recording' : 'idle');
 
     if (recording && opportunity === 'recording') {
-      const stats = await sessionStore.getStorageStats();
-      const used = stats.error ? 0 : stats.usedBytes || 0;
-      if (!stats.error) setUsedBytes(used);
-      const run = shouldRunRetention({
-        opportunity: 'recording',
-        recording: true,
-        usedBytes: used,
+      // Do not call getStorageStats (or cursor the library) on the live
+      // chunk path. The 90% gate uses last-known usedBytes from refresh
+      // plus incremental encoded sizes. Unknown stats → skip retention.
+      const run = shouldRunRecordingRetention({
+        usedBytesKnown: usedBytesKnownRef.current,
+        usedBytes: usedBytesRef.current,
         capBytes,
         lastRecordingRetentionAtMs: lastRecordingRetentionAt.current,
         nowMs: Date.now(),
@@ -236,6 +240,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
     );
     if (result.error) return;
+    if (typeof result.newUsedBytes === 'number' && Number.isFinite(result.newUsedBytes)) {
+      usedBytesKnownRef.current = true;
+      usedBytesRef.current = result.newUsedBytes;
+      setUsedBytes(result.newUsedBytes);
+    }
     const purged = Array.isArray(result.purgedChunkIds) ? result.purgedChunkIds.length : 0;
     if (purged > 0 || result.deletedSessions > 0) {
       await refresh();
@@ -461,9 +470,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch {
         // harness only
       }
-      handle.on('chunkEncoded', (event: { seq?: number }) => {
+      handle.on('chunkEncoded', (event: { seq?: number; byteLength?: number }) => {
         setChunkCount((event.seq ?? 0) + 1);
         setSavingBehind(false);
+        if (usedBytesKnownRef.current && typeof event.byteLength === 'number') {
+          usedBytesRef.current = accountEncodedChunkBytes(
+            usedBytesRef.current,
+            event.byteLength
+          );
+        }
         void enforceCap({ opportunity: 'recording' });
       });
       handle.on('audioStalled', (event: { stalledFor?: number }) => {
