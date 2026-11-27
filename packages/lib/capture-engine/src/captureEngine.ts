@@ -16,6 +16,10 @@ import type {
   LostChunk,
   ChunkLostEvent,
   PersistBackpressureEvent,
+  DecodedAudio,
+  ImportAudioOptions,
+  ImportProgress,
+  ImportSummary,
 } from './types';
 
 /** Minimum pending-buffer size: ≥ 5 minutes of 4 s chunks. */
@@ -35,14 +39,19 @@ type EncoderLike = {
   createBlob(data: Uint8Array): Blob;
 };
 
+/** Live capture runs at 44.1/48 kHz (128 kbps). Imports default to 16 kHz (MPEG-2, 64 kbps). */
+function defaultBitrate(sampleRate: number): number {
+  return sampleRate <= 24000 ? 64 : 128;
+}
+
 let createEncoder: (sampleRate: number) => EncoderLike = (sampleRate) =>
-  new MP3Encoder(sampleRate, 128);
+  new MP3Encoder(sampleRate, defaultBitrate(sampleRate));
 
 /** Test-only: Node lamejs needs browser globals; tests inject a stub encoder. */
 export function setEncoderFactoryForTests(
   factory: ((sampleRate: number) => EncoderLike) | null
 ): void {
-  createEncoder = factory ?? ((sampleRate) => new MP3Encoder(sampleRate, 128));
+  createEncoder = factory ?? ((sampleRate) => new MP3Encoder(sampleRate, defaultBitrate(sampleRate)));
 }
 
 type SessionStoreWriteResult = {
@@ -735,6 +744,102 @@ class CaptureSession {
     }
   }
 
+  /**
+   * Audio file import: feed decoded PCM through the same encoder + durable
+   * persist queue as live capture. Backpressure (never drop); resolves after
+   * every chunk is saved or declared lost.
+   */
+  async runImport(
+    decoded: DecodedAudio,
+    onProgress?: (progress: ImportProgress) => void
+  ): Promise<ImportSummary> {
+    const sampleRate = decoded.sampleRate;
+    const channels = decoded.channels.filter((ch) => ch && ch.length > 0);
+    const length = channels.reduce((max, ch) => Math.max(max, ch.length), 0);
+    if (!length || !sampleRate) {
+      throw new CaptureError('empty_audio', 'Decoded audio has no samples');
+    }
+    this.sampleRate = sampleRate;
+    this.encoder = createEncoder(sampleRate);
+    this.isActive = true;
+    this.pcmSeen = true;
+
+    const target = Math.max(1, Math.round(this.options.chunkTargetDuration! * sampleRate));
+    const totalChunks = Math.ceil(length / target);
+    const duration = length / sampleRate;
+    const report = (phase: ImportProgress['phase']) => {
+      if (!onProgress) return;
+      try {
+        onProgress({
+          phase,
+          chunksEncoded: this.chunkCount,
+          chunksSaved: this.persistSavedCount,
+          totalChunks,
+          duration,
+        });
+      } catch {
+        // progress callbacks never break the import
+      }
+    };
+    report('encoding');
+
+    try {
+      for (let index = 0; index < totalChunks; index++) {
+        const from = index * target;
+        const to = Math.min(length, from + target);
+        const mono = mixChunkToMono(channels, from, to);
+        this.pcmBuffer.push(mono);
+        this.totalSamples += mono.length;
+        this.encodeChunk(mono.length, index === totalChunks - 1);
+        report('encoding');
+        // Backpressure: hold encoding while the persist queue is backed up.
+        while (this.pending.length >= IMPORT_MAX_PENDING) {
+          await new Promise((resolve) => setTimeout(resolve, 15));
+          report('saving');
+        }
+        // Yield so the UI can paint progress.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    } finally {
+      this.isActive = false;
+    }
+
+    report('saving');
+    const flushed = await this.flushPending();
+    activeSessions.delete(this.sessionId);
+    report('saving');
+
+    const summary: ImportSummary = {
+      sessionId: this.sessionId,
+      chunksWritten: flushed.savedCount,
+      totalDuration: duration,
+      hasAudio: flushed.savedCount > 0,
+      sampleRate,
+      lostChunks: flushed.lostChunks,
+    };
+    this.lastSummary = {
+      chunksWritten: summary.chunksWritten,
+      totalDuration: summary.totalDuration,
+      hasAudio: summary.hasAudio,
+      sessionId: this.sessionId,
+    };
+    this.logCapture('debug', () => ({
+      message: 'import done',
+      details: {
+        sessionId: this.sessionId,
+        chunksWritten: summary.chunksWritten,
+        lostCount: summary.lostChunks.length,
+        duration,
+        sampleRate,
+      },
+    }));
+    return summary;
+  }
+
+  logImport(level: 'debug' | 'warn' | 'error', payload: () => { message: string; details?: unknown }): void {
+    this.logCapture(level, payload);
+  }
+
   getStatus(): CaptureStatus {
     const currentDuration = this.totalSamples / this.sampleRate;
     let watchdogRemaining = 0;
@@ -889,6 +994,129 @@ export async function startCapture(
   } catch (error) {
     activeSessions.delete(sessionId);
     throw error;
+  }
+}
+
+const IMPORT_MAX_PENDING = 8;
+const DEFAULT_IMPORT_SAMPLE_RATE = 16000;
+
+function mixChunkToMono(channels: Float32Array[], from: number, to: number): Float32Array {
+  const out = new Float32Array(to - from);
+  if (channels.length === 1) {
+    out.set(channels[0].subarray(from, Math.min(to, channels[0].length)));
+    return out;
+  }
+  const scale = 1 / channels.length;
+  for (const channel of channels) {
+    const end = Math.min(to, channel.length);
+    for (let i = from; i < end; i++) {
+      out[i - from] += channel[i] * scale;
+    }
+  }
+  return out;
+}
+
+type OfflineCtxCtor = new (channels: number, length: number, sampleRate: number) => BaseAudioContext;
+
+async function defaultDecode(bytes: ArrayBuffer, sampleRate: number): Promise<DecodedAudio> {
+  const g = globalThis as unknown as {
+    OfflineAudioContext?: OfflineCtxCtor;
+    webkitOfflineAudioContext?: OfflineCtxCtor;
+    AudioContext?: new () => AudioContext;
+    webkitAudioContext?: new () => AudioContext;
+  };
+  const Offline = g.OfflineAudioContext || g.webkitOfflineAudioContext;
+  let context: BaseAudioContext;
+  let close: () => Promise<void> = async () => undefined;
+  if (Offline) {
+    context = new Offline(1, 1, sampleRate);
+  } else {
+    const Live = g.AudioContext || g.webkitAudioContext;
+    if (!Live) {
+      throw new CaptureError('audio_context_unavailable', 'Web Audio is not available');
+    }
+    const live = new Live();
+    context = live;
+    close = () => live.close().catch(() => undefined);
+  }
+  try {
+    const buffer = await new Promise<AudioBuffer>((resolve, reject) => {
+      try {
+        const maybe = context.decodeAudioData(bytes, resolve, reject);
+        if (maybe && typeof (maybe as Promise<AudioBuffer>).then === 'function') {
+          (maybe as Promise<AudioBuffer>).then(resolve, reject);
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+    const channels: Float32Array[] = [];
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+      channels.push(buffer.getChannelData(ch));
+    }
+    return { sampleRate: buffer.sampleRate, channels };
+  } finally {
+    await close();
+  }
+}
+
+/**
+ * Import an audio file (m4a/AAC, mp3, wav, webm — whatever the browser's
+ * decodeAudioData reads) into the session as the same durable ~4 s MP3
+ * chunks a live take produces. See
+ * docs/specs/20261127053800-feedback-import-audio-file-to-durable-chunks.md
+ */
+export async function importAudioFile(
+  sessionId: string,
+  file: Blob | ArrayBuffer,
+  options: ImportAudioOptions = {}
+): Promise<ImportSummary> {
+  if (activeSessions.has(sessionId)) {
+    throw new CaptureError('already_capturing', 'Capture already active for this session');
+  }
+  const session = new CaptureSession(sessionId, {
+    chunkTargetDuration: options.chunkTargetDuration ?? 4.0,
+    inMemory: false,
+  });
+  activeSessions.set(sessionId, session);
+  try {
+    const decodeRate = options.decodeSampleRate ?? DEFAULT_IMPORT_SAMPLE_RATE;
+    const size = file instanceof ArrayBuffer ? file.byteLength : file.size;
+    const mime = file instanceof ArrayBuffer ? '' : file.type;
+    session.logImport('debug', () => ({
+      message: 'import start',
+      details: { sessionId, bytes: size, mime, decodeRate },
+    }));
+    options.onProgress?.({ phase: 'decoding', chunksEncoded: 0, chunksSaved: 0, totalChunks: 0, duration: 0 });
+    const bytes = file instanceof ArrayBuffer ? file : await file.arrayBuffer();
+    let decoded: DecodedAudio;
+    try {
+      decoded = await (options.decode ?? defaultDecode)(bytes, decodeRate);
+    } catch (error: any) {
+      if (error instanceof CaptureError && error.code === 'audio_context_unavailable') throw error;
+      const reason = error?.message || error?.name || String(error);
+      session.logImport('error', () => ({
+        message: 'import decode failed',
+        details: { sessionId, bytes: size, mime, reason },
+      }));
+      throw new CaptureError('decode_failed', `Could not decode audio: ${reason}`);
+    }
+    session.logImport('debug', () => ({
+      message: 'import decoded',
+      details: {
+        sessionId,
+        sampleRate: decoded.sampleRate,
+        channels: decoded.channels.length,
+        duration: (decoded.channels[0]?.length ?? 0) / (decoded.sampleRate || 1),
+      },
+    }));
+    return await session.runImport(decoded, options.onProgress);
+  } finally {
+    // runImport removes itself after flush; a throw before any chunk leaves nothing pending.
+    if (activeSessions.get(sessionId) === session) {
+      await session.flushPending().catch(() => undefined);
+      activeSessions.delete(sessionId);
+    }
   }
 }
 
