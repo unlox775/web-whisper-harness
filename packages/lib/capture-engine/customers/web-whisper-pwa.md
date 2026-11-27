@@ -542,3 +542,19 @@ The PWA no longer treats `store_write_failed` as user-visible loss. It logs that
 ### PWA Stop UI wait (2026-11-09)
 
 No new capture-engine API. After Stop the PWA still calls `handle.stop()` then `flushPending()`. The recording screen stays up (busy copy **Finishing recording…** / **Saving recording…**) until that persist plus last-snip transcription finish, capped at **5 seconds** (`STOP_FINISH_WAIT_MS`). If the cap fires, the PWA navigates Home anyway. **The wait is UI only** — `flushPending` / the persist queue is never cancelled or abandoned. Existing partial / coverage status covers a still-saving take.
+
+## Audio file import (2026-11-26)
+
+Spec: `docs/specs/20261127053800-feedback-import-audio-file-to-durable-chunks.md`. PWA side: `apps/web-whisper-pwa/docs/specs/20261127053801-feedback-import-audio-file.md`.
+
+### Customer Request (PWA)
+
+Dave picks an audio file (`.m4a` from Voice Memos, `.mp3`, `.wav`, `.webm`). I (the PWA) create the session, then need one call that turns the file into the **same durable MP3 chunks** a live take produces, so my existing post-Stop path (`finalizeSession` → `ingestGrowingSession` → `transcribeSession`) works unchanged. I need progress for a status line, a precise decode error so I can tell Dave the format is unsupported, and the same never-drop guarantee as live capture. I must not have to coordinate writes with retention.
+
+### Producer Response (capture-engine)
+
+- `importAudioFile(sessionId, file, { onProgress?, chunkTargetDuration? = 4, decodeSampleRate? = 16000 })` → `Promise<{ sessionId, chunksWritten, totalDuration, hasAudio, sampleRate, lostChunks }>`.
+- Chunks: `audio/mpeg` (same lamejs `MP3Encoder`), seq from 0, contiguous session-time `startTime`/`endTime`, ~4 s each, final shorter chunk flushed. Indistinguishable from live chunks for every consumer.
+- Durability: every chunk goes through the live persist queue (held + retried with backoff; `chunk_lost` / `lostChunks` only on permanent store error). Encoding applies backpressure (waits while ≥ 8 chunks pending); nothing is skipped. Resolves only after that session's `flushPending`. The import counts as an active session, so package `flushPending()` covers it — the PWA's retention gate needs no change.
+- Errors (`CaptureError.code`): `decode_failed` (nothing written), `empty_audio`, `audio_context_unavailable`, `already_capturing`.
+- Memory: the decoded file is held in memory at `decodeSampleRate` (~3.7 MB/min/channel at 16 kHz).
