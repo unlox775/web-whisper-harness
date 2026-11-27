@@ -9,7 +9,13 @@ import {
   type ReactNode,
 } from 'react';
 import * as sessionStore from '@web-whisper/session-store';
-import { CaptureError, flushPending, startCapture, type CaptureHandle } from '@web-whisper/capture-engine';
+import {
+  CaptureError,
+  flushPending,
+  importAudioFile,
+  startCapture,
+  type CaptureHandle,
+} from '@web-whisper/capture-engine';
 import { validateKey } from '@web-whisper/transcription-client';
 import { applyLoggerConfig, type PackageLogLevels } from './logSettings';
 import {
@@ -55,6 +61,13 @@ import {
 } from './wakeLock';
 import { rememberRecorderDurationSeconds } from './recorderDuration';
 import { waitForStopReady } from './stopFlow';
+import {
+  audioImportErrorCopy,
+  audioImportStatusCopy,
+  audioImportSuccessCopy,
+  importWroteNothing,
+  type AudioImportProgress,
+} from './importAudio';
 import type { AppSettings, Screen, SessionRecord, ToastMessage, ToastTone } from './types';
 
 function captureStartOptions() {
@@ -110,6 +123,10 @@ type AppContextValue = {
   stopRecording: () => Promise<void>;
   abortRecording: () => Promise<void>;
   stopFinishing: boolean;
+  /** Import audio file → new durable session → same post-Stop transcription path. */
+  importAudio: (file: File) => Promise<void>;
+  /** Status line while an import runs (null when idle). */
+  importStatus: string | null;
   openSession: (id: string, autoPlay?: boolean) => void;
   goHome: () => void;
   deleteSessionById: (id: string) => Promise<void>;
@@ -143,6 +160,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [noAudioAlertStartedAt, setNoAudioAlertStartedAt] = useState<number | null>(null);
   const [savingBehind, setSavingBehind] = useState(false);
   const [stopFinishing, setStopFinishing] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const importingRef = useRef(false);
   const toastId = useRef(0);
   const handleRef = useRef<CaptureHandle | null>(null);
   const recordingSessionIdRef = useRef<string | null>(null);
@@ -463,7 +482,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [goHome, refresh, sessionId, showToast]);
 
   const startRecording = useCallback(async () => {
-    if (handleRef.current) return;
+    if (handleRef.current || importingRef.current) return;
     prepareAlertAudioFromUserGesture();
     // Same turn as the Record tap so iOS video.play() / wakeLock.request() keep the gesture.
     void setRecordingWakeLockActive(true, 'start-recording');
@@ -751,6 +770,100 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(id);
   }, [captureHandle, clearNoAudioAlert, enterNoAudioAlert]);
 
+  const importAudio = useCallback(
+    async (file: File) => {
+      if (handleRef.current || recordingSessionIdRef.current || importingRef.current) return;
+      importingRef.current = true;
+      const name = file.name || 'audio file';
+      setImportStatus(audioImportStatusCopy(name, null));
+      try {
+        await enforceCap({ force: true, opportunity: 'start' });
+        const created = await sessionStore.createSession();
+        if (created.error || !created.id) {
+          showToast(audioImportErrorCopy(name, 'database_unavailable'), 'error');
+          return;
+        }
+        const id: string = created.id;
+        syncLogger({ activeSessionId: id });
+        void sessionStore.log('web-whisper-pwa', 'info', () => ({
+          message: 'audio import start',
+          details: { sessionId: id, name, type: file.type, bytes: file.size },
+        }));
+        let summary: {
+          totalDuration: number;
+          lostChunks: unknown[];
+          chunksWritten: number;
+        };
+        try {
+          summary = await importAudioFile(id, file, {
+            onProgress: (progress: AudioImportProgress) => setImportStatus(audioImportStatusCopy(name, progress)),
+          });
+        } catch (error) {
+          const code =
+            error instanceof CaptureError ? (error as { code?: string }).code : undefined;
+          const message = error instanceof Error ? error.message : String(error);
+          void sessionStore.log('web-whisper-pwa', 'warn', () => ({
+            message: 'audio import failed',
+            details: { sessionId: id, name, type: file.type, code, reason: message },
+          }));
+          // Never delete a session that holds saved chunks.
+          const row = (await sessionStore.getSession(id)) as { chunkCount?: number } | null;
+          if (importWroteNothing(code) && !(row?.chunkCount)) {
+            await sessionStore.deleteSession(id);
+          } else {
+            await sessionStore.finalizeSession(id);
+          }
+          showToast(audioImportErrorCopy(name, code, message), 'error');
+          settleLoggerIfIdle(id);
+          await refresh();
+          return;
+        }
+        rememberRecorderDurationSeconds(id, summary.totalDuration);
+        if (summary.lostChunks.length) {
+          const banner = bannerForPersistEvent({ type: 'chunk_lost' });
+          if (banner) showToast(banner, 'warning');
+        }
+        await sessionStore.finalizeSession(id);
+        await refresh();
+        const apiKey = settings.groqApiKey;
+        const canTranscribe = Boolean(apiKey && settings.keyValid);
+        showToast(audioImportSuccessCopy(name, summary.totalDuration, canTranscribe), 'success');
+        const sessionIdForWork = id;
+        // Same post-Stop path as a live take: retention → snips → transcription.
+        void (async () => {
+          void enforceCap({ force: true, opportunity: 'stop' });
+          try {
+            await ingestGrowingSession(sessionIdForWork, {
+              apiKey: canTranscribe ? apiKey : undefined,
+              includeTrailing: true,
+              transcribe: false,
+              ...transcriptionContextFromSettings(settings),
+            });
+          } catch (error) {
+            console.warn('Imported audio snip commit failed', error);
+          }
+          if (canTranscribe && apiKey) {
+            try {
+              await transcribeSession(sessionIdForWork, apiKey, () => {}, {
+                onTranscriptWritten: () => enforceCap({ force: true, opportunity: 'idle' }),
+                ...transcriptionContextFromSettings(settings),
+              });
+            } catch (error) {
+              console.warn('Imported audio transcription failed', error);
+            }
+          }
+          settleLoggerIfIdle(sessionIdForWork);
+        })().finally(() => {
+          void refresh();
+        });
+      } finally {
+        importingRef.current = false;
+        setImportStatus(null);
+      }
+    },
+    [enforceCap, refresh, settings, settleLoggerIfIdle, showToast, syncLogger]
+  );
+
   const finishCaptureRef = useRef(finishCapture);
   finishCaptureRef.current = finishCapture;
 
@@ -829,6 +942,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stopRecording,
       abortRecording,
       stopFinishing,
+      importAudio,
+      importStatus,
       openSession,
       goHome,
       deleteSessionById,
@@ -856,6 +971,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stopRecording,
       abortRecording,
       stopFinishing,
+      importAudio,
+      importStatus,
       usedBytes,
       usedBytesKnown,
       usedBytesStatus,

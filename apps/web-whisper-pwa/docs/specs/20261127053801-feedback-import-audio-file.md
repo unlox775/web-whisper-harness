@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-27T05:38:01Z
+Resolved: 2026-11-27T06:00:00Z
 Product: apps/web-whisper-pwa
 
 # Feedback: Import an audio file as a new recording (iPhone)
@@ -46,8 +47,29 @@ Update `customers/README.md` (end-user guarantee) and the PWA expectation sectio
 
 ## Resolution Criteria
 
-- [ ] Control + flow above
-- [ ] iPhone screenshots in PR body
-- [ ] Unit tests pass
-- [ ] `make build`
-- [ ] Spec Resolution section
+- [x] Control + flow above
+- [x] iPhone screenshots in PR body
+- [x] Unit tests pass
+- [x] `make build`
+- [x] Spec Resolution section
+
+## Resolution
+
+Resolved on branch `pwa/import-audio-file` (capture-engine side merged in #78).
+
+- `src/importAudio.ts` — accept string, status / success / error copy, `importWroteNothing`. Tests: `src/importAudio.test.ts`.
+- `src/context.tsx` — `importAudio(file)` + `importStatus`: createSession → `importAudioFile` (progress → status line) → `finalizeSession` → refresh + toast → background `enforceCap('stop')` → `ingestGrowingSession` → `transcribeSession` (same as post-Stop). Decode failures delete the empty session only when it has 0 chunks; otherwise finalize and keep. `startRecording` is a no-op while importing.
+- `src/screens/HomeScreen.tsx` — **Import audio file** (`cta-outline`) under Start recording; Start recording disabled while importing.
+
+### Proof (Google Chrome, Playwright iPhone 13, Groq mocked via route)
+
+- `documentation/qa/import-audio-01-before-home-iphone.png` — BEFORE (live main): no import control
+- `import-audio-02-after-home-iphone.png` — AFTER: Import audio file
+- `import-audio-03-decoding-iphone.png`, `import-audio-04-chunks-saved-iphone.png` — progress (decoding; 42 / 150 chunks saved for a 10 min m4a)
+- `import-audio-05-list-ready-iphone.png` — imported m4a in the session list, READY + transcript snippet
+- `import-audio-06-detail-transcript-iphone.png` — Session Detail: 0:26, playable, transcript (3 of 3 snips)
+- `import-audio-07-all-formats-iphone.png` — m4a, mp3, wav, webm all imported + READY
+- `import-audio-08-decode-error-iphone.png` — not-audio file → decode error toast, no session left behind
+- `import-audio-09-live-recording-iphone.png` — live recording (`?simulate=1`) still records and stops
+
+IndexedDB after the run: each 26 s import = 7 chunks, 208,800 B, status `ready`, `hasTranscript: true`. 10 min m4a: 150 chunks in ~5.8 s.
