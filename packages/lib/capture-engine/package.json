@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "npx --yes tsx --test src/captureEngine.test.ts"
+    "test": "npx --yes tsx --test src/captureEngine.test.ts src/importAudioFile.test.ts"
   },
   "keywords": [
     "audio",

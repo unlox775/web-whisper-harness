@@ -1,6 +1,7 @@
-Spec Status: unresolved
+Spec Status: resolved
 Spec Type: feedback
 Created: 2026-11-27T05:38:00Z
+Resolved: 2026-11-27T06:10:00Z
 Product: packages/lib/capture-engine
 
 # Feedback: Import an audio file into durable chunks (same format as live capture)
@@ -74,7 +75,17 @@ Errors: rejects with `CaptureError` codes `decode_failed` (unsupported codec / c
 
 ## Resolution Criteria
 
-- [ ] `importAudioFile` exported with types
-- [ ] Unit tests above pass; live capture tests unchanged and green
-- [ ] README interface section + `customers/web-whisper-pwa.md` producer response updated
-- [ ] Spec Resolution section
+- [x] `importAudioFile` exported with types
+- [x] Unit tests above pass; live capture tests unchanged and green
+- [x] README interface section + `customers/web-whisper-pwa.md` producer response updated
+- [x] Spec Resolution section
+
+## Resolution
+
+Resolved on branch `capture-engine/import-audio-file`.
+
+- `importAudioFile(sessionId, file, options)` in `src/captureEngine.ts`, exported from `src/index.ts`; types `DecodedAudio`, `ImportAudioOptions`, `ImportProgress`, `ImportSummary` in `src/types.ts`.
+- Decode: `OfflineAudioContext(1, 1, decodeSampleRate)` (→ `webkitOfflineAudioContext` → `AudioContext`), callback + promise `decodeAudioData` for older Safari. Per-chunk mono mixdown.
+- Encode: same `MP3Encoder`; default bitrate is 64 kbps at ≤ 24 kHz (MPEG-2), 128 kbps otherwise (live capture unchanged at 44.1/48 kHz → 128).
+- Persist: `CaptureSession.runImport` feeds the live `encodeChunk` → `enqueuePersist` → `drainPending` path. Backpressure loop holds encoding while ≥ 8 chunks pending. Registered in `activeSessions`, so package `flushPending()` covers imports.
+- Tests: `src/importAudioFile.test.ts` (8 tests: chunk timing, stereo mixdown, decode_failed writes nothing, empty_audio, transient retry, permanent loss reported, backpressure bound, global flushPending waits). `npm test` → 22/22 pass (14 existing live-capture tests unchanged).

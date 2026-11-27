@@ -141,3 +141,37 @@ export interface ChunkMetadata {
   byteLength: number;
   sampleRate: number;
 }
+
+/** Decoded PCM handed to the import encoder (one Float32Array per channel). */
+export interface DecodedAudio {
+  sampleRate: number;
+  channels: Float32Array[];
+}
+
+export interface ImportProgress {
+  phase: 'decoding' | 'encoding' | 'saving';
+  chunksEncoded: number;
+  chunksSaved: number;
+  totalChunks: number;
+  /** Decoded duration in seconds (0 while decoding). */
+  duration: number;
+}
+
+export interface ImportAudioOptions {
+  /** Chunk length in seconds. Default 4.0 (same as live). */
+  chunkTargetDuration?: number;
+  /** Decode/encode sample rate. Default 16000. */
+  decodeSampleRate?: number;
+  onProgress?: (progress: ImportProgress) => void;
+  /** Test seam: replace Web Audio decode. */
+  decode?: (bytes: ArrayBuffer, sampleRate: number) => Promise<DecodedAudio>;
+}
+
+export interface ImportSummary {
+  sessionId: string;
+  chunksWritten: number;
+  totalDuration: number;
+  hasAudio: boolean;
+  sampleRate: number;
+  lostChunks: LostChunk[];
+}

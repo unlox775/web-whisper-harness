@@ -3,6 +3,7 @@ export {
   flushPending,
   whenPersistIdle,
   CaptureError,
+  importAudioFile,
 } from './captureEngine';
 export type {
   CaptureOptions,
@@ -19,4 +20,8 @@ export type {
   FlushPendingResult,
   ChunkLostEvent,
   PersistBackpressureEvent,
+  DecodedAudio,
+  ImportAudioOptions,
+  ImportProgress,
+  ImportSummary,
 } from './types';
