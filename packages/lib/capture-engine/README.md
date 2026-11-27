@@ -1,6 +1,6 @@
 # Capture Engine
 
-Microphone-to-durable-chunk pipeline. Acquires mic, captures PCM, encodes MP3 chunks every ~4s, and writes them immediately to the session store.
+Microphone-to-durable-chunk pipeline (and audio-file-to-durable-chunk import). Acquires mic, captures PCM, encodes MP3 chunks every ~4s, and writes them immediately to the session store.
 
 ## Boundary
 
@@ -34,6 +34,12 @@ Microphone-to-durable-chunk pipeline. Acquires mic, captures PCM, encodes MP3 ch
   - `chunk_lost` is the only loss signal (permanent store error or retry window exhausted after stop). Also persisted via `sessionStore.recordChunkLost`.
   - `persist_backpressure` fires when the pending buffer nears capacity; chunks are still not dropped.
   - `store_write_failed` is a transient diagnostic only, not a loss signal.
+
+- `importAudioFile(sessionId, file, options?)` → `Promise<ImportSummary>` (2026-11-26)
+  - Input: session ID (PWA creates it via session-store first) + a `Blob`/`ArrayBuffer` of any audio the browser's `decodeAudioData` can read (m4a/AAC, mp3, wav, webm/Opus)
+  - Decodes (OfflineAudioContext, default 16 kHz), mixes to mono, encodes **the same ~4 s MP3 chunks** as live capture and writes them through **the same durable persist queue** (backpressure, retry, `chunk_lost` only on permanent error). Resolves after flush: `{ sessionId, chunksWritten, totalDuration, hasAudio, sampleRate, lostChunks }`
+  - Errors: `CaptureError` `decode_failed` (nothing written), `empty_audio`, `audio_context_unavailable`, `already_capturing`
+  - Caller: PWA **Import audio file**. Spec: `docs/specs/20261127053800-feedback-import-audio-file-to-durable-chunks.md`
 
 - Structured logs: emit via `session-store.log('capture-engine', level, () => payload)` (lazy; session-store owns storage)
 

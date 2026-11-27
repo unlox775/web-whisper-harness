@@ -29,3 +29,12 @@ Shipped PWA behavior (`docs/specs/20261103175002-feedback-no-retention-while-rec
 - **Coverage:** `getChunkCoverage` is an O(1) session-row read. Session **detail** calls it and shows `MM:SS elapsed · MM:SS saved · N gaps` plus each gap's time range. Home tiles read the same fields from `listSessions` rows (no chunk cursor). Visible tiles may lazy-load snips + transcripts for READY / PART TX. A session with missing seqs is never shown as READY/done without that gap indicator. `hasTranscript` is not READY.
 - **Banners:** `store_write_failed` is logs only. `chunk_lost` shows "Storage write failed. Recording may be incomplete." `persist_backpressure` shows "Saving is behind".
 - **Screen awake while recording:** the PWA holds a screen wake lock for the whole take (Screen Wake Lock API + muted looping `playsinline` video fallback on iOS Safari / standalone). It re-acquires after iOS auto-releases on hide (`visibilitychange` / `pageshow`). This is PWA-owned; capture-engine is not asked to keep the screen on, and wake-lock work must never drop captured audio.
+
+## Audio file import (2026-11-26)
+
+Spec: `docs/specs/20261127053801-feedback-import-audio-file.md`.
+
+- **Import audio file** on Home (CAPTURE card, under Start recording) accepts `audio/*,.m4a,.mp3,.wav,.webm` from the iOS Files / Voice Memos picker.
+- The file becomes a normal session in the same list. capture-engine `importAudioFile` writes the same durable ~4 s MP3 chunks as a live take **before** any transcription; then the PWA runs the exact post-Stop path (finalize → retention after persist idle → snips → Groq transcription).
+- Imported audio is never discarded by the PWA. Only a file that fails to decode (nothing written) leaves no session; Dave sees "Could not read <name>…".
+- Live recording is unchanged; Import and Start recording are mutually exclusive.
