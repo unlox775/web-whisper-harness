@@ -3,6 +3,7 @@ import * as sessionStore from '@web-whisper/session-store';
 import { formatBytes, formatDuration, formatTimestamp } from '../format';
 import { formatStorageMeterLabel } from '../storageMeter';
 import { useApp } from '../context';
+import { AUDIO_IMPORT_ACCEPT } from '../importAudio';
 import { transcribeSession } from '../orchestration';
 import { transcriptionContextFromSettings } from '../settings';
 import { sessionTilePreview, sessionTilePreviewFromRow, type SessionTilePreview } from '../sessionTile';
@@ -176,6 +177,35 @@ function SessionCard({
   );
 }
 
+function ImportAudioButton() {
+  const app = useApp();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const busy = Boolean(app.importStatus);
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={AUDIO_IMPORT_ACCEPT}
+        hidden
+        data-testid="import-audio-input"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = '';
+          if (file) void app.importAudio(file);
+        }}
+      />
+      <button
+        className="cta-outline import-audio-btn"
+        disabled={busy}
+        onClick={() => inputRef.current?.click()}
+      >
+        {busy ? 'Importing…' : 'Import audio file'}
+      </button>
+    </>
+  );
+}
+
 export function HomeScreen() {
   const app = useApp();
   const capLabel = formatStorageMeterLabel({
@@ -328,11 +358,16 @@ export function HomeScreen() {
 
         <section className="card">
           <p className="kicker">CAPTURE</p>
-          <button className="cta" onClick={() => void app.startRecording()}>
+          <button
+            className="cta"
+            disabled={Boolean(app.importStatus)}
+            onClick={() => void app.startRecording()}
+          >
             Start recording
           </button>
-          <p className="status-line">
-            Recorder idle — tap start to begin a durable session.
+          <ImportAudioButton />
+          <p className="status-line" aria-live="polite">
+            {app.importStatus ?? 'Recorder idle — tap start to begin a durable session, or import an audio file.'}
           </p>
         </section>
 

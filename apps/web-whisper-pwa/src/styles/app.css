@@ -265,6 +265,14 @@ p {
   font-weight: 600;
 }
 
+.import-audio-btn {
+  margin-top: 10px;
+}
+
+.cta-outline:disabled {
+  opacity: 0.5;
+}
+
 .cta-outline.danger {
   border-color: var(--error);
 }
